@@ -573,6 +573,23 @@ function deleteCatalog(idx){
   deleteRow('catalog', row.id);
 }
 
+async function uploadRawFile(file, screen){
+  try{
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const path = `${CLIENT_ID}/${screen}/${timestamp}_${file.name}`;
+    const { error: uploadErr } = await sb.storage.from('raw-uploads').upload(path, file);
+    if(uploadErr) throw uploadErr;
+    const { error: logErr } = await sb.from('raw_files').insert({
+      client_id: CLIENT_ID, screen, original_filename: file.name, storage_path: path,
+    });
+    if(logErr) throw logErr;
+  }catch(err){
+    // Don't block the actual data import if raw file archiving fails —
+    // just log it, since the parsed data save matters more in the moment.
+    console.error('Raw file archive failed:', err);
+  }
+}
+
 function findSheet(wb, name){
   const match = wb.SheetNames.find(n => n.trim().toLowerCase() === name.trim().toLowerCase());
   return match ? wb.Sheets[match] : wb.Sheets[wb.SheetNames[0]]; // fallback: first sheet
@@ -588,6 +605,7 @@ function handleCatalogUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
+      uploadRawFile(file, 'catalog'); // fire-and-forget archive; doesn't block parsing
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Catalog');
@@ -781,6 +799,7 @@ function handleMfgUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
+      uploadRawFile(file, 'manufacturing_costs'); // fire-and-forget archive
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Manufacturing Costs');
@@ -907,6 +926,7 @@ function handleLogisticsUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
+      uploadRawFile(file, 'logistics'); // fire-and-forget archive
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Logistics & Freight');
