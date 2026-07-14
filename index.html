@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yankee — Cost &amp; Profitability Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --navy:#1F3864;
+    --blue:#2E75B6;
+    --blue-light:#EAF1F8;
+    --bg:#F5F7FA;
+    --card:#FFFFFF;
+    --border:#DCE3EA;
+    --text:#1F2937;
+    --grey:#6B7280;
+    --green:#15803D;
+    --green-bg:#EAF7EE;
+    --red:#B91C1C;
+    --red-bg:#FDECEC;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px;
+  }
+  .app{display:flex; min-height:100vh;}
+  .sidebar{
+    width:230px; background:var(--navy); color:#fff; padding:24px 0; flex-shrink:0;
+  }
+  .brand{padding:0 20px 20px 20px; border-bottom:1px solid rgba(255,255,255,0.12); margin-bottom:16px;}
+  .brand .name{font-weight:700; font-size:13px; letter-spacing:1.5px; color:#9DC3E6;}
+  .brand .title{font-size:17px; font-weight:700; margin-top:4px; line-height:1.3;}
+  .nav-item{
+    padding:12px 20px; cursor:pointer; font-size:13.5px; font-weight:500; color:#C7D6E8;
+    border-left:3px solid transparent; transition:all .15s;
+  }
+  .nav-item .num{display:inline-block; width:20px; color:#7C98BC; font-weight:700;}
+  .nav-item:hover{background:rgba(255,255,255,0.06); color:#fff;}
+  .nav-item.active{background:rgba(255,255,255,0.1); border-left-color:var(--blue); color:#fff;}
+  .main{flex:1; padding:32px 40px; max-width:1180px;}
+  h1.page-title{font-size:22px; margin:0 0 4px 0; color:var(--navy);}
+  .subtitle{color:var(--grey); margin:0 0 24px 0; font-size:13.5px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:20px 24px; margin-bottom:20px;
+  }
+  .card h2{font-size:14px; margin:0 0 14px 0; color:var(--navy); text-transform:uppercase; letter-spacing:0.4px;}
+  .row-inline{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;}
+  .field{display:flex; flex-direction:column; gap:4px;}
+  .field label{font-size:12px; color:var(--grey); font-weight:600;}
+  input, select{
+    border:1px solid var(--border); border-radius:6px; padding:7px 10px; font-size:13.5px;
+    font-family:inherit; color:var(--text); background:#fff;
+  }
+  input:focus, select:focus{outline:none; border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-light);}
+  input[type=number]{width:120px;}
+  input.narrow{width:90px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th{
+    text-align:left; padding:8px 10px; background:var(--blue-light); color:var(--navy);
+    font-weight:700; font-size:11.5px; text-transform:uppercase; letter-spacing:0.3px;
+    border-bottom:2px solid var(--border);
+  }
+  td{padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  tr:hover td{background:#FAFBFC;}
+  td input, td select{width:100%; padding:5px 8px; font-size:13px;}
+  .computed{color:var(--blue); font-weight:600;}
+  .btn{
+    border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:600;
+    cursor:pointer; transition:opacity .15s;
+  }
+  .btn:hover{opacity:0.88;}
+  .btn-primary{background:var(--navy); color:#fff;}
+  .btn-ghost{background:var(--blue-light); color:var(--navy);}
+  .btn-del{background:none; color:var(--red); padding:4px 8px; font-size:15px;}
+  .btn-row{margin-top:14px; display:flex; gap:10px;}
+  .empty{color:var(--grey); font-style:italic; padding:20px 0; text-align:center;}
+  .pill{
+    display:inline-block; padding:2px 9px; border-radius:20px; font-size:11.5px; font-weight:700;
+  }
+  .pill.pos{background:var(--green-bg); color:var(--green);}
+  .pill.neg{background:var(--red-bg); color:var(--red);}
+  .note{
+    background:var(--blue-light); border:1px solid #C9DCEF; border-radius:8px;
+    padding:12px 16px; font-size:12.5px; color:#39536E; margin-bottom:20px; line-height:1.5;
+  }
+  .formula{font-family:"SF Mono",Consolas,monospace; background:#F1F5F9; padding:10px 14px; border-radius:6px; font-size:12.5px; color:var(--navy); margin:10px 0;}
+  .kpi-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px;}
+  .kpi{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px;}
+  .kpi .label{font-size:11.5px; color:var(--grey); font-weight:700; text-transform:uppercase; letter-spacing:0.3px;}
+  .kpi .value{font-size:22px; font-weight:700; color:var(--navy); margin-top:4px;}
+  .save-status{font-size:11.5px; color:var(--grey); margin-left:auto; align-self:center;}
+  .top-bar{display:flex; align-items:center; margin-bottom:6px;}
+  .tag{font-size:10.5px; background:var(--blue-light); color:var(--blue); padding:2px 7px; border-radius:4px; font-weight:700; margin-left:8px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="brand">
+      <div class="name">MARKETIX</div>
+      <div class="title">Yankee Cost &amp; Profitability Tool</div>
+    </div>
+    <div class="nav-item active" data-tab="catalog"><span class="num">1</span>Catalog</div>
+    <div class="nav-item" data-tab="mfg"><span class="num">2</span>Manufacturing Costs</div>
+    <div class="nav-item" data-tab="logistics"><span class="num">3</span>Logistics &amp; Freight</div>
+    <div class="nav-item" data-tab="warehouse"><span class="num">4</span>Warehouse Costs</div>
+    <div class="nav-item" data-tab="sku"><span class="num">5</span>SKU Economics</div>
+    <div class="nav-item" data-tab="summary"><span class="num">&#9733;</span>Profitability Summary</div>
+  </div>
+
+  <div class="main">
+
+    <!-- ===================== TAB 0: CATALOG ===================== -->
+    <section id="tab-catalog">
+      <div class="top-bar"><h1 class="page-title">Catalog</h1></div>
+      <p class="subtitle">The master list of products. Every other tab references SKUs from here.</p>
+
+      <div class="card">
+        <h2>Bulk Import</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Download the shared template (one file, one sheet per screen), fill in the "Catalog" sheet, then upload it here.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
+          <button class="btn btn-primary" onclick="document.getElementById('catalog-upload').click()">&#8679; Upload Filled Template</button>
+          <input type="file" id="catalog-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleCatalogUpload(event)">
+        </div>
+        <div id="catalog-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
+        <table id="catalog-table">
+          <thead>
+            <tr>
+              <th style="width:16%">SKU</th>
+              <th style="width:14%">ASIN</th>
+              <th style="width:24%">Product Name</th>
+              <th style="width:14%">Brand</th>
+              <th style="width:18%">Product Family</th>
+              <th style="width:10%">Status</th>
+              <th style="width:4%"></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="catalog-empty" class="empty" style="display:none;">No products yet — add your first SKU below, or upload a template above.</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addCatalogRow()">+ Add Product</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TAB 1: MANUFACTURING ===================== -->
+    <section id="tab-mfg" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Manufacturing Costs</h1></div>
+      <p class="subtitle">Ex-factory cost per unit, by SKU. This feeds directly into Landed Cost (Part 1).</p>
+
+      <div class="card">
+        <h2>Bulk Import</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Download the shared template (same file as Catalog and Logistics), fill in the "Manufacturing Costs" sheet, then upload it here.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
+          <button class="btn btn-primary" onclick="document.getElementById('mfg-upload').click()">&#8679; Upload Filled Template</button>
+          <input type="file" id="mfg-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleMfgUpload(event)">
+        </div>
+        <div id="mfg-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
+        <table id="mfg-table">
+          <thead><tr><th style="width:22%">SKU</th><th style="width:38%">Product Name</th><th style="width:22%">Manufacturing Cost / Unit (USD)</th><th style="width:10%"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="mfg-empty" class="empty" style="display:none;">No products yet — add your first SKU below, or upload a template above.</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addMfgRow()">+ Add Product</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TAB 2: LOGISTICS ===================== -->
+    <section id="tab-logistics" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Logistics &amp; Freight</h1></div>
+      <p class="subtitle">Master carton size, weight, and units per carton — used to calculate freight cost per unit.</p>
+
+      <div class="card">
+        <h2>Freight Rate (Global)</h2>
+        <div class="row-inline">
+          <div class="field">
+            <label>Avg Price per CBM — Current Year (USD)</label>
+            <input type="number" id="avgCbmPrice" step="0.01" placeholder="e.g. 220" oninput="saveLogistics(); renderLogistics();">
+          </div>
+        </div>
+        <div class="formula">Freight Cost / Unit = (Avg Price per CBM &times; Master Carton CBM) &divide; Units per Carton</div>
+      </div>
+
+      <div class="card">
+        <h2>Bulk Import</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Download the shared template, fill in the "Logistics &amp; Freight" sheet, then upload it here.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
+          <button class="btn btn-primary" onclick="document.getElementById('logistics-upload').click()">&#8679; Upload Filled Template</button>
+          <input type="file" id="logistics-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleLogisticsUpload(event)">
+        </div>
+        <div id="logistics-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
+        <h2>Master Carton Data</h2>
+        <table id="logistics-table">
+          <thead>
+            <tr>
+              <th style="width:11%">SKU</th>
+              <th style="width:9%">L (cm)</th>
+              <th style="width:9%">W (cm)</th>
+              <th style="width:9%">H (cm)</th>
+              <th style="width:9%">Weight (kg)</th>
+              <th style="width:9%">CBM</th>
+              <th style="width:11%">Units / Carton</th>
+              <th style="width:14%">Freight Cost / Unit</th>
+              <th style="width:9%"></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="logistics-empty" class="empty" style="display:none;">No carton data yet — add a SKU below, or upload a template above.</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addLogisticsRow()">+ Add SKU</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TAB 3: WAREHOUSE ===================== -->
+    <section id="tab-warehouse" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Warehouse Costs</h1></div>
+      <p class="subtitle">Enter each month's 3PL / warehouse invoice. Cost per unit is blended across the full year, not a single month.</p>
+      <div class="note">A single month's invoice ÷ that month's units sold gets distorted by timing — a big container arrival drives up one month's invoice long before those units are sold. So instead, <strong>Warehouse Cost/Unit is calculated per calendar year</strong>: total invoices for the year &divide; total units sold that year (auto-summed from SKU Economics). That one rate is applied to every SKU sold anywhere in that year.</div>
+
+      <div class="card">
+        <h2>Annual Blended Rate</h2>
+        <table id="warehouse-annual-table">
+          <thead>
+            <tr>
+              <th style="width:20%">Year</th>
+              <th style="width:27%">Total Warehouse Invoices</th>
+              <th style="width:27%">Total Units Sold (auto)</th>
+              <th style="width:26%">Blended Cost / Unit</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="warehouse-annual-empty" class="empty" style="display:none;">Add invoices below to see the blended rate per year.</div>
+      </div>
+
+      <div class="card">
+        <h2>Monthly Invoices</h2>
+        <table id="warehouse-table">
+          <thead>
+            <tr>
+              <th style="width:30%">Month</th>
+              <th style="width:40%">Total Invoice Amount (USD)</th>
+              <th style="width:22%"></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="warehouse-empty" class="empty" style="display:none;">No warehouse invoices logged yet.</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addWarehouseRow()">+ Add Month</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TAB 4: SKU ECONOMICS ===================== -->
+    <section id="tab-sku" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">SKU Economics (Monthly)</h1></div>
+      <p class="subtitle">Enter figures from Amazon's SKU Economics report — one row per SKU, per month.</p>
+
+      <div class="card">
+        <table id="sku-table">
+          <thead>
+            <tr>
+              <th style="width:10%">SKU</th>
+              <th style="width:9%">Month</th>
+              <th style="width:8%">Units Sold</th>
+              <th style="width:10%">Revenue</th>
+              <th style="width:9%">Referral Fees</th>
+              <th style="width:9%">FBA Fees</th>
+              <th style="width:9%">Storage Fees</th>
+              <th style="width:9%">Ad Spend</th>
+              <th style="width:8%">Refunds</th>
+              <th style="width:10%">Net Proceeds</th>
+              <th style="width:9%"></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="sku-empty" class="empty" style="display:none;">No SKU economics data yet.</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addSkuRow()">+ Add Row</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SUMMARY ===================== -->
+    <section id="tab-summary" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Profitability Summary</h1></div>
+      <p class="subtitle">Real net profit per SKU per month — Manufacturing + Freight + Warehouse + Amazon fees, all in one place.</p>
+
+      <div class="kpi-grid" id="summary-kpis"></div>
+
+      <div class="card">
+        <table id="summary-table">
+          <thead>
+            <tr>
+              <th style="width:9%">SKU</th>
+              <th style="width:8%">Month</th>
+              <th style="width:9%">Revenue</th>
+              <th style="width:9%">Landed Cost /u</th>
+              <th style="width:9%">Warehouse /u</th>
+              <th style="width:11%">Amazon Fees + Ads</th>
+              <th style="width:9%">Refunds</th>
+              <th style="width:10%">Net Profit</th>
+              <th style="width:9%">Margin %</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="summary-empty" class="empty" style="display:none;">Add data in tabs 1–4 to see profitability here.</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+// ---------------- Persistence (localStorage) ----------------
+const STORE_KEYS = {
+  catalog: 'yankee_catalog',
+  mfg: 'yankee_manufacturing',
+  logistics: 'yankee_logistics',
+  warehouse: 'yankee_warehouse',
+  sku: 'yankee_sku_economics',
+};
+
+function load(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  }catch(e){ return fallback; }
+}
+function save(key, value){
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+let state = {
+  catalog: load(STORE_KEYS.catalog, []),
+  mfg: load(STORE_KEYS.mfg, []),
+  logistics: load(STORE_KEYS.logistics, { avgCbmPrice: null, items: [] }),
+  warehouse: load(STORE_KEYS.warehouse, []),
+  sku: load(STORE_KEYS.sku, []),
+};
+
+function saveCatalog(){ save(STORE_KEYS.catalog, state.catalog); }
+function saveMfg(){ save(STORE_KEYS.mfg, state.mfg); }
+function saveLogistics(){ save(STORE_KEYS.logistics, state.logistics); }
+function saveWarehouse(){ save(STORE_KEYS.warehouse, state.warehouse); }
+function saveSku(){ save(STORE_KEYS.sku, state.sku); }
+
+// ---------------- Navigation ----------------
+document.querySelectorAll('.nav-item').forEach(item=>{
+  item.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+    item.classList.add('active');
+    document.querySelectorAll('.main > section').forEach(s=>s.style.display='none');
+    document.getElementById('tab-'+item.dataset.tab).style.display='block';
+    if(item.dataset.tab === 'summary') renderSummary();
+    if(item.dataset.tab === 'warehouse') renderWarehouse();
+  });
+});
+
+// ---------------- Helpers ----------------
+function fmt(n){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtNum(n, d=3){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return Number(n).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+}
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+function allSkus(){
+  const set = new Set();
+  state.catalog.forEach(r=>r.sku && set.add(r.sku));
+  state.mfg.forEach(r=>r.sku && set.add(r.sku));
+  state.logistics.items.forEach(r=>r.sku && set.add(r.sku));
+  return Array.from(set);
+}
+
+function skuSelectOptions(selectedValue){
+  const skus = state.catalog.map(r=>r.sku).filter(Boolean);
+  if(selectedValue && !skus.includes(selectedValue)) skus.unshift(selectedValue);
+  let opts = '<option value="">— select SKU —</option>';
+  skus.forEach(s=>{
+    opts += `<option value="${s}" ${s===selectedValue?'selected':''}>${s}</option>`;
+  });
+  return opts;
+}
+
+// ---------------- TAB 0: Catalog ----------------
+function renderCatalog(){
+  const tbody = document.querySelector('#catalog-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('catalog-empty').style.display = state.catalog.length ? 'none' : 'block';
+  state.catalog.forEach((row, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
+      <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
+      <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
+      <td><input value="${row.brand||''}" oninput="updateCatalog(${idx},'brand',this.value)" placeholder="Yankee"></td>
+      <td><input value="${row.family||''}" oninput="updateCatalog(${idx},'family',this.value)" placeholder="Pool Covers"></td>
+      <td>
+        <select onchange="updateCatalog(${idx},'status',this.value)">
+          <option value="Active" ${row.status==='Active'?'selected':''}>Active</option>
+          <option value="Upcoming" ${row.status==='Upcoming'?'selected':''}>Upcoming</option>
+          <option value="Discontinued" ${row.status==='Discontinued'?'selected':''}>Discontinued</option>
+        </select>
+      </td>
+      <td><button class="btn-del" onclick="deleteCatalog(${idx})">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function addCatalogRow(){
+  state.catalog.push({sku:'', asin:'', name:'', brand:'', family:'', status:'Active'});
+  saveCatalog(); renderCatalog();
+}
+function updateCatalog(idx, field, value){
+  state.catalog[idx][field] = value;
+  saveCatalog();
+}
+function deleteCatalog(idx){ state.catalog.splice(idx,1); saveCatalog(); renderCatalog(); }
+
+function findSheet(wb, name){
+  const match = wb.SheetNames.find(n => n.trim().toLowerCase() === name.trim().toLowerCase());
+  return match ? wb.Sheets[match] : wb.Sheets[wb.SheetNames[0]]; // fallback: first sheet
+}
+
+function handleCatalogUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('catalog-upload-status');
+  statusEl.textContent = 'Reading file...';
+  statusEl.style.color = 'var(--grey)';
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = findSheet(wb, 'Catalog');
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+      let headerRowIdx = -1, headerMap = {};
+      for(let i=0; i<Math.min(rows.length,10); i++){
+        const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
+        if(cells.includes('SKU')){
+          headerRowIdx = i;
+          cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
+          break;
+        }
+      }
+      if(headerRowIdx === -1){
+        statusEl.textContent = 'Could not find a SKU column in this file. Use the template format.';
+        statusEl.style.color = 'var(--red)';
+        return;
+      }
+
+      let added = 0, updated = 0, skipped = 0;
+      for(let i=headerRowIdx+1; i<rows.length; i++){
+        const row = rows[i] || [];
+        const sku = row[headerMap['SKU']];
+        const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
+        const name = headerMap['PRODUCT NAME']!==undefined ? row[headerMap['PRODUCT NAME']] : null;
+        const brand = headerMap['BRAND']!==undefined ? row[headerMap['BRAND']] : null;
+        const family = headerMap['PRODUCT FAMILY']!==undefined ? row[headerMap['PRODUCT FAMILY']] : null;
+        const status = headerMap['STATUS']!==undefined ? row[headerMap['STATUS']] : null;
+
+        if(sku===null) continue;
+        if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
+        if(!sku){ skipped++; continue; }
+
+        const skuStr = String(sku).trim();
+        const existing = state.catalog.find(r=>r.sku===skuStr);
+        const rowData = {
+          sku: skuStr,
+          asin: asin ? String(asin).trim() : (existing ? existing.asin : ''),
+          name: name ? String(name).trim() : (existing ? existing.name : ''),
+          brand: brand ? String(brand).trim() : (existing ? existing.brand : ''),
+          family: family ? String(family).trim() : (existing ? existing.family : ''),
+          status: status ? String(status).trim() : (existing ? existing.status : 'Active'),
+        };
+        if(existing){
+          Object.assign(existing, rowData);
+          updated++;
+        } else {
+          state.catalog.push(rowData);
+          added++;
+        }
+      }
+      saveCatalog();
+      renderCatalog();
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}.`;
+    }catch(err){
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ---------------- TAB 1: Manufacturing ----------------
+function renderMfg(){
+  const tbody = document.querySelector('#mfg-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('mfg-empty').style.display = state.mfg.length ? 'none' : 'block';
+  state.mfg.forEach((row, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select onchange="updateMfg(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
+      <td><input value="${row.name||''}" oninput="updateMfg(${idx},'name',this.value)" placeholder="Product name"></td>
+      <td><input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00"></td>
+      <td><button class="btn-del" onclick="deleteMfg(${idx})">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function addMfgRow(){ state.mfg.push({sku:'', name:'', mfgCost:null}); saveMfg(); renderMfg(); }
+function updateMfg(idx, field, value){
+  state.mfg[idx][field] = field==='mfgCost' ? (value===''?null:parseFloat(value)) : value;
+  if(field==='sku' && !state.mfg[idx].name){
+    const cat = state.catalog.find(r=>r.sku===value);
+    if(cat && cat.name) state.mfg[idx].name = cat.name;
+  }
+  saveMfg();
+  renderMfg();
+}
+function deleteMfg(idx){ state.mfg.splice(idx,1); saveMfg(); renderMfg(); }
+
+// --- Bulk import: download empty template ---
+// --- Unified template: one workbook, one sheet per screen, formula-linked ---
+const TPL_HEADER_ROW = 3;   // 1-indexed
+const TPL_EXAMPLE_ROW = 4;
+const TPL_DATA_START = 5;
+const TPL_NUM_ROWS = 200;
+const TPL_DATA_END = TPL_DATA_START + TPL_NUM_ROWS - 1;
+
+function cellRef(row, col){ return XLSX.utils.encode_cell({r: row-1, c: col-1}); }
+
+function setCell(ws, row, col, value, opts){
+  const ref = cellRef(row, col);
+  ws[ref] = Object.assign({ t: typeof value === 'number' ? 'n' : 's', v: value }, opts||{});
+}
+function setFormula(ws, row, col, formula){
+  const ref = cellRef(row, col);
+  ws[ref] = { t: 'n', f: formula };
+}
+function extendRange(ws, maxRow, maxCol){
+  const ref = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:maxRow-1,c:maxCol-1} });
+  ws['!ref'] = ref;
+}
+
+function buildCatalogSheet(){
+  const ws = {};
+  setCell(ws, 1, 1, "Master product list. Fill in one row per SKU. Everything you enter here pulls automatically into the Manufacturing Costs and Logistics & Freight sheets.");
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:5}}];
+  const headers = ["SKU","ASIN","PRODUCT NAME","BRAND","PRODUCT FAMILY","STATUS"];
+  headers.forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
+  const example = ["SKU-001","B08EXAMPLE","Example Pool Cover 12x24","Yankee","Pool Covers","Active"];
+  example.forEach((v,i)=> setCell(ws, TPL_EXAMPLE_ROW, i+1, v));
+  setCell(ws, TPL_EXAMPLE_ROW, 7, "<- example row: delete this to clear it everywhere");
+  extendRange(ws, TPL_DATA_END, 7);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:14},{wch:18},{wch:14},{wch:40}];
+  return ws;
+}
+
+function buildMfgSheet(){
+  const ws = {};
+  setCell(ws, 1, 1, "SKU, ASIN, and Product Name pull automatically from the Catalog sheet — don't edit those columns here. Enter the Manufacturing Cost per Unit (USD) in the COST column.");
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:3}}];
+  ["SKU","ASIN","PRODUCT NAME","COST"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
+  for(let r=TPL_EXAMPLE_ROW; r<=TPL_DATA_END; r++){
+    setFormula(ws, r, 1, `IF(Catalog!A${r}="","",Catalog!A${r})`);
+    setFormula(ws, r, 2, `IF(Catalog!B${r}="","",Catalog!B${r})`);
+    setFormula(ws, r, 3, `IF(Catalog!C${r}="","",Catalog!C${r})`);
+  }
+  setCell(ws, TPL_EXAMPLE_ROW, 5, "<- example SKU (from Catalog); enter its cost here, or delete the example in Catalog");
+  extendRange(ws, TPL_DATA_END, 5);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:14},{wch:44}];
+  return ws;
+}
+
+function buildLogisticsSheet(){
+  const ws = {};
+  setCell(ws, 1, 1, "SKU and ASIN pull automatically from the Catalog sheet. Enter master carton dimensions, weight, and units per carton — CBM calculates itself. (Avg Price per CBM is set separately, inside the tool.)");
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:7}}];
+  ["SKU","ASIN","CARTON L (CM)","CARTON W (CM)","CARTON H (CM)","WEIGHT (KG)","UNITS / CARTON","CBM (M3)"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
+  for(let r=TPL_EXAMPLE_ROW; r<=TPL_DATA_END; r++){
+    setFormula(ws, r, 1, `IF(Catalog!A${r}="","",Catalog!A${r})`);
+    setFormula(ws, r, 2, `IF(Catalog!B${r}="","",Catalog!B${r})`);
+    setFormula(ws, r, 8, `IF(OR(C${r}="",D${r}="",E${r}=""),"",C${r}*D${r}*E${r}/1000000)`);
+  }
+  setCell(ws, TPL_EXAMPLE_ROW, 9, "<- CBM calculates automatically once L / W / H are filled in");
+  extendRange(ws, TPL_DATA_END, 9);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:13},{wch:13},{wch:13},{wch:13},{wch:14},{wch:12},{wch:46}];
+  return ws;
+}
+
+function downloadFullTemplate(){
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog");
+  XLSX.utils.book_append_sheet(wb, buildMfgSheet(), "Manufacturing Costs");
+  XLSX.utils.book_append_sheet(wb, buildLogisticsSheet(), "Logistics & Freight");
+  XLSX.writeFile(wb, "Yankee_Data_Template.xlsx");
+}
+
+// --- Bulk import: upload filled template ---
+function handleMfgUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('mfg-upload-status');
+  statusEl.textContent = 'Reading file...';
+  statusEl.style.color = 'var(--grey)';
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = findSheet(wb, 'Manufacturing Costs');
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+      // Find header row (contains SKU and COST, case-insensitive)
+      let headerRowIdx = -1, headerMap = {};
+      for(let i=0; i<Math.min(rows.length,10); i++){
+        const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
+        if(cells.includes('SKU') && cells.includes('COST')){
+          headerRowIdx = i;
+          cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
+          break;
+        }
+      }
+      if(headerRowIdx === -1){
+        statusEl.textContent = 'Could not find SKU/COST headers in this file. Use the template format.';
+        statusEl.style.color = 'var(--red)';
+        return;
+      }
+
+      let added = 0, updated = 0, skipped = 0;
+      for(let i=headerRowIdx+1; i<rows.length; i++){
+        const row = rows[i] || [];
+        const sku = row[headerMap['SKU']];
+        const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
+        const cost = row[headerMap['COST']];
+
+        if(sku===null && cost===null) continue; // blank row
+        if(String(sku).trim().toUpperCase()==='SKU-001' && String(asin).trim().toUpperCase()==='B08EXAMPLE') continue; // example row
+
+        const costNum = parseFloat(cost);
+        if(!sku || isNaN(costNum)){ skipped++; continue; }
+
+        const skuStr = String(sku).trim();
+        const existing = state.mfg.find(r=>r.sku===skuStr);
+        if(existing){
+          existing.mfgCost = costNum;
+          if(asin) existing.name = existing.name || '';
+          updated++;
+        } else {
+          state.mfg.push({sku: skuStr, name:'', mfgCost: costNum});
+          added++;
+        }
+      }
+      saveMfg();
+      renderMfg();
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}.`;
+    }catch(err){
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
+    }
+    event.target.value = ''; // allow re-uploading the same file name
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ---------------- TAB 2: Logistics ----------------
+function computeCbm(l,w,h){
+  if(!l || !w || !h) return null;
+  return (l*w*h)/1000000; // cm -> m3
+}
+function computeFreightPerUnit(cbm, unitsPerCarton){
+  const price = state.logistics.avgCbmPrice;
+  if(!price || !cbm || !unitsPerCarton) return null;
+  return (price * cbm) / unitsPerCarton;
+}
+function renderLogistics(){
+  document.getElementById('avgCbmPrice').value = state.logistics.avgCbmPrice ?? '';
+  const tbody = document.querySelector('#logistics-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('logistics-empty').style.display = state.logistics.items.length ? 'none' : 'block';
+  state.logistics.items.forEach((row, idx)=>{
+    const cbm = computeCbm(row.l, row.w, row.h);
+    const freight = computeFreightPerUnit(cbm, row.unitsPerCarton);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select onchange="updateLogistics(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
+      <td><input type="number" class="narrow" value="${row.l??''}" oninput="updateLogistics(${idx},'l',this.value)"></td>
+      <td><input type="number" class="narrow" value="${row.w??''}" oninput="updateLogistics(${idx},'w',this.value)"></td>
+      <td><input type="number" class="narrow" value="${row.h??''}" oninput="updateLogistics(${idx},'h',this.value)"></td>
+      <td><input type="number" class="narrow" value="${row.weight??''}" oninput="updateLogistics(${idx},'weight',this.value)"></td>
+      <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
+      <td><input type="number" class="narrow" value="${row.unitsPerCarton??''}" oninput="updateLogistics(${idx},'unitsPerCarton',this.value)"></td>
+      <td class="computed">${freight!==null ? fmt(freight) : '—'}</td>
+      <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function addLogisticsRow(){ state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null}); saveLogistics(); renderLogistics(); }
+function updateLogistics(idx, field, value){
+  state.logistics.items[idx][field] = (field==='sku') ? value : (value===''?null:parseFloat(value));
+  saveLogistics();
+  renderLogistics();
+}
+function deleteLogistics(idx){ state.logistics.items.splice(idx,1); saveLogistics(); renderLogistics(); }
+
+function handleLogisticsUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('logistics-upload-status');
+  statusEl.textContent = 'Reading file...';
+  statusEl.style.color = 'var(--grey)';
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = findSheet(wb, 'Logistics & Freight');
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+      let headerRowIdx = -1, headerMap = {};
+      for(let i=0; i<Math.min(rows.length,10); i++){
+        const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
+        if(cells.includes('SKU') && cells.some(c=>c.startsWith('CARTON L'))){
+          headerRowIdx = i;
+          cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
+          break;
+        }
+      }
+      if(headerRowIdx === -1){
+        statusEl.textContent = 'Could not find carton columns in this file. Use the template format.';
+        statusEl.style.color = 'var(--red)';
+        return;
+      }
+      const findCol = (prefix) => Object.keys(headerMap).find(k => k.startsWith(prefix));
+      const cL = findCol('CARTON L'), cW = findCol('CARTON W'), cH = findCol('CARTON H'), cWt = findCol('WEIGHT'), cU = findCol('UNITS');
+
+      let added = 0, updated = 0, skipped = 0;
+      for(let i=headerRowIdx+1; i<rows.length; i++){
+        const row = rows[i] || [];
+        const sku = row[headerMap['SKU']];
+        if(sku===null) continue;
+        if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
+
+        const l = cL ? parseFloat(row[headerMap[cL]]) : NaN;
+        const w = cW ? parseFloat(row[headerMap[cW]]) : NaN;
+        const h = cH ? parseFloat(row[headerMap[cH]]) : NaN;
+        const wt = cWt ? parseFloat(row[headerMap[cWt]]) : NaN;
+        const u = cU ? parseFloat(row[headerMap[cU]]) : NaN;
+
+        if(!sku || (isNaN(l) && isNaN(w) && isNaN(h))){ skipped++; continue; }
+
+        const skuStr = String(sku).trim();
+        const rowData = {
+          sku: skuStr,
+          l: isNaN(l) ? null : l,
+          w: isNaN(w) ? null : w,
+          h: isNaN(h) ? null : h,
+          weight: isNaN(wt) ? null : wt,
+          unitsPerCarton: isNaN(u) ? null : u,
+        };
+        const existing = state.logistics.items.find(r=>r.sku===skuStr);
+        if(existing){
+          Object.assign(existing, rowData);
+          updated++;
+        } else {
+          state.logistics.items.push(rowData);
+          added++;
+        }
+      }
+      saveLogistics();
+      renderLogistics();
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}.`;
+    }catch(err){
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ---------------- TAB 3: Warehouse ----------------
+function unitsSoldForMonth(month){
+  if(!month) return 0;
+  return state.sku
+    .filter(r=>r.month===month && r.units)
+    .reduce((sum,r)=>sum + (r.units||0), 0);
+}
+function yearOf(monthStr){
+  return monthStr ? monthStr.slice(0,4) : null;
+}
+function unitsSoldForYear(year){
+  return state.sku
+    .filter(r=>yearOf(r.month)===year && r.units)
+    .reduce((sum,r)=>sum + (r.units||0), 0);
+}
+function invoicesForYear(year){
+  return state.warehouse
+    .filter(r=>yearOf(r.month)===year && r.invoiceAmount)
+    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
+}
+function warehouseCostForYear(year){
+  const totalInvoices = invoicesForYear(year);
+  const totalUnits = unitsSoldForYear(year);
+  if(!totalInvoices || !totalUnits) return null;
+  return totalInvoices / totalUnits;
+}
+function allYears(){
+  const set = new Set();
+  state.warehouse.forEach(r=>{ const y = yearOf(r.month); if(y) set.add(y); });
+  state.sku.forEach(r=>{ const y = yearOf(r.month); if(y) set.add(y); });
+  return Array.from(set).sort();
+}
+
+function renderWarehouse(){
+  // Annual blended rate table
+  const years = allYears();
+  const annualBody = document.querySelector('#warehouse-annual-table tbody');
+  annualBody.innerHTML = '';
+  document.getElementById('warehouse-annual-empty').style.display = years.length ? 'none' : 'block';
+  years.forEach(year=>{
+    const totalInv = invoicesForYear(year);
+    const totalUnits = unitsSoldForYear(year);
+    const rate = warehouseCostForYear(year);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${year}</strong></td>
+      <td>${fmt(totalInv)}</td>
+      <td>${totalUnits ? totalUnits.toLocaleString() : '<span style="color:var(--red)">0 — add SKU Economics data</span>'}</td>
+      <td class="computed">${rate!==null ? fmt(rate) : '—'}</td>
+    `;
+    annualBody.appendChild(tr);
+  });
+
+  // Monthly invoice entry table
+  const tbody = document.querySelector('#warehouse-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('warehouse-empty').style.display = state.warehouse.length ? 'none' : 'block';
+  state.warehouse.forEach((row, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="month" value="${row.month||''}" oninput="updateWarehouse(${idx},'month',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.invoiceAmount??''}" oninput="updateWarehouse(${idx},'invoiceAmount',this.value)" placeholder="0.00"></td>
+      <td><button class="btn-del" onclick="deleteWarehouse(${idx})">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function addWarehouseRow(){ state.warehouse.push({month:'', invoiceAmount:null}); saveWarehouse(); renderWarehouse(); }
+function updateWarehouse(idx, field, value){
+  state.warehouse[idx][field] = (field==='month') ? value : (value===''?null:parseFloat(value));
+  saveWarehouse();
+  renderWarehouse();
+}
+function deleteWarehouse(idx){ state.warehouse.splice(idx,1); saveWarehouse(); renderWarehouse(); }
+
+// ---------------- TAB 4: SKU Economics ----------------
+function renderSku(){
+  const tbody = document.querySelector('#sku-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('sku-empty').style.display = state.sku.length ? 'none' : 'block';
+  state.sku.forEach((row, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select onchange="updateSku(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
+      <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
+      <td><input type="number" value="${row.units??''}" oninput="updateSku(${idx},'units',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.revenue??''}" oninput="updateSku(${idx},'revenue',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.referralFees??''}" oninput="updateSku(${idx},'referralFees',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.fbaFees??''}" oninput="updateSku(${idx},'fbaFees',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.storageFees??''}" oninput="updateSku(${idx},'storageFees',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.adSpend??''}" oninput="updateSku(${idx},'adSpend',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.refunds??''}" oninput="updateSku(${idx},'refunds',this.value)"></td>
+      <td><input type="number" step="0.01" value="${row.netProceeds??''}" oninput="updateSku(${idx},'netProceeds',this.value)" placeholder="optional"></td>
+      <td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function addSkuRow(){
+  state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
+  saveSku(); renderSku();
+}
+function updateSku(idx, field, value){
+  state.sku[idx][field] = (field==='sku'||field==='month') ? value : (value===''?null:parseFloat(value));
+  saveSku();
+}
+function deleteSku(idx){ state.sku.splice(idx,1); saveSku(); renderSku(); }
+
+// ---------------- SUMMARY ----------------
+function landedCostForSku(sku){
+  const mfgRow = state.mfg.find(r=>r.sku===sku);
+  const logRow = state.logistics.items.find(r=>r.sku===sku);
+  const mfgCost = mfgRow ? mfgRow.mfgCost : null;
+  const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
+  const freight = logRow ? computeFreightPerUnit(cbm, logRow.unitsPerCarton) : null;
+  if(mfgCost===null && freight===null) return null;
+  return (mfgCost||0) + (freight||0);
+}
+function warehouseCostForMonth(month){
+  const year = yearOf(month);
+  if(!year) return null;
+  return warehouseCostForYear(year);
+}
+
+function renderSummary(){
+  const tbody = document.querySelector('#summary-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('summary-empty').style.display = state.sku.length ? 'none' : 'block';
+
+  let totalRevenue=0, totalProfit=0, countPositive=0, countRows=0;
+
+  state.sku.forEach(row=>{
+    if(!row.sku || !row.month) return;
+    countRows++;
+    const landed = landedCostForSku(row.sku);
+    const wh = warehouseCostForMonth(row.month);
+    const units = row.units || 0;
+
+    const amazonFees = (row.referralFees||0) + (row.fbaFees||0) + (row.storageFees||0) + (row.adSpend||0);
+    const cogsTotal = (landed!==null ? landed*units : 0) + (wh!==null ? wh*units : 0);
+
+    let netProfit;
+    if(row.netProceeds!==null && row.netProceeds!==undefined){
+      netProfit = row.netProceeds - cogsTotal;
+    } else {
+      netProfit = (row.revenue||0) - amazonFees - (row.refunds||0) - cogsTotal;
+    }
+    const margin = row.revenue ? (netProfit/row.revenue*100) : null;
+
+    totalRevenue += (row.revenue||0);
+    totalProfit += netProfit;
+    if(netProfit>=0) countPositive++;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.sku}</td>
+      <td>${row.month}</td>
+      <td>${fmt(row.revenue)}</td>
+      <td>${landed!==null ? fmt(landed) : '<span style="color:#B91C1C">missing</span>'}</td>
+      <td>${wh!==null ? fmt(wh) : '<span style="color:#B91C1C">missing</span>'}</td>
+      <td>${fmt(amazonFees)}</td>
+      <td>${fmt(row.refunds)}</td>
+      <td><strong>${fmt(netProfit)}</strong></td>
+      <td>${margin!==null ? `<span class="pill ${margin>=0?'pos':'neg'}">${margin.toFixed(1)}%</span>` : '—'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  const kpis = document.getElementById('summary-kpis');
+  const avgMargin = totalRevenue ? (totalProfit/totalRevenue*100) : null;
+  kpis.innerHTML = `
+    <div class="kpi"><div class="label">Rows Tracked</div><div class="value">${countRows}</div></div>
+    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(totalRevenue)}</div></div>
+    <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmt(totalProfit)}</div></div>
+    <div class="kpi"><div class="label">Blended Margin</div><div class="value">${avgMargin!==null ? avgMargin.toFixed(1)+'%' : '—'}</div></div>
+  `;
+}
+
+// ---------------- Init ----------------
+renderCatalog();
+renderMfg();
+renderLogistics();
+renderWarehouse();
+renderSku();
+</script>
+</body>
+</html>
