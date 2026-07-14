@@ -137,11 +137,12 @@
         <table id="catalog-table">
           <thead>
             <tr>
-              <th style="width:16%">SKU</th>
-              <th style="width:14%">ASIN</th>
-              <th style="width:24%">Product Name</th>
-              <th style="width:14%">Brand</th>
-              <th style="width:18%">Product Family</th>
+              <th style="width:14%">SKU</th>
+              <th style="width:12%">ASIN (Child)</th>
+              <th style="width:12%">Parent ASIN</th>
+              <th style="width:20%">Product Name</th>
+              <th style="width:12%">Brand</th>
+              <th style="width:16%">Product Family</th>
               <th style="width:10%">Status</th>
               <th style="width:4%"></th>
             </tr>
@@ -282,6 +283,16 @@
       <p class="subtitle">Enter figures from Amazon's SKU Economics report — one row per SKU, per month.</p>
 
       <div class="card">
+        <h2>Upload Amazon Report</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the SKU Economics report exactly as exported from Seller Central (.csv or .xlsx) — no template needed. Rows are matched to your Catalog by ASIN, and rows with zero activity that month are skipped automatically.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-primary" onclick="document.getElementById('sku-report-upload').click()">&#8679; Upload Amazon Report</button>
+          <input type="file" id="sku-report-upload" accept=".csv,.xlsx,.xls" style="display:none;" onchange="handleSkuEconomicsReportUpload(event)">
+        </div>
+        <div id="sku-report-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
         <table id="sku-table">
           <thead>
             <tr>
@@ -300,7 +311,7 @@
           </thead>
           <tbody></tbody>
         </table>
-        <div id="sku-empty" class="empty" style="display:none;">No SKU economics data yet.</div>
+        <div id="sku-empty" class="empty" style="display:none;">No SKU economics data yet — upload a report above, or add a row manually.</div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addSkuRow()">+ Add Row</button>
         </div>
@@ -310,25 +321,38 @@
     <!-- ===================== SUMMARY ===================== -->
     <section id="tab-summary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Profitability Summary</h1></div>
-      <p class="subtitle">Real net profit per SKU per month — Manufacturing + Freight + Warehouse + Amazon fees, all in one place.</p>
+      <p class="subtitle">Real net profit — Manufacturing + Freight + Warehouse + Amazon fees, all in one place.</p>
+
+      <div class="card">
+        <h2>View</h2>
+        <div class="row-inline">
+          <div class="field">
+            <label>Level</label>
+            <select id="summary-level" onchange="renderSummary()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Period</label>
+            <select id="summary-period-type" onchange="onSummaryPeriodTypeChange()">
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="ytd">Year to Date</option>
+            </select>
+          </div>
+          <div class="field" id="summary-period-value-wrap">
+            <label id="summary-period-value-label">Month</label>
+            <select id="summary-period-value" onchange="renderSummary()"></select>
+          </div>
+        </div>
+      </div>
 
       <div class="kpi-grid" id="summary-kpis"></div>
 
       <div class="card">
         <table id="summary-table">
-          <thead>
-            <tr>
-              <th style="width:9%">SKU</th>
-              <th style="width:8%">Month</th>
-              <th style="width:9%">Revenue</th>
-              <th style="width:9%">Landed Cost /u</th>
-              <th style="width:9%">Warehouse /u</th>
-              <th style="width:11%">Amazon Fees + Ads</th>
-              <th style="width:9%">Refunds</th>
-              <th style="width:10%">Net Profit</th>
-              <th style="width:9%">Margin %</th>
-            </tr>
-          </thead>
+          <thead></thead>
           <tbody></tbody>
         </table>
         <div id="summary-empty" class="empty" style="display:none;">Add data in tabs 1–4 to see profitability here.</div>
@@ -397,7 +421,7 @@ async function loadAllFromSupabase(){
     if(settingsRes.error) throw settingsRes.error;
 
     state.catalog = (catalogRes.data||[]).map(r=>({
-      id: r.id, sku: r.sku, asin: r.asin||'', name: r.product_name||'',
+      id: r.id, sku: r.sku, asin: r.asin||'', parentAsin: r.parent_asin||'', name: r.product_name||'',
       brand: r.brand||'', family: r.product_family||'', status: r.status||'Active',
     }));
     state.mfg = (mfgRes.data||[]).map(r=>({ id: r.id, sku: r.sku, mfgCost: r.mfg_cost }));
@@ -457,7 +481,7 @@ async function deleteRow(table, id){
 
 async function saveCatalogRow(row){
   const payload = {
-    client_id: CLIENT_ID, sku: row.sku, asin: row.asin||null, product_name: row.name||null,
+    client_id: CLIENT_ID, sku: row.sku, asin: row.asin||null, parent_asin: row.parentAsin||null, product_name: row.name||null,
     brand: row.brand||null, product_family: row.family||null, status: row.status||'Active',
     updated_at: new Date().toISOString(),
   };
@@ -553,6 +577,7 @@ function renderCatalog(){
     tr.innerHTML = `
       <td><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
       <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
+      <td><input value="${row.parentAsin||''}" oninput="updateCatalog(${idx},'parentAsin',this.value)" placeholder="B0..."></td>
       <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
       <td><input value="${row.brand||''}" oninput="updateCatalog(${idx},'brand',this.value)" placeholder="Yankee"></td>
       <td><input value="${row.family||''}" oninput="updateCatalog(${idx},'family',this.value)" placeholder="Pool Covers"></td>
@@ -569,7 +594,7 @@ function renderCatalog(){
   });
 }
 function addCatalogRow(){
-  state.catalog.push({sku:'', asin:'', name:'', brand:'', family:'', status:'Active'});
+  state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
   renderCatalog();
 }
 function updateCatalog(idx, field, value){
@@ -628,6 +653,7 @@ async function parseAndSaveCatalogRows(rows, statusEl){
     const row = rows[i] || [];
     const sku = row[headerMap['SKU']];
     const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
+    const parentAsin = headerMap['PARENT ASIN']!==undefined ? row[headerMap['PARENT ASIN']] : null;
     const name = headerMap['PRODUCT NAME']!==undefined ? row[headerMap['PRODUCT NAME']] : null;
     const brand = headerMap['BRAND']!==undefined ? row[headerMap['BRAND']] : null;
     const family = headerMap['PRODUCT FAMILY']!==undefined ? row[headerMap['PRODUCT FAMILY']] : null;
@@ -642,6 +668,7 @@ async function parseAndSaveCatalogRows(rows, statusEl){
     const rowData = {
       sku: skuStr,
       asin: asin ? String(asin).trim() : (existing ? existing.asin : ''),
+      parentAsin: parentAsin ? String(parentAsin).trim() : (existing ? existing.parentAsin : ''),
       name: name ? String(name).trim() : (existing ? existing.name : ''),
       brand: brand ? String(brand).trim() : (existing ? existing.brand : ''),
       family: family ? String(family).trim() : (existing ? existing.family : ''),
@@ -753,14 +780,14 @@ function extendRange(ws, maxRow, maxCol){
 function buildCatalogSheet(){
   const ws = {};
   setCell(ws, 1, 1, "Master product list. Fill in one row per SKU. Everything you enter here pulls automatically into the Manufacturing Costs and Logistics & Freight sheets.");
-  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:5}}];
-  const headers = ["SKU","ASIN","PRODUCT NAME","BRAND","PRODUCT FAMILY","STATUS"];
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:6}}];
+  const headers = ["SKU","ASIN","PARENT ASIN","PRODUCT NAME","BRAND","PRODUCT FAMILY","STATUS"];
   headers.forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
-  const example = ["SKU-001","B08EXAMPLE","Example Pool Cover 12x24","Yankee","Pool Covers","Active"];
+  const example = ["SKU-001","B08EXAMPLE","B08PARENT1","Example Pool Cover 12x24","Yankee","Pool Covers","Active"];
   example.forEach((v,i)=> setCell(ws, TPL_EXAMPLE_ROW, i+1, v));
-  setCell(ws, TPL_EXAMPLE_ROW, 7, "<- example row: delete this to clear it everywhere");
-  extendRange(ws, TPL_DATA_END, 7);
-  ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:14},{wch:18},{wch:14},{wch:40}];
+  setCell(ws, TPL_EXAMPLE_ROW, 8, "<- example row: delete this to clear it everywhere");
+  extendRange(ws, TPL_DATA_END, 8);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:14},{wch:30},{wch:14},{wch:18},{wch:14},{wch:40}];
   return ws;
 }
 
@@ -772,7 +799,7 @@ function buildMfgSheet(){
   for(let r=TPL_EXAMPLE_ROW; r<=TPL_DATA_END; r++){
     setFormula(ws, r, 1, `IF(Catalog!A${r}="","",Catalog!A${r})`);
     setFormula(ws, r, 2, `IF(Catalog!B${r}="","",Catalog!B${r})`);
-    setFormula(ws, r, 3, `IF(Catalog!C${r}="","",Catalog!C${r})`);
+    setFormula(ws, r, 3, `IF(Catalog!D${r}="","",Catalog!D${r})`);
   }
   setCell(ws, TPL_EXAMPLE_ROW, 5, "<- example SKU (from Catalog); enter its cost here, or delete the example in Catalog");
   extendRange(ws, TPL_DATA_END, 5);
@@ -1144,6 +1171,162 @@ function deleteSku(idx){
   deleteRow('sku_economics', row.id);
 }
 
+// ---------------- Amazon SKU Economics report upload ----------------
+function normHeader(h){ return (h===null||h===undefined) ? '' : String(h).trim().toLowerCase(); }
+
+function findColIdx(headerMap, name){
+  return headerMap[normHeader(name)];
+}
+
+function mmddyyyyToMonth(dateStr){
+  if(!dateStr) return null;
+  const parts = String(dateStr).split('/');
+  if(parts.length !== 3) return null;
+  const [mm, dd, yyyy] = parts;
+  if(!yyyy || !mm) return null;
+  return `${yyyy}-${String(mm).padStart(2,'0')}`;
+}
+
+function num(v){
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+async function parseAmazonSkuEconomicsReport(rows, statusEl){
+  if(!rows.length){
+    if(statusEl){ statusEl.textContent = 'File appears to be empty.'; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+  const headers = rows[0].map(normHeader);
+  const headerMap = {};
+  headers.forEach((h, idx)=>{ if(h) headerMap[h] = idx; });
+
+  const required = ['asin', 'start date', 'units sold', 'net proceeds total'];
+  const missing = required.filter(r => headerMap[r]===undefined);
+  if(missing.length){
+    if(statusEl){ statusEl.textContent = `This doesn't look like an Amazon SKU Economics report — missing columns: ${missing.join(', ')}.`; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+
+  // Build ASIN -> SKU lookup from Catalog
+  const asinToSku = {};
+  state.catalog.forEach(r=>{ if(r.asin) asinToSku[r.asin.trim().toUpperCase()] = r.sku; });
+  const hasParentAsinCol = headerMap['parent asin'] !== undefined;
+  const catalogRowsToUpdate = [];
+
+  let imported = 0, skippedZero = 0, skippedNoMatch = 0;
+  const rowsToSave = [];
+
+  for(let i=1; i<rows.length; i++){
+    const row = rows[i] || [];
+    const asin = row[headerMap['asin']];
+    if(!asin) continue;
+
+    const unitsSold = num(row[headerMap['units sold']]);
+    const netProceeds = num(row[headerMap['net proceeds total']]);
+    if(unitsSold === 0 && netProceeds === 0){ skippedZero++; continue; }
+
+    const sku = asinToSku[String(asin).trim().toUpperCase()];
+    if(!sku){ skippedNoMatch++; continue; }
+
+    // Auto-fill Parent ASIN in Catalog if the report has it and Catalog doesn't yet
+    if(hasParentAsinCol){
+      const parentAsin = row[headerMap['parent asin']];
+      if(parentAsin){
+        const catRow = state.catalog.find(r=>r.sku===sku);
+        if(catRow && !catRow.parentAsin){
+          catRow.parentAsin = String(parentAsin).trim();
+          catalogRowsToUpdate.push(catRow);
+        }
+      }
+    }
+
+    const month = mmddyyyyToMonth(row[headerMap['start date']]);
+
+    const referralFee = num(row[headerMap['referral fee total']]) - num(row[headerMap['referral fee refunds total']]);
+    const fbaFees = num(row[headerMap['fba fulfillment fees total']])
+      + num(row[headerMap['fba inbound placement service fee total']])
+      + num(row[headerMap['inbound transportation fee total']])
+      + num(row[headerMap['fba removal order fee total']])
+      + num(row[headerMap['fba disposal order fee total']]);
+    const storageFees = num(row[headerMap['base monthly storage fee total']])
+      + num(row[headerMap['monthly inventory storage fee total']])
+      + num(row[headerMap['storage utilization surcharge total']])
+      + num(row[headerMap['aged inventory surcharge total']]);
+    const adSpend = num(row[headerMap['sponsored products charge total']]);
+    const refunds = num(row[headerMap['refund administration fee total']]);
+    const revenue = num(row[headerMap['net sales']]);
+
+    const existing = state.sku.find(r=>r.sku===sku && r.month===month);
+    const rowData = {
+      sku, month, units: unitsSold, revenue,
+      referralFees: referralFee, fbaFees, storageFees, adSpend, refunds,
+      netProceeds,
+    };
+    if(existing){
+      Object.assign(existing, rowData);
+      rowsToSave.push(existing);
+    } else {
+      state.sku.push(rowData);
+      rowsToSave.push(rowData);
+    }
+    imported++;
+  }
+
+  if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+  await Promise.all(rowsToSave.map(r=>saveSkuRow(r)));
+  if(catalogRowsToUpdate.length){
+    await Promise.all(catalogRowsToUpdate.map(r=>saveCatalogRow(r)));
+    renderCatalog();
+  }
+  renderSku();
+  if(statusEl){
+    statusEl.style.color = 'var(--green)';
+    let msg = `Done — ${imported} row(s) imported`;
+    if(skippedZero) msg += `, ${skippedZero} skipped (no activity)`;
+    if(skippedNoMatch) msg += `, ${skippedNoMatch} skipped (ASIN not found in Catalog)`;
+    if(catalogRowsToUpdate.length) msg += `, ${catalogRowsToUpdate.length} Parent ASIN(s) auto-filled in Catalog`;
+    statusEl.textContent = msg + '.';
+  }
+}
+
+function handleSkuEconomicsReportUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('sku-report-upload-status');
+  statusEl.textContent = 'Reading file...';
+  statusEl.style.color = 'var(--grey)';
+
+  const isCsv = /\.csv$/i.test(file.name);
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      uploadRawFile(file, 'sku_economics'); // fire-and-forget archive
+      let rows;
+      if(isCsv){
+        let text = e.target.result;
+        if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
+        const wb = XLSX.read(text, {type:'string'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      } else {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      }
+      await parseAmazonSkuEconomicsReport(rows, statusEl);
+    }catch(err){
+      console.error(err);
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not read this file — make sure it\'s the SKU Economics report exported from Amazon.';
+    }
+    event.target.value = '';
+  };
+  if(isCsv) reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
 // ---------------- SUMMARY ----------------
 function landedCostForSku(sku){
   const mfgRow = state.mfg.find(r=>r.sku===sku);
@@ -1159,57 +1342,194 @@ function warehouseCostForMonth(month){
   if(!year) return null;
   return warehouseCostForYear(year);
 }
+function parentAsinForSku(sku){
+  const cat = state.catalog.find(r=>r.sku===sku);
+  return (cat && cat.parentAsin) ? cat.parentAsin : null;
+}
+
+// ---------------- Summary: period helpers ----------------
+function availableMonths(){
+  const set = new Set();
+  state.sku.forEach(r=>{ if(r.month) set.add(r.month); });
+  return Array.from(set).sort();
+}
+function availableYears(){
+  const set = new Set();
+  availableMonths().forEach(m=>set.add(m.slice(0,4)));
+  return Array.from(set).sort();
+}
+function availableQuarters(){
+  const set = new Set();
+  availableMonths().forEach(m=>{
+    const year = m.slice(0,4), mm = parseInt(m.slice(5,7),10);
+    const q = Math.ceil(mm/3);
+    set.add(`${year}-Q${q}`);
+  });
+  return Array.from(set).sort();
+}
+function monthsInQuarter(year, q){
+  const startMonth = (q-1)*3 + 1;
+  return [0,1,2].map(i => `${year}-${String(startMonth+i).padStart(2,'0')}`);
+}
+function monthsInScope(){
+  const periodType = document.getElementById('summary-period-type').value;
+  const value = document.getElementById('summary-period-value').value;
+  if(!value) return [];
+  if(periodType === 'month') return [value];
+  if(periodType === 'quarter'){
+    const [year, qStr] = value.split('-Q');
+    return monthsInQuarter(year, parseInt(qStr,10));
+  }
+  if(periodType === 'ytd'){
+    return availableMonths().filter(m => m.startsWith(value+'-'));
+  }
+  return [];
+}
+
+function onSummaryPeriodTypeChange(){
+  const periodType = document.getElementById('summary-period-type').value;
+  const valueSelect = document.getElementById('summary-period-value');
+  const label = document.getElementById('summary-period-value-label');
+  valueSelect.innerHTML = '';
+
+  if(periodType === 'month'){
+    label.textContent = 'Month';
+    availableMonths().slice().reverse().forEach(m=>{
+      valueSelect.innerHTML += `<option value="${m}">${m}</option>`;
+    });
+  } else if(periodType === 'quarter'){
+    label.textContent = 'Quarter';
+    availableQuarters().slice().reverse().forEach(q=>{
+      valueSelect.innerHTML += `<option value="${q}">${q}</option>`;
+    });
+  } else if(periodType === 'ytd'){
+    label.textContent = 'Year';
+    availableYears().slice().reverse().forEach(y=>{
+      valueSelect.innerHTML += `<option value="${y}">${y} (YTD)</option>`;
+    });
+  }
+  renderSummary();
+}
+
+// ---------------- Summary: aggregation ----------------
+function aggregateRows(rows){
+  let units=0, revenue=0, cogs=0, fees=0, refunds=0, netProfit=0;
+  rows.forEach(row=>{
+    const landed = landedCostForSku(row.sku) || 0;
+    const wh = warehouseCostForMonth(row.month) || 0;
+    const u = row.units || 0;
+    const rowCogs = (landed + wh) * u;
+    const rowFees = (row.referralFees||0) + (row.fbaFees||0) + (row.storageFees||0) + (row.adSpend||0);
+    const rowRefunds = row.refunds || 0;
+    let rowProfit;
+    if(row.netProceeds!==null && row.netProceeds!==undefined) rowProfit = row.netProceeds - rowCogs;
+    else rowProfit = (row.revenue||0) - rowFees - rowRefunds - rowCogs;
+
+    units += u;
+    revenue += (row.revenue||0);
+    cogs += rowCogs;
+    fees += rowFees;
+    refunds += rowRefunds;
+    netProfit += rowProfit;
+  });
+  return { units, revenue, cogs, fees, refunds, netProfit };
+}
+
+function summaryRowHtml(label, agg, indent){
+  const margin = agg.revenue ? (agg.netProfit/agg.revenue*100) : null;
+  const indentStyle = indent ? `style="padding-left:${indent}px; color:var(--grey);"` : '';
+  return `
+    <td ${indentStyle}>${label}</td>
+    <td>${agg.units.toLocaleString()}</td>
+    <td>${fmt(agg.revenue)}</td>
+    <td>${fmt(agg.cogs)}</td>
+    <td>${fmt(agg.fees)}</td>
+    <td>${fmt(agg.refunds)}</td>
+    <td><strong>${fmt(agg.netProfit)}</strong></td>
+    <td>${margin!==null ? `<span class="pill ${margin>=0?'pos':'neg'}">${margin.toFixed(1)}%</span>` : '—'}</td>
+  `;
+}
+
+const expandedParents = new Set();
+function toggleParentExpand(key){
+  if(expandedParents.has(key)) expandedParents.delete(key);
+  else expandedParents.add(key);
+  renderSummary();
+}
 
 function renderSummary(){
+  // Populate period dropdown on first render
+  const valueSelect = document.getElementById('summary-period-value');
+  if(!valueSelect.options.length) onSummaryPeriodTypeChange();
+
+  const level = document.getElementById('summary-level').value;
+  const months = monthsInScope();
+  const scopedRows = state.sku.filter(r => r.sku && r.month && months.includes(r.month));
+
+  const thead = document.querySelector('#summary-table thead');
   const tbody = document.querySelector('#summary-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('summary-empty').style.display = state.sku.length ? 'none' : 'block';
+  document.getElementById('summary-empty').style.display = scopedRows.length ? 'none' : 'block';
 
-  let totalRevenue=0, totalProfit=0, countPositive=0, countRows=0;
+  thead.innerHTML = `
+    <tr>
+      <th style="width:16%">${level==='parent' ? 'Parent ASIN' : 'SKU'}</th>
+      <th style="width:9%">Units</th>
+      <th style="width:12%">Revenue</th>
+      <th style="width:12%">COGS</th>
+      <th style="width:13%">Fees + Ads</th>
+      <th style="width:10%">Refunds</th>
+      <th style="width:13%">Net Profit</th>
+      <th style="width:9%">Margin %</th>
+    </tr>
+  `;
 
-  state.sku.forEach(row=>{
-    if(!row.sku || !row.month) return;
-    countRows++;
-    const landed = landedCostForSku(row.sku);
-    const wh = warehouseCostForMonth(row.month);
-    const units = row.units || 0;
+  if(level === 'child'){
+    const bySku = {};
+    scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
+    Object.keys(bySku).sort().forEach(sku=>{
+      const agg = aggregateRows(bySku[sku]);
+      const tr = document.createElement('tr');
+      tr.innerHTML = summaryRowHtml(sku, agg);
+      tbody.appendChild(tr);
+    });
+  } else {
+    const byParent = {};
+    scopedRows.forEach(r=>{
+      const parent = parentAsinForSku(r.sku) || `(no parent — ${r.sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(r);
+    });
+    Object.keys(byParent).sort().forEach(parent=>{
+      const childRows = byParent[parent];
+      const agg = aggregateRows(childRows);
+      const isExpanded = expandedParents.has(parent);
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>toggleParentExpand(parent);
+      tr.innerHTML = summaryRowHtml(`${isExpanded ? '&#9662;' : '&#9656;'} ${parent}`, agg);
+      tbody.appendChild(tr);
 
-    const amazonFees = (row.referralFees||0) + (row.fbaFees||0) + (row.storageFees||0) + (row.adSpend||0);
-    const cogsTotal = (landed!==null ? landed*units : 0) + (wh!==null ? wh*units : 0);
+      if(isExpanded){
+        const bySku = {};
+        childRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
+        Object.keys(bySku).sort().forEach(sku=>{
+          const childAgg = aggregateRows(bySku[sku]);
+          const childTr = document.createElement('tr');
+          childTr.style.background = '#FAFBFC';
+          childTr.innerHTML = summaryRowHtml(sku, childAgg, 28);
+          tbody.appendChild(childTr);
+        });
+      }
+    });
+  }
 
-    let netProfit;
-    if(row.netProceeds!==null && row.netProceeds!==undefined){
-      netProfit = row.netProceeds - cogsTotal;
-    } else {
-      netProfit = (row.revenue||0) - amazonFees - (row.refunds||0) - cogsTotal;
-    }
-    const margin = row.revenue ? (netProfit/row.revenue*100) : null;
-
-    totalRevenue += (row.revenue||0);
-    totalProfit += netProfit;
-    if(netProfit>=0) countPositive++;
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${row.sku}</td>
-      <td>${row.month}</td>
-      <td>${fmt(row.revenue)}</td>
-      <td>${landed!==null ? fmt(landed) : '<span style="color:#B91C1C">missing</span>'}</td>
-      <td>${wh!==null ? fmt(wh) : '<span style="color:#B91C1C">missing</span>'}</td>
-      <td>${fmt(amazonFees)}</td>
-      <td>${fmt(row.refunds)}</td>
-      <td><strong>${fmt(netProfit)}</strong></td>
-      <td>${margin!==null ? `<span class="pill ${margin>=0?'pos':'neg'}">${margin.toFixed(1)}%</span>` : '—'}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-
+  const overall = aggregateRows(scopedRows);
   const kpis = document.getElementById('summary-kpis');
-  const avgMargin = totalRevenue ? (totalProfit/totalRevenue*100) : null;
+  const avgMargin = overall.revenue ? (overall.netProfit/overall.revenue*100) : null;
   kpis.innerHTML = `
-    <div class="kpi"><div class="label">Rows Tracked</div><div class="value">${countRows}</div></div>
-    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(totalRevenue)}</div></div>
-    <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmt(totalProfit)}</div></div>
+    <div class="kpi"><div class="label">Rows in Scope</div><div class="value">${scopedRows.length}</div></div>
+    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(overall.revenue)}</div></div>
+    <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmt(overall.netProfit)}</div></div>
     <div class="kpi"><div class="label">Blended Margin</div><div class="value">${avgMargin!==null ? avgMargin.toFixed(1)+'%' : '—'}</div></div>
   `;
 }
@@ -1219,6 +1539,7 @@ const SCREEN_LABELS = {
   catalog: 'Catalog',
   manufacturing_costs: 'Manufacturing Costs',
   logistics: 'Logistics & Freight',
+  sku_economics: 'SKU Economics',
 };
 
 async function loadRawFiles(){
@@ -1246,7 +1567,7 @@ function renderRawFiles(){
   container.innerHTML = '';
   document.getElementById('files-empty').style.display = state.rawFiles.length ? 'none' : 'block';
 
-  const screens = ['catalog', 'manufacturing_costs', 'logistics'];
+  const screens = ['catalog', 'manufacturing_costs', 'logistics', 'sku_economics'];
   screens.forEach(screen=>{
     const files = state.rawFiles.filter(f=>f.screen===screen);
     if(!files.length) return;
@@ -1308,27 +1629,36 @@ async function downloadRawFile(id){
 async function reparseRawFile(id){
   const fileRow = state.rawFiles.find(f=>f.id===id);
   if(!fileRow) return;
-  if(!confirm(`Re-parse "${fileRow.original_filename}"? This will re-import its data — existing SKUs matched by SKU will be updated, not duplicated.`)) return;
+  if(!confirm(`Re-parse "${fileRow.original_filename}"? This will re-import its data — existing rows matched by SKU (and month, where relevant) will be updated, not duplicated.`)) return;
 
   try{
     const { data, error } = await sb.storage.from('raw-uploads').download(fileRow.storage_path);
     if(error) throw error;
-    const arrayBuffer = await data.arrayBuffer();
-    const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
 
-    if(fileRow.screen === 'catalog'){
-      const ws = findSheet(wb, 'Catalog');
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      await parseAndSaveCatalogRows(rows, null);
-    } else if(fileRow.screen === 'manufacturing_costs'){
-      const ws = findSheet(wb, 'Manufacturing Costs');
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      await parseAndSaveMfgRows(rows, null);
-    } else if(fileRow.screen === 'logistics'){
-      const ws = findSheet(wb, 'Logistics & Freight');
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      await parseAndSaveLogisticsRows(rows, null);
+    const isCsv = /\.csv$/i.test(fileRow.original_filename);
+    let rows;
+    if(isCsv){
+      let text = await data.text();
+      if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const wb = XLSX.read(text, {type:'string'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    } else {
+      const arrayBuffer = await data.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
+      let ws;
+      if(fileRow.screen === 'catalog') ws = findSheet(wb, 'Catalog');
+      else if(fileRow.screen === 'manufacturing_costs') ws = findSheet(wb, 'Manufacturing Costs');
+      else if(fileRow.screen === 'logistics') ws = findSheet(wb, 'Logistics & Freight');
+      else ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
     }
+
+    if(fileRow.screen === 'catalog') await parseAndSaveCatalogRows(rows, null);
+    else if(fileRow.screen === 'manufacturing_costs') await parseAndSaveMfgRows(rows, null);
+    else if(fileRow.screen === 'logistics') await parseAndSaveLogisticsRows(rows, null);
+    else if(fileRow.screen === 'sku_economics') await parseAmazonSkuEconomicsReport(rows, null);
+
     alert('Re-parse complete — data has been reloaded from this file.');
   }catch(err){
     console.error(err);
