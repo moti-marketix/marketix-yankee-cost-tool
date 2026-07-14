@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Yankee — Cost &amp; Profitability Tool</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root{
     --navy:#1F3864;
@@ -103,6 +104,7 @@
     <div class="brand">
       <div class="name">MARKETIX</div>
       <div class="title">Yankee Cost &amp; Profitability Tool</div>
+      <div id="sync-status" style="margin-top:10px; font-size:11px; color:#9DC3E6; min-height:14px;"></div>
     </div>
     <div class="nav-item active" data-tab="catalog"><span class="num">1</span>Catalog</div>
     <div class="nav-item" data-tab="mfg"><span class="num">2</span>Manufacturing Costs</div>
@@ -190,7 +192,7 @@
         <div class="row-inline">
           <div class="field">
             <label>Avg Price per CBM — Current Year (USD)</label>
-            <input type="number" id="avgCbmPrice" step="0.01" placeholder="e.g. 220" oninput="saveLogistics(); renderLogistics();">
+            <input type="number" id="avgCbmPrice" step="0.01" placeholder="e.g. 220" oninput="onAvgCbmPriceChange(this.value)">
           </div>
         </div>
         <div class="formula">Freight Cost / Unit = (Avg Price per CBM &times; Master Carton CBM) &divide; Units per Carton</div>
@@ -336,38 +338,157 @@
 </div>
 
 <script>
-// ---------------- Persistence (localStorage) ----------------
-const STORE_KEYS = {
-  catalog: 'yankee_catalog',
-  mfg: 'yankee_manufacturing',
-  logistics: 'yankee_logistics',
-  warehouse: 'yankee_warehouse',
-  sku: 'yankee_sku_economics',
-};
+// ---------------- Supabase setup ----------------
+const SUPABASE_URL = 'https://oceomxioxqykmoombnfy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_z1SETwLXb7MOygL4xqKpAQ_Uj5-Wvdh';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-function load(key, fallback){
-  try{
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  }catch(e){ return fallback; }
-}
-function save(key, value){
-  localStorage.setItem(key, JSON.stringify(value));
-}
+// Hardcoded for now — this becomes a client picker once other clients are onboarded.
+const CLIENT_ID = 'c_yankee_001';
 
 let state = {
-  catalog: load(STORE_KEYS.catalog, []),
-  mfg: load(STORE_KEYS.mfg, []),
-  logistics: load(STORE_KEYS.logistics, { avgCbmPrice: null, items: [] }),
-  warehouse: load(STORE_KEYS.warehouse, []),
-  sku: load(STORE_KEYS.sku, []),
+  catalog: [],
+  mfg: [],
+  logistics: { avgCbmPrice: null, items: [] },
+  warehouse: [],
+  sku: [],
 };
 
-function saveCatalog(){ save(STORE_KEYS.catalog, state.catalog); }
-function saveMfg(){ save(STORE_KEYS.mfg, state.mfg); }
-function saveLogistics(){ save(STORE_KEYS.logistics, state.logistics); }
-function saveWarehouse(){ save(STORE_KEYS.warehouse, state.warehouse); }
-function saveSku(){ save(STORE_KEYS.sku, state.sku); }
+function showSyncStatus(msg, isError){
+  const el = document.getElementById('sync-status');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.color = isError ? '#FF8A80' : '#9DC3E6';
+}
+
+const _debounceTimers = {};
+function debounceSave(key, fn, delay=600){
+  clearTimeout(_debounceTimers[key]);
+  _debounceTimers[key] = setTimeout(fn, delay);
+}
+
+// ---------------- Initial load: pull everything from Supabase ----------------
+async function loadAllFromSupabase(){
+  showSyncStatus('Loading data…');
+  try{
+    const [catalogRes, mfgRes, logisticsRes, settingsRes, warehouseRes, skuRes] = await Promise.all([
+      sb.from('catalog').select('*').eq('client_id', CLIENT_ID),
+      sb.from('manufacturing_costs').select('*').eq('client_id', CLIENT_ID),
+      sb.from('logistics').select('*').eq('client_id', CLIENT_ID),
+      sb.from('client_settings').select('*').eq('client_id', CLIENT_ID).maybeSingle(),
+      sb.from('warehouse_invoices').select('*').eq('client_id', CLIENT_ID),
+      sb.from('sku_economics').select('*').eq('client_id', CLIENT_ID),
+    ]);
+
+    for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes]){
+      if(r.error) throw r.error;
+    }
+    if(settingsRes.error) throw settingsRes.error;
+
+    state.catalog = (catalogRes.data||[]).map(r=>({
+      id: r.id, sku: r.sku, asin: r.asin||'', name: r.product_name||'',
+      brand: r.brand||'', family: r.product_family||'', status: r.status||'Active',
+    }));
+    state.mfg = (mfgRes.data||[]).map(r=>({ id: r.id, sku: r.sku, mfgCost: r.mfg_cost }));
+    state.logistics = {
+      avgCbmPrice: settingsRes.data ? settingsRes.data.avg_cbm_price : null,
+      items: (logisticsRes.data||[]).map(r=>({
+        id: r.id, sku: r.sku, l: r.carton_l, w: r.carton_w, h: r.carton_h,
+        weight: r.weight_kg, unitsPerCarton: r.units_per_carton,
+      })),
+    };
+    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount }));
+    state.sku = (skuRes.data||[]).map(r=>({
+      id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
+      referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
+      adSpend: r.ad_spend, refunds: r.refunds, netProceeds: r.net_proceeds,
+    }));
+
+    showSyncStatus('All data loaded from Supabase.');
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Could not load data from Supabase — check your connection and reload. (' + (err.message||err) + ')', true);
+  }
+}
+
+// ---------------- Per-row save helpers ----------------
+// Each returns the saved row's id (existing or newly created) so local state can track it.
+async function upsertRow(table, row, payload){
+  try{
+    if(row.id){
+      const { error } = await sb.from(table).update(payload).eq('id', row.id);
+      if(error) throw error;
+      showSyncStatus('Saved.');
+      return row.id;
+    } else {
+      const { data, error } = await sb.from(table).insert(payload).select().single();
+      if(error) throw error;
+      showSyncStatus('Saved.');
+      return data.id;
+    }
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Save failed: ' + (err.message||err), true);
+    return row.id || null;
+  }
+}
+async function deleteRow(table, id){
+  if(!id) return;
+  try{
+    const { error } = await sb.from(table).delete().eq('id', id);
+    if(error) throw error;
+    showSyncStatus('Deleted.');
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Delete failed: ' + (err.message||err), true);
+  }
+}
+
+async function saveCatalogRow(row){
+  const payload = {
+    client_id: CLIENT_ID, sku: row.sku, asin: row.asin||null, product_name: row.name||null,
+    brand: row.brand||null, product_family: row.family||null, status: row.status||'Active',
+    updated_at: new Date().toISOString(),
+  };
+  row.id = await upsertRow('catalog', row, payload);
+}
+async function saveMfgRow(row){
+  const payload = { client_id: CLIENT_ID, sku: row.sku, mfg_cost: row.mfgCost, updated_at: new Date().toISOString() };
+  row.id = await upsertRow('manufacturing_costs', row, payload);
+}
+async function saveLogisticsRow(row){
+  const payload = {
+    client_id: CLIENT_ID, sku: row.sku, carton_l: row.l, carton_w: row.w, carton_h: row.h,
+    weight_kg: row.weight, units_per_carton: row.unitsPerCarton, updated_at: new Date().toISOString(),
+  };
+  row.id = await upsertRow('logistics', row, payload);
+}
+async function saveAvgCbmPrice(value){
+  try{
+    const { error } = await sb.from('client_settings').upsert(
+      { client_id: CLIENT_ID, avg_cbm_price: value, updated_at: new Date().toISOString() },
+      { onConflict: 'client_id' }
+    );
+    if(error) throw error;
+    showSyncStatus('Saved.');
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Save failed: ' + (err.message||err), true);
+  }
+}
+async function saveWarehouseRow(row){
+  const payload = { client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount, updated_at: new Date().toISOString() };
+  row.id = await upsertRow('warehouse_invoices', row, payload);
+}
+async function saveSkuRow(row){
+  const payload = {
+    client_id: CLIENT_ID, sku: row.sku, month: row.month, units: row.units, revenue: row.revenue,
+    referral_fees: row.referralFees, fba_fees: row.fbaFees, storage_fees: row.storageFees,
+    ad_spend: row.adSpend, refunds: row.refunds, net_proceeds: row.netProceeds,
+    updated_at: new Date().toISOString(),
+  };
+  row.id = await upsertRow('sku_economics', row, payload);
+}
 
 // ---------------- Navigation ----------------
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -437,13 +558,20 @@ function renderCatalog(){
 }
 function addCatalogRow(){
   state.catalog.push({sku:'', asin:'', name:'', brand:'', family:'', status:'Active'});
-  saveCatalog(); renderCatalog();
+  renderCatalog();
 }
 function updateCatalog(idx, field, value){
-  state.catalog[idx][field] = value;
-  saveCatalog();
+  const row = state.catalog[idx];
+  row[field] = value;
+  if(!row.sku) return; // don't save rows with no SKU yet
+  debounceSave('catalog-'+idx, ()=>saveCatalogRow(row));
 }
-function deleteCatalog(idx){ state.catalog.splice(idx,1); saveCatalog(); renderCatalog(); }
+function deleteCatalog(idx){
+  const row = state.catalog[idx];
+  state.catalog.splice(idx,1);
+  renderCatalog();
+  deleteRow('catalog', row.id);
+}
 
 function findSheet(wb, name){
   const match = wb.SheetNames.find(n => n.trim().toLowerCase() === name.trim().toLowerCase());
@@ -458,7 +586,7 @@ function handleCatalogUpload(event){
   statusEl.style.color = 'var(--grey)';
 
   const reader = new FileReader();
-  reader.onload = function(e){
+  reader.onload = async function(e){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
@@ -481,6 +609,7 @@ function handleCatalogUpload(event){
       }
 
       let added = 0, updated = 0, skipped = 0;
+      const rowsToSave = [];
       for(let i=headerRowIdx+1; i<rows.length; i++){
         const row = rows[i] || [];
         const sku = row[headerMap['SKU']];
@@ -506,13 +635,16 @@ function handleCatalogUpload(event){
         };
         if(existing){
           Object.assign(existing, rowData);
+          rowsToSave.push(existing);
           updated++;
         } else {
           state.catalog.push(rowData);
+          rowsToSave.push(rowData);
           added++;
         }
       }
-      saveCatalog();
+      statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+      await Promise.all(rowsToSave.map(r=>saveCatalogRow(r)));
       renderCatalog();
       statusEl.style.color = 'var(--green)';
       statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}.`;
@@ -526,32 +658,40 @@ function handleCatalogUpload(event){
 }
 
 // ---------------- TAB 1: Manufacturing ----------------
+function catalogNameForSku(sku){
+  const cat = state.catalog.find(r=>r.sku===sku);
+  return cat ? (cat.name||'') : '';
+}
 function renderMfg(){
   const tbody = document.querySelector('#mfg-table tbody');
   tbody.innerHTML = '';
   document.getElementById('mfg-empty').style.display = state.mfg.length ? 'none' : 'block';
   state.mfg.forEach((row, idx)=>{
     const tr = document.createElement('tr');
+    const displayName = catalogNameForSku(row.sku);
     tr.innerHTML = `
       <td><select onchange="updateMfg(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
-      <td><input value="${row.name||''}" oninput="updateMfg(${idx},'name',this.value)" placeholder="Product name"></td>
+      <td class="computed">${displayName || '<span style="color:var(--grey); font-style:italic;">(from Catalog)</span>'}</td>
       <td><input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00"></td>
       <td><button class="btn-del" onclick="deleteMfg(${idx})">&times;</button></td>
     `;
     tbody.appendChild(tr);
   });
 }
-function addMfgRow(){ state.mfg.push({sku:'', name:'', mfgCost:null}); saveMfg(); renderMfg(); }
+function addMfgRow(){ state.mfg.push({sku:'', mfgCost:null}); renderMfg(); }
 function updateMfg(idx, field, value){
-  state.mfg[idx][field] = field==='mfgCost' ? (value===''?null:parseFloat(value)) : value;
-  if(field==='sku' && !state.mfg[idx].name){
-    const cat = state.catalog.find(r=>r.sku===value);
-    if(cat && cat.name) state.mfg[idx].name = cat.name;
-  }
-  saveMfg();
-  renderMfg();
+  const row = state.mfg[idx];
+  row[field] = field==='mfgCost' ? (value===''?null:parseFloat(value)) : value;
+  if(!row.sku) return;
+  debounceSave('mfg-'+idx, ()=>saveMfgRow(row));
+  if(field==='sku') renderMfg();
 }
-function deleteMfg(idx){ state.mfg.splice(idx,1); saveMfg(); renderMfg(); }
+function deleteMfg(idx){
+  const row = state.mfg[idx];
+  state.mfg.splice(idx,1);
+  renderMfg();
+  deleteRow('manufacturing_costs', row.id);
+}
 
 // --- Bulk import: download empty template ---
 // --- Unified template: one workbook, one sheet per screen, formula-linked ---
@@ -639,7 +779,7 @@ function handleMfgUpload(event){
   statusEl.style.color = 'var(--grey)';
 
   const reader = new FileReader();
-  reader.onload = function(e){
+  reader.onload = async function(e){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
@@ -663,6 +803,7 @@ function handleMfgUpload(event){
       }
 
       let added = 0, updated = 0, skipped = 0;
+      const rowsToSave = [];
       for(let i=headerRowIdx+1; i<rows.length; i++){
         const row = rows[i] || [];
         const sku = row[headerMap['SKU']];
@@ -679,14 +820,17 @@ function handleMfgUpload(event){
         const existing = state.mfg.find(r=>r.sku===skuStr);
         if(existing){
           existing.mfgCost = costNum;
-          if(asin) existing.name = existing.name || '';
+          rowsToSave.push(existing);
           updated++;
         } else {
-          state.mfg.push({sku: skuStr, name:'', mfgCost: costNum});
+          const newRow = {sku: skuStr, mfgCost: costNum};
+          state.mfg.push(newRow);
+          rowsToSave.push(newRow);
           added++;
         }
       }
-      saveMfg();
+      statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+      await Promise.all(rowsToSave.map(r=>saveMfgRow(r)));
       renderMfg();
       statusEl.style.color = 'var(--green)';
       statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}.`;
@@ -732,13 +876,26 @@ function renderLogistics(){
     tbody.appendChild(tr);
   });
 }
-function addLogisticsRow(){ state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null}); saveLogistics(); renderLogistics(); }
+function addLogisticsRow(){ state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null}); renderLogistics(); }
 function updateLogistics(idx, field, value){
-  state.logistics.items[idx][field] = (field==='sku') ? value : (value===''?null:parseFloat(value));
-  saveLogistics();
+  const row = state.logistics.items[idx];
+  row[field] = (field==='sku') ? value : (value===''?null:parseFloat(value));
   renderLogistics();
+  if(!row.sku) return;
+  debounceSave('logistics-'+idx, ()=>saveLogisticsRow(row));
 }
-function deleteLogistics(idx){ state.logistics.items.splice(idx,1); saveLogistics(); renderLogistics(); }
+function deleteLogistics(idx){
+  const row = state.logistics.items[idx];
+  state.logistics.items.splice(idx,1);
+  renderLogistics();
+  deleteRow('logistics', row.id);
+}
+function onAvgCbmPriceChange(value){
+  const num = value===''? null : parseFloat(value);
+  state.logistics.avgCbmPrice = num;
+  renderLogistics();
+  debounceSave('avgCbmPrice', ()=>saveAvgCbmPrice(num));
+}
 
 function handleLogisticsUpload(event){
   const file = event.target.files[0];
@@ -748,7 +905,7 @@ function handleLogisticsUpload(event){
   statusEl.style.color = 'var(--grey)';
 
   const reader = new FileReader();
-  reader.onload = function(e){
+  reader.onload = async function(e){
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
@@ -773,6 +930,7 @@ function handleLogisticsUpload(event){
       const cL = findCol('CARTON L'), cW = findCol('CARTON W'), cH = findCol('CARTON H'), cWt = findCol('WEIGHT'), cU = findCol('UNITS');
 
       let added = 0, updated = 0, skipped = 0;
+      const rowsToSave = [];
       for(let i=headerRowIdx+1; i<rows.length; i++){
         const row = rows[i] || [];
         const sku = row[headerMap['SKU']];
@@ -799,13 +957,16 @@ function handleLogisticsUpload(event){
         const existing = state.logistics.items.find(r=>r.sku===skuStr);
         if(existing){
           Object.assign(existing, rowData);
+          rowsToSave.push(existing);
           updated++;
         } else {
           state.logistics.items.push(rowData);
+          rowsToSave.push(rowData);
           added++;
         }
       }
-      saveLogistics();
+      statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+      await Promise.all(rowsToSave.map(r=>saveLogisticsRow(r)));
       renderLogistics();
       statusEl.style.color = 'var(--green)';
       statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}.`;
@@ -885,13 +1046,20 @@ function renderWarehouse(){
     tbody.appendChild(tr);
   });
 }
-function addWarehouseRow(){ state.warehouse.push({month:'', invoiceAmount:null}); saveWarehouse(); renderWarehouse(); }
+function addWarehouseRow(){ state.warehouse.push({month:'', invoiceAmount:null}); renderWarehouse(); }
 function updateWarehouse(idx, field, value){
-  state.warehouse[idx][field] = (field==='month') ? value : (value===''?null:parseFloat(value));
-  saveWarehouse();
+  const row = state.warehouse[idx];
+  row[field] = (field==='month') ? value : (value===''?null:parseFloat(value));
   renderWarehouse();
+  if(!row.month) return;
+  debounceSave('warehouse-'+idx, ()=>saveWarehouseRow(row));
 }
-function deleteWarehouse(idx){ state.warehouse.splice(idx,1); saveWarehouse(); renderWarehouse(); }
+function deleteWarehouse(idx){
+  const row = state.warehouse[idx];
+  state.warehouse.splice(idx,1);
+  renderWarehouse();
+  deleteRow('warehouse_invoices', row.id);
+}
 
 // ---------------- TAB 4: SKU Economics ----------------
 function renderSku(){
@@ -918,13 +1086,20 @@ function renderSku(){
 }
 function addSkuRow(){
   state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
-  saveSku(); renderSku();
+  renderSku();
 }
 function updateSku(idx, field, value){
-  state.sku[idx][field] = (field==='sku'||field==='month') ? value : (value===''?null:parseFloat(value));
-  saveSku();
+  const row = state.sku[idx];
+  row[field] = (field==='sku'||field==='month') ? value : (value===''?null:parseFloat(value));
+  if(!row.sku || !row.month) return;
+  debounceSave('sku-'+idx, ()=>saveSkuRow(row));
 }
-function deleteSku(idx){ state.sku.splice(idx,1); saveSku(); renderSku(); }
+function deleteSku(idx){
+  const row = state.sku[idx];
+  state.sku.splice(idx,1);
+  renderSku();
+  deleteRow('sku_economics', row.id);
+}
 
 // ---------------- SUMMARY ----------------
 function landedCostForSku(sku){
@@ -997,11 +1172,15 @@ function renderSummary(){
 }
 
 // ---------------- Init ----------------
-renderCatalog();
-renderMfg();
-renderLogistics();
-renderWarehouse();
-renderSku();
+async function initApp(){
+  await loadAllFromSupabase();
+  renderCatalog();
+  renderMfg();
+  renderLogistics();
+  renderWarehouse();
+  renderSku();
+}
+initApp();
 </script>
 </body>
 </html>
