@@ -112,6 +112,7 @@
     <div class="nav-item" data-tab="warehouse"><span class="num">4</span>Warehouse Costs</div>
     <div class="nav-item" data-tab="sku"><span class="num">5</span>SKU Economics</div>
     <div class="nav-item" data-tab="summary"><span class="num">&#9733;</span>Profitability Summary</div>
+    <div class="nav-item" data-tab="files"><span class="num">&#128193;</span>Uploaded Files</div>
   </div>
 
   <div class="main">
@@ -334,6 +335,15 @@
       </div>
     </section>
 
+    <!-- ===================== UPLOADED FILES ===================== -->
+    <section id="tab-files" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Uploaded Files</h1></div>
+      <p class="subtitle">Every original file you've uploaded, archived exactly as received. Download, re-parse, or delete as needed.</p>
+
+      <div id="files-groups"></div>
+      <div id="files-empty" class="empty" style="display:none;">No files uploaded yet.</div>
+    </section>
+
   </div>
 </div>
 
@@ -352,6 +362,7 @@ let state = {
   logistics: { avgCbmPrice: null, items: [] },
   warehouse: [],
   sku: [],
+  rawFiles: [],
 };
 
 function showSyncStatus(msg, isError){
@@ -499,6 +510,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     document.getElementById('tab-'+item.dataset.tab).style.display='block';
     if(item.dataset.tab === 'summary') renderSummary();
     if(item.dataset.tab === 'warehouse') renderWarehouse();
+    if(item.dataset.tab === 'files'){ loadRawFiles().then(renderRawFiles); }
   });
 });
 
@@ -595,6 +607,65 @@ function findSheet(wb, name){
   return match ? wb.Sheets[match] : wb.Sheets[wb.SheetNames[0]]; // fallback: first sheet
 }
 
+async function parseAndSaveCatalogRows(rows, statusEl){
+  let headerRowIdx = -1, headerMap = {};
+  for(let i=0; i<Math.min(rows.length,10); i++){
+    const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
+    if(cells.includes('SKU')){
+      headerRowIdx = i;
+      cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
+      break;
+    }
+  }
+  if(headerRowIdx === -1){
+    if(statusEl){ statusEl.textContent = 'Could not find a SKU column in this file. Use the template format.'; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+
+  let added = 0, updated = 0, skipped = 0;
+  const rowsToSave = [];
+  for(let i=headerRowIdx+1; i<rows.length; i++){
+    const row = rows[i] || [];
+    const sku = row[headerMap['SKU']];
+    const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
+    const name = headerMap['PRODUCT NAME']!==undefined ? row[headerMap['PRODUCT NAME']] : null;
+    const brand = headerMap['BRAND']!==undefined ? row[headerMap['BRAND']] : null;
+    const family = headerMap['PRODUCT FAMILY']!==undefined ? row[headerMap['PRODUCT FAMILY']] : null;
+    const status = headerMap['STATUS']!==undefined ? row[headerMap['STATUS']] : null;
+
+    if(sku===null) continue;
+    if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
+    if(!sku){ skipped++; continue; }
+
+    const skuStr = String(sku).trim();
+    const existing = state.catalog.find(r=>r.sku===skuStr);
+    const rowData = {
+      sku: skuStr,
+      asin: asin ? String(asin).trim() : (existing ? existing.asin : ''),
+      name: name ? String(name).trim() : (existing ? existing.name : ''),
+      brand: brand ? String(brand).trim() : (existing ? existing.brand : ''),
+      family: family ? String(family).trim() : (existing ? existing.family : ''),
+      status: status ? String(status).trim() : (existing ? existing.status : 'Active'),
+    };
+    if(existing){
+      Object.assign(existing, rowData);
+      rowsToSave.push(existing);
+      updated++;
+    } else {
+      state.catalog.push(rowData);
+      rowsToSave.push(rowData);
+      added++;
+    }
+  }
+  if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+  await Promise.all(rowsToSave.map(r=>saveCatalogRow(r)));
+  renderCatalog();
+  if(statusEl){
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}.`;
+  }
+}
+
 function handleCatalogUpload(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -610,62 +681,7 @@ function handleCatalogUpload(event){
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Catalog');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-
-      let headerRowIdx = -1, headerMap = {};
-      for(let i=0; i<Math.min(rows.length,10); i++){
-        const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
-        if(cells.includes('SKU')){
-          headerRowIdx = i;
-          cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
-          break;
-        }
-      }
-      if(headerRowIdx === -1){
-        statusEl.textContent = 'Could not find a SKU column in this file. Use the template format.';
-        statusEl.style.color = 'var(--red)';
-        return;
-      }
-
-      let added = 0, updated = 0, skipped = 0;
-      const rowsToSave = [];
-      for(let i=headerRowIdx+1; i<rows.length; i++){
-        const row = rows[i] || [];
-        const sku = row[headerMap['SKU']];
-        const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
-        const name = headerMap['PRODUCT NAME']!==undefined ? row[headerMap['PRODUCT NAME']] : null;
-        const brand = headerMap['BRAND']!==undefined ? row[headerMap['BRAND']] : null;
-        const family = headerMap['PRODUCT FAMILY']!==undefined ? row[headerMap['PRODUCT FAMILY']] : null;
-        const status = headerMap['STATUS']!==undefined ? row[headerMap['STATUS']] : null;
-
-        if(sku===null) continue;
-        if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
-        if(!sku){ skipped++; continue; }
-
-        const skuStr = String(sku).trim();
-        const existing = state.catalog.find(r=>r.sku===skuStr);
-        const rowData = {
-          sku: skuStr,
-          asin: asin ? String(asin).trim() : (existing ? existing.asin : ''),
-          name: name ? String(name).trim() : (existing ? existing.name : ''),
-          brand: brand ? String(brand).trim() : (existing ? existing.brand : ''),
-          family: family ? String(family).trim() : (existing ? existing.family : ''),
-          status: status ? String(status).trim() : (existing ? existing.status : 'Active'),
-        };
-        if(existing){
-          Object.assign(existing, rowData);
-          rowsToSave.push(existing);
-          updated++;
-        } else {
-          state.catalog.push(rowData);
-          rowsToSave.push(rowData);
-          added++;
-        }
-      }
-      statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-      await Promise.all(rowsToSave.map(r=>saveCatalogRow(r)));
-      renderCatalog();
-      statusEl.style.color = 'var(--green)';
-      statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}.`;
+      await parseAndSaveCatalogRows(rows, statusEl);
     }catch(err){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
@@ -789,6 +805,57 @@ function downloadFullTemplate(){
 }
 
 // --- Bulk import: upload filled template ---
+async function parseAndSaveMfgRows(rows, statusEl){
+  let headerRowIdx = -1, headerMap = {};
+  for(let i=0; i<Math.min(rows.length,10); i++){
+    const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
+    if(cells.includes('SKU') && cells.includes('COST')){
+      headerRowIdx = i;
+      cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
+      break;
+    }
+  }
+  if(headerRowIdx === -1){
+    if(statusEl){ statusEl.textContent = 'Could not find SKU/COST headers in this file. Use the template format.'; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+
+  let added = 0, updated = 0, skipped = 0;
+  const rowsToSave = [];
+  for(let i=headerRowIdx+1; i<rows.length; i++){
+    const row = rows[i] || [];
+    const sku = row[headerMap['SKU']];
+    const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
+    const cost = row[headerMap['COST']];
+
+    if(sku===null && cost===null) continue; // blank row
+    if(String(sku).trim().toUpperCase()==='SKU-001' && String(asin).trim().toUpperCase()==='B08EXAMPLE') continue; // example row
+
+    const costNum = parseFloat(cost);
+    if(!sku || isNaN(costNum)){ skipped++; continue; }
+
+    const skuStr = String(sku).trim();
+    const existing = state.mfg.find(r=>r.sku===skuStr);
+    if(existing){
+      existing.mfgCost = costNum;
+      rowsToSave.push(existing);
+      updated++;
+    } else {
+      const newRow = {sku: skuStr, mfgCost: costNum};
+      state.mfg.push(newRow);
+      rowsToSave.push(newRow);
+      added++;
+    }
+  }
+  if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+  await Promise.all(rowsToSave.map(r=>saveMfgRow(r)));
+  renderMfg();
+  if(statusEl){
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}.`;
+  }
+}
+
 function handleMfgUpload(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -804,55 +871,7 @@ function handleMfgUpload(event){
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Manufacturing Costs');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-
-      // Find header row (contains SKU and COST, case-insensitive)
-      let headerRowIdx = -1, headerMap = {};
-      for(let i=0; i<Math.min(rows.length,10); i++){
-        const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
-        if(cells.includes('SKU') && cells.includes('COST')){
-          headerRowIdx = i;
-          cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
-          break;
-        }
-      }
-      if(headerRowIdx === -1){
-        statusEl.textContent = 'Could not find SKU/COST headers in this file. Use the template format.';
-        statusEl.style.color = 'var(--red)';
-        return;
-      }
-
-      let added = 0, updated = 0, skipped = 0;
-      const rowsToSave = [];
-      for(let i=headerRowIdx+1; i<rows.length; i++){
-        const row = rows[i] || [];
-        const sku = row[headerMap['SKU']];
-        const asin = headerMap['ASIN']!==undefined ? row[headerMap['ASIN']] : null;
-        const cost = row[headerMap['COST']];
-
-        if(sku===null && cost===null) continue; // blank row
-        if(String(sku).trim().toUpperCase()==='SKU-001' && String(asin).trim().toUpperCase()==='B08EXAMPLE') continue; // example row
-
-        const costNum = parseFloat(cost);
-        if(!sku || isNaN(costNum)){ skipped++; continue; }
-
-        const skuStr = String(sku).trim();
-        const existing = state.mfg.find(r=>r.sku===skuStr);
-        if(existing){
-          existing.mfgCost = costNum;
-          rowsToSave.push(existing);
-          updated++;
-        } else {
-          const newRow = {sku: skuStr, mfgCost: costNum};
-          state.mfg.push(newRow);
-          rowsToSave.push(newRow);
-          added++;
-        }
-      }
-      statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-      await Promise.all(rowsToSave.map(r=>saveMfgRow(r)));
-      renderMfg();
-      statusEl.style.color = 'var(--green)';
-      statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}.`;
+      await parseAndSaveMfgRows(rows, statusEl);
     }catch(err){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
@@ -916,6 +935,68 @@ function onAvgCbmPriceChange(value){
   debounceSave('avgCbmPrice', ()=>saveAvgCbmPrice(num));
 }
 
+async function parseAndSaveLogisticsRows(rows, statusEl){
+  let headerRowIdx = -1, headerMap = {};
+  for(let i=0; i<Math.min(rows.length,10); i++){
+    const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
+    if(cells.includes('SKU') && cells.some(c=>c.startsWith('CARTON L'))){
+      headerRowIdx = i;
+      cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
+      break;
+    }
+  }
+  if(headerRowIdx === -1){
+    if(statusEl){ statusEl.textContent = 'Could not find carton columns in this file. Use the template format.'; statusEl.style.color = 'var(--red)'; }
+    return;
+  }
+  const findCol = (prefix) => Object.keys(headerMap).find(k => k.startsWith(prefix));
+  const cL = findCol('CARTON L'), cW = findCol('CARTON W'), cH = findCol('CARTON H'), cWt = findCol('WEIGHT'), cU = findCol('UNITS');
+
+  let added = 0, updated = 0, skipped = 0;
+  const rowsToSave = [];
+  for(let i=headerRowIdx+1; i<rows.length; i++){
+    const row = rows[i] || [];
+    const sku = row[headerMap['SKU']];
+    if(sku===null) continue;
+    if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
+
+    const l = cL ? parseFloat(row[headerMap[cL]]) : NaN;
+    const w = cW ? parseFloat(row[headerMap[cW]]) : NaN;
+    const h = cH ? parseFloat(row[headerMap[cH]]) : NaN;
+    const wt = cWt ? parseFloat(row[headerMap[cWt]]) : NaN;
+    const u = cU ? parseFloat(row[headerMap[cU]]) : NaN;
+
+    if(!sku || (isNaN(l) && isNaN(w) && isNaN(h))){ skipped++; continue; }
+
+    const skuStr = String(sku).trim();
+    const rowData = {
+      sku: skuStr,
+      l: isNaN(l) ? null : l,
+      w: isNaN(w) ? null : w,
+      h: isNaN(h) ? null : h,
+      weight: isNaN(wt) ? null : wt,
+      unitsPerCarton: isNaN(u) ? null : u,
+    };
+    const existing = state.logistics.items.find(r=>r.sku===skuStr);
+    if(existing){
+      Object.assign(existing, rowData);
+      rowsToSave.push(existing);
+      updated++;
+    } else {
+      state.logistics.items.push(rowData);
+      rowsToSave.push(rowData);
+      added++;
+    }
+  }
+  if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
+  await Promise.all(rowsToSave.map(r=>saveLogisticsRow(r)));
+  renderLogistics();
+  if(statusEl){
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}.`;
+  }
+}
+
 function handleLogisticsUpload(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -931,65 +1012,7 @@ function handleLogisticsUpload(event){
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Logistics & Freight');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-
-      let headerRowIdx = -1, headerMap = {};
-      for(let i=0; i<Math.min(rows.length,10); i++){
-        const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
-        if(cells.includes('SKU') && cells.some(c=>c.startsWith('CARTON L'))){
-          headerRowIdx = i;
-          cells.forEach((c, idx)=>{ if(c) headerMap[c] = idx; });
-          break;
-        }
-      }
-      if(headerRowIdx === -1){
-        statusEl.textContent = 'Could not find carton columns in this file. Use the template format.';
-        statusEl.style.color = 'var(--red)';
-        return;
-      }
-      const findCol = (prefix) => Object.keys(headerMap).find(k => k.startsWith(prefix));
-      const cL = findCol('CARTON L'), cW = findCol('CARTON W'), cH = findCol('CARTON H'), cWt = findCol('WEIGHT'), cU = findCol('UNITS');
-
-      let added = 0, updated = 0, skipped = 0;
-      const rowsToSave = [];
-      for(let i=headerRowIdx+1; i<rows.length; i++){
-        const row = rows[i] || [];
-        const sku = row[headerMap['SKU']];
-        if(sku===null) continue;
-        if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
-
-        const l = cL ? parseFloat(row[headerMap[cL]]) : NaN;
-        const w = cW ? parseFloat(row[headerMap[cW]]) : NaN;
-        const h = cH ? parseFloat(row[headerMap[cH]]) : NaN;
-        const wt = cWt ? parseFloat(row[headerMap[cWt]]) : NaN;
-        const u = cU ? parseFloat(row[headerMap[cU]]) : NaN;
-
-        if(!sku || (isNaN(l) && isNaN(w) && isNaN(h))){ skipped++; continue; }
-
-        const skuStr = String(sku).trim();
-        const rowData = {
-          sku: skuStr,
-          l: isNaN(l) ? null : l,
-          w: isNaN(w) ? null : w,
-          h: isNaN(h) ? null : h,
-          weight: isNaN(wt) ? null : wt,
-          unitsPerCarton: isNaN(u) ? null : u,
-        };
-        const existing = state.logistics.items.find(r=>r.sku===skuStr);
-        if(existing){
-          Object.assign(existing, rowData);
-          rowsToSave.push(existing);
-          updated++;
-        } else {
-          state.logistics.items.push(rowData);
-          rowsToSave.push(rowData);
-          added++;
-        }
-      }
-      statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-      await Promise.all(rowsToSave.map(r=>saveLogisticsRow(r)));
-      renderLogistics();
-      statusEl.style.color = 'var(--green)';
-      statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}.`;
+      await parseAndSaveLogisticsRows(rows, statusEl);
     }catch(err){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
@@ -1191,7 +1214,147 @@ function renderSummary(){
   `;
 }
 
-// ---------------- Init ----------------
+// ---------------- UPLOADED FILES ----------------
+const SCREEN_LABELS = {
+  catalog: 'Catalog',
+  manufacturing_costs: 'Manufacturing Costs',
+  logistics: 'Logistics & Freight',
+};
+
+async function loadRawFiles(){
+  try{
+    const { data, error } = await sb.from('raw_files')
+      .select('*')
+      .eq('client_id', CLIENT_ID)
+      .order('uploaded_at', { ascending: false });
+    if(error) throw error;
+    state.rawFiles = data || [];
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Could not load file list: ' + (err.message||err), true);
+  }
+}
+
+function formatDateTime(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function renderRawFiles(){
+  const container = document.getElementById('files-groups');
+  container.innerHTML = '';
+  document.getElementById('files-empty').style.display = state.rawFiles.length ? 'none' : 'block';
+
+  const screens = ['catalog', 'manufacturing_costs', 'logistics'];
+  screens.forEach(screen=>{
+    const files = state.rawFiles.filter(f=>f.screen===screen);
+    if(!files.length) return;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    const table = document.createElement('table');
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th style="width:40%">Filename</th>
+          <th style="width:25%">Uploaded</th>
+          <th style="width:35%">Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    `;
+    const tbody = table.querySelector('tbody');
+    files.forEach(f=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${f.original_filename}</td>
+        <td>${formatDateTime(f.uploaded_at)}</td>
+        <td>
+          <button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" onclick="downloadRawFile('${f.id}')">Download</button>
+          <button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" onclick="reparseRawFile('${f.id}')">Re-parse</button>
+          <button class="btn-del" onclick="deleteRawFile('${f.id}')">&times;</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    card.innerHTML = `<h2>${SCREEN_LABELS[screen] || screen}</h2>`;
+    card.appendChild(table);
+    container.appendChild(card);
+  });
+}
+
+async function downloadRawFile(id){
+  const fileRow = state.rawFiles.find(f=>f.id===id);
+  if(!fileRow) return;
+  try{
+    const { data, error } = await sb.storage.from('raw-uploads').download(fileRow.storage_path);
+    if(error) throw error;
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileRow.original_filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(err){
+    console.error(err);
+    alert('Could not download this file: ' + (err.message||err));
+  }
+}
+
+async function reparseRawFile(id){
+  const fileRow = state.rawFiles.find(f=>f.id===id);
+  if(!fileRow) return;
+  if(!confirm(`Re-parse "${fileRow.original_filename}"? This will re-import its data — existing SKUs matched by SKU will be updated, not duplicated.`)) return;
+
+  try{
+    const { data, error } = await sb.storage.from('raw-uploads').download(fileRow.storage_path);
+    if(error) throw error;
+    const arrayBuffer = await data.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
+
+    if(fileRow.screen === 'catalog'){
+      const ws = findSheet(wb, 'Catalog');
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      await parseAndSaveCatalogRows(rows, null);
+    } else if(fileRow.screen === 'manufacturing_costs'){
+      const ws = findSheet(wb, 'Manufacturing Costs');
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      await parseAndSaveMfgRows(rows, null);
+    } else if(fileRow.screen === 'logistics'){
+      const ws = findSheet(wb, 'Logistics & Freight');
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      await parseAndSaveLogisticsRows(rows, null);
+    }
+    alert('Re-parse complete — data has been reloaded from this file.');
+  }catch(err){
+    console.error(err);
+    alert('Could not re-parse this file: ' + (err.message||err));
+  }
+}
+
+async function deleteRawFile(id){
+  const fileRow = state.rawFiles.find(f=>f.id===id);
+  if(!fileRow) return;
+  if(!confirm(`Delete "${fileRow.original_filename}"? This only removes the archived file — data already imported from it stays as-is.`)) return;
+
+  try{
+    const { error: storageErr } = await sb.storage.from('raw-uploads').remove([fileRow.storage_path]);
+    if(storageErr) throw storageErr;
+    const { error: dbErr } = await sb.from('raw_files').delete().eq('id', id);
+    if(dbErr) throw dbErr;
+    state.rawFiles = state.rawFiles.filter(f=>f.id!==id);
+    renderRawFiles();
+  }catch(err){
+    console.error(err);
+    alert('Could not delete this file: ' + (err.message||err));
+  }
+}
+
+
 async function initApp(){
   await loadAllFromSupabase();
   renderCatalog();
