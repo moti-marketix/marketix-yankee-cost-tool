@@ -84,6 +84,12 @@
   td{padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap;}
   th{ white-space:nowrap; }
   .table-scroll{ overflow-x:auto; }
+  .scroll-controls{ display:flex; justify-content:flex-end; gap:6px; margin-bottom:6px; }
+  .scroll-btn{
+    background:var(--blue-light); color:var(--navy); border:none; border-radius:6px;
+    width:30px; height:26px; font-size:14px; cursor:pointer; font-weight:700;
+  }
+  .scroll-btn:hover{ background:var(--blue); color:#fff; }
   tr:hover td{background:#FAFBFC;}
   td input, td select{width:100%; padding:5px 8px; font-size:13px; white-space:nowrap;}
   .computed{color:var(--blue); font-weight:600;}
@@ -162,7 +168,8 @@
       </div>
 
       <div class="card">
-        <div class="table-scroll">
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('catalog-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('catalog-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="catalog-scroll">
         <table id="catalog-table">
           <thead>
             <tr>
@@ -209,7 +216,8 @@
       </div>
 
       <div class="card">
-        <div class="table-scroll">
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('mfg-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('mfg-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="mfg-scroll">
         <table id="mfg-table">
           <thead>
             <tr>
@@ -270,7 +278,8 @@
 
       <div class="card">
         <h2>Master Carton Data</h2>
-        <div class="table-scroll">
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('logistics-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('logistics-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="logistics-scroll">
         <table id="logistics-table">
           <thead>
             <tr>
@@ -351,6 +360,43 @@
       <p class="subtitle">Enter figures from Amazon's SKU Economics report — one row per SKU, per month.</p>
 
       <div class="card">
+        <h2>Net Proceeds by Item</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Straight from Amazon's report — no landed cost or warehouse rate mixed in yet. Just Net Proceeds, by item, for whatever period you pick.</p>
+        <div class="row-inline">
+          <div class="field">
+            <label>Level</label>
+            <select id="netproceeds-level" onchange="renderNetProceedsSummary()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Period</label>
+            <select id="netproceeds-period-type" onchange="onNetProceedsPeriodTypeChange()">
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="ytd">Year to Date</option>
+            </select>
+          </div>
+          <div class="field">
+            <label id="netproceeds-period-value-label">Month</label>
+            <select id="netproceeds-period-value" onchange="renderNetProceedsSummary()"></select>
+          </div>
+        </div>
+        <div class="scroll-controls">
+          <button class="scroll-btn" onclick="scrollTable('netproceeds-scroll',-300)">&#9664;</button>
+          <button class="scroll-btn" onclick="scrollTable('netproceeds-scroll',300)">&#9654;</button>
+        </div>
+        <div class="table-scroll" id="netproceeds-scroll">
+          <table id="netproceeds-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="netproceeds-empty" class="empty" style="display:none;">No data yet for this period.</div>
+      </div>
+
+      <div class="card">
         <h2>Upload Amazon Report(s)</h2>
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the SKU Economics report exactly as exported from Seller Central (.csv or .xlsx) — no template needed. Select multiple files at once (e.g. one per month) to import them all in a single action. Rows are matched to your Catalog by ASIN, and rows with zero activity that month are skipped automatically.</p>
         <div class="btn-row" style="margin-top:0;">
@@ -361,7 +407,8 @@
       </div>
 
       <div class="card">
-        <div class="table-scroll">
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('sku-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="sku-scroll">
         <table id="sku-table">
           <thead>
             <tr>
@@ -614,10 +661,16 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     if(item.dataset.tab === 'summary') renderSummary();
     if(item.dataset.tab === 'warehouse') renderWarehouse();
     if(item.dataset.tab === 'files'){ loadRawFiles().then(renderRawFiles); }
+    if(item.dataset.tab === 'sku'){ renderNetProceedsSummary(); }
   });
 });
 
 // ---------------- Helpers ----------------
+function scrollTable(id, delta){
+  const el = document.getElementById(id);
+  if(el) el.scrollBy({ left: delta, behavior: 'smooth' });
+}
+
 function fmt(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -1364,6 +1417,7 @@ function renderSku(){
     tbody.appendChild(tr);
   });
   document.getElementById('sku-empty').style.display = anyVisible ? 'none' : 'block';
+  renderNetProceedsSummary();
 }
 function addSkuRow(){
   state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
@@ -1627,9 +1681,7 @@ function monthsInQuarter(year, q){
   const startMonth = (q-1)*3 + 1;
   return [0,1,2].map(i => `${year}-${String(startMonth+i).padStart(2,'0')}`);
 }
-function monthsInScope(){
-  const periodType = document.getElementById('summary-period-type').value;
-  const value = document.getElementById('summary-period-value').value;
+function computeMonthsInScope(periodType, value){
   if(!value) return [];
   if(periodType === 'month') return [value];
   if(periodType === 'quarter'){
@@ -1642,10 +1694,11 @@ function monthsInScope(){
   return [];
 }
 
-function onSummaryPeriodTypeChange(){
-  const periodType = document.getElementById('summary-period-type').value;
-  const valueSelect = document.getElementById('summary-period-value');
-  const label = document.getElementById('summary-period-value-label');
+function populatePeriodValueSelect(periodTypeId, valueSelectId, labelId){
+  const periodType = document.getElementById(periodTypeId).value;
+  const valueSelect = document.getElementById(valueSelectId);
+  const label = document.getElementById(labelId);
+  const previousValue = valueSelect.value;
   valueSelect.innerHTML = '';
 
   if(periodType === 'month'){
@@ -1664,6 +1717,20 @@ function onSummaryPeriodTypeChange(){
       valueSelect.innerHTML += `<option value="${y}">${y} (YTD)</option>`;
     });
   }
+  // Keep the previous selection if it's still a valid option
+  if(Array.from(valueSelect.options).some(o=>o.value===previousValue)){
+    valueSelect.value = previousValue;
+  }
+}
+
+function monthsInScope(){
+  const periodType = document.getElementById('summary-period-type').value;
+  const value = document.getElementById('summary-period-value').value;
+  return computeMonthsInScope(periodType, value);
+}
+
+function onSummaryPeriodTypeChange(){
+  populatePeriodValueSelect('summary-period-type', 'summary-period-value', 'summary-period-value-label');
   renderSummary();
 }
 
@@ -1711,6 +1778,95 @@ function toggleParentExpand(key){
   if(expandedParents.has(key)) expandedParents.delete(key);
   else expandedParents.add(key);
   renderSummary();
+}
+
+// ---------------- Net Proceeds by Item (SKU Economics tab) ----------------
+function onNetProceedsPeriodTypeChange(){
+  populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
+  renderNetProceedsSummary();
+}
+
+function renderNetProceedsSummary(){
+  const valueSelect = document.getElementById('netproceeds-period-value');
+  if(!valueSelect.options.length) onNetProceedsPeriodTypeChange();
+
+  const level = document.getElementById('netproceeds-level').value;
+  const periodType = document.getElementById('netproceeds-period-type').value;
+  const periodValue = document.getElementById('netproceeds-period-value').value;
+  const months = computeMonthsInScope(periodType, periodValue);
+  const scopedRows = state.sku.filter(r => r.sku && r.month && months.includes(r.month) && r.netProceeds!==null && r.netProceeds!==undefined);
+
+  const thead = document.querySelector('#netproceeds-table thead');
+  const tbody = document.querySelector('#netproceeds-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('netproceeds-empty').style.display = scopedRows.length ? 'none' : 'block';
+
+  thead.innerHTML = `
+    <tr>
+      <th style="width:20%">${level==='parent' ? 'Parent ASIN' : 'SKU'}</th>
+      <th style="width:15%">ASIN</th>
+      <th style="width:20%">Net Proceeds</th>
+    </tr>
+  `;
+
+  function sumNetProceeds(rows){
+    return rows.reduce((sum,r)=>sum + (r.netProceeds||0), 0);
+  }
+
+  if(level === 'child'){
+    const bySku = {};
+    scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
+    Object.keys(bySku).sort().forEach(sku=>{
+      const total = sumNetProceeds(bySku[sku]);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${sku}</td>
+        <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
+        <td><strong>${fmt(total)}</strong></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } else {
+    const byParent = {};
+    scopedRows.forEach(r=>{
+      const parent = catalogParentAsinForSku(r.sku) || `(no parent — ${r.sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(r);
+    });
+    Object.keys(byParent).sort().forEach(parent=>{
+      const childRows = byParent[parent];
+      const total = sumNetProceeds(childRows);
+      const isExpanded = expandedParents.has('np-'+parent);
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>{
+        if(expandedParents.has('np-'+parent)) expandedParents.delete('np-'+parent);
+        else expandedParents.add('np-'+parent);
+        renderNetProceedsSummary();
+      };
+      tr.innerHTML = `
+        <td>${isExpanded ? '&#9662;' : '&#9656;'} ${parent}</td>
+        <td class="locked-readonly">—</td>
+        <td><strong>${fmt(total)}</strong></td>
+      `;
+      tbody.appendChild(tr);
+
+      if(isExpanded){
+        const bySku = {};
+        childRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
+        Object.keys(bySku).sort().forEach(sku=>{
+          const childTotal = sumNetProceeds(bySku[sku]);
+          const childTr = document.createElement('tr');
+          childTr.style.background = '#FAFBFC';
+          childTr.innerHTML = `
+            <td style="padding-left:28px; color:var(--grey);">${sku}</td>
+            <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
+            <td>${fmt(childTotal)}</td>
+          `;
+          tbody.appendChild(childTr);
+        });
+      }
+    });
+  }
 }
 
 function renderSummary(){
