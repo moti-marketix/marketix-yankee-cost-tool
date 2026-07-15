@@ -361,7 +361,7 @@
 
       <div class="card">
         <h2>Net Proceeds Per Unit</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Straight from Amazon's report — no landed cost or warehouse rate mixed in yet. SKU, ASIN, Parent ASIN, and Net Proceeds Per Unit, broken out by month for whatever period you pick.</p>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Straight from Amazon's report — no landed cost or warehouse rate mixed in yet. One row per SKU, with Net Proceeds divided by units for whatever period you pick.</p>
         <div class="row-inline">
           <div class="field">
             <label>Period</label>
@@ -382,7 +382,14 @@
         </div>
         <div class="table-scroll" id="netproceeds-scroll">
           <table id="netproceeds-table">
-            <thead></thead>
+            <thead>
+              <tr>
+                <th style="width:25%">SKU</th>
+                <th style="width:25%">ASIN</th>
+                <th style="width:25%">Parent ASIN</th>
+                <th style="width:25%">Net Proceeds / Unit</th>
+              </tr>
+            </thead>
             <tbody></tbody>
           </table>
         </div>
@@ -1896,17 +1903,10 @@ function toggleParentExpand(key){
   renderSummary();
 }
 
-// ---------------- Net Proceeds Per Unit (SKU Economics tab) ----------------
+// ---------------- Net Proceeds by Item (SKU Economics tab) ----------------
 function onNetProceedsPeriodTypeChange(){
   populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
   renderNetProceedsSummary();
-}
-
-function monthShortLabel(month){
-  // '2026-02' -> 'Feb 2026'
-  const [y, m] = month.split('-');
-  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${names[parseInt(m,10)-1]} ${y}`;
 }
 
 function renderNetProceedsSummary(){
@@ -1915,61 +1915,29 @@ function renderNetProceedsSummary(){
 
   const periodType = document.getElementById('netproceeds-period-type').value;
   const periodValue = document.getElementById('netproceeds-period-value').value;
-  const months = computeMonthsInScope(periodType, periodValue).slice().sort(); // chronological
+  const months = computeMonthsInScope(periodType, periodValue);
   const scopedRows = state.sku.filter(r => r.sku && r.month && months.includes(r.month) && r.netProceeds!==null && r.netProceeds!==undefined);
 
-  const thead = document.querySelector('#netproceeds-table thead');
   const tbody = document.querySelector('#netproceeds-table tbody');
   tbody.innerHTML = '';
   document.getElementById('netproceeds-empty').style.display = scopedRows.length ? 'none' : 'block';
 
-  const showTotalColumn = months.length > 1;
-
-  // Header: SKU | ASIN | Parent ASIN | [one column per month] | [Total, if >1 month]
-  let headerHtml = `
-    <th style="width:14%">SKU</th>
-    <th style="width:12%">ASIN</th>
-    <th style="width:12%">Parent ASIN</th>
-  `;
-  months.forEach(m=>{ headerHtml += `<th style="width:${showTotalColumn ? Math.floor(50/months.length) : 20}%">${monthShortLabel(m)}</th>`; });
-  if(showTotalColumn) headerHtml += `<th style="width:14%">Total (blended)</th>`;
-  thead.innerHTML = `<tr>${headerHtml}</tr>`;
-
-  // Group scoped rows by SKU
   const bySku = {};
   scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
 
   Object.keys(bySku).sort().forEach(sku=>{
-    const rowsForSku = bySku[sku];
-    const asin = catalogAsinForSku(sku);
-    const parentAsin = catalogParentAsinForSku(sku);
-
-    let rowHtml = `
-      <td>${sku}</td>
-      <td class="locked-readonly">${asin || '—'}</td>
-      <td class="locked-readonly">${parentAsin || '—'}</td>
-    `;
-
-    let totalNetProceeds = 0, totalUnits = 0;
-    months.forEach(m=>{
-      const row = rowsForSku.find(r=>r.month===m);
-      if(row && row.units){
-        const perUnit = row.netProceeds / row.units;
-        rowHtml += `<td>${fmt(perUnit)}</td>`;
-        totalNetProceeds += row.netProceeds;
-        totalUnits += row.units;
-      } else {
-        rowHtml += `<td style="color:var(--grey);">—</td>`;
-      }
-    });
-
-    if(showTotalColumn){
-      const blended = totalUnits ? (totalNetProceeds / totalUnits) : null;
-      rowHtml += `<td><strong>${blended!==null ? fmt(blended) : '—'}</strong></td>`;
-    }
+    const rows = bySku[sku];
+    const totalNetProceeds = rows.reduce((sum,r)=>sum + (r.netProceeds||0), 0);
+    const totalUnits = rows.reduce((sum,r)=>sum + (r.units||0), 0);
+    const perUnit = totalUnits ? totalNetProceeds / totalUnits : null;
 
     const tr = document.createElement('tr');
-    tr.innerHTML = rowHtml;
+    tr.innerHTML = `
+      <td>${sku}</td>
+      <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
+      <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
+      <td><strong>${perUnit!==null ? fmt(perUnit) : '—'}</strong></td>
+    `;
     tbody.appendChild(tr);
   });
 }
