@@ -72,6 +72,13 @@
     width:100%; padding:4px 8px; font-size:12px; font-weight:400; text-transform:none;
     border:1px solid var(--border); border-radius:5px;
   }
+  .filter-bar{
+    display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;
+    background:var(--blue-light); border:1px solid #C9DCEF; border-radius:8px;
+    padding:12px 16px; margin-bottom:14px;
+  }
+  .filter-bar .field label{ font-size:11px; color:var(--navy); }
+  .filter-bar .field select{ min-width:160px; }
   .locked-field{
     display:flex; align-items:center; gap:6px; font-size:13px; color:#222;
   }
@@ -168,6 +175,20 @@
       </div>
 
       <div class="card">
+        <div class="filter-bar">
+          <div class="field">
+            <label>ASIN</label>
+            <select id="catalog-filter-asin" onchange="catalogFilters.asin=this.value; renderCatalog();"><option value="">All ASINs</option></select>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <select id="catalog-filter-parent" onchange="catalogFilters.parentAsin=this.value; renderCatalog();"><option value="">All Parents</option></select>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <select id="catalog-filter-family" onchange="catalogFilters.family=this.value; renderCatalog();"><option value="">All Families</option></select>
+          </div>
+        </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('catalog-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('catalog-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="catalog-scroll">
         <table id="catalog-table">
@@ -181,12 +202,6 @@
               <th style="width:16%">Product Family</th>
               <th style="width:10%">Status</th>
               <th style="width:4%"></th>
-            </tr>
-            <tr class="filter-row">
-              <th></th>
-              <th><select id="catalog-filter-asin" onchange="catalogFilters.asin=this.value; renderCatalog();"><option value="">All ASINs</option></select></th>
-              <th><select id="catalog-filter-parent" onchange="catalogFilters.parentAsin=this.value; renderCatalog();"><option value="">All Parents</option></select></th>
-              <th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -216,6 +231,20 @@
       </div>
 
       <div class="card">
+        <div class="filter-bar">
+          <div class="field">
+            <label>ASIN</label>
+            <select id="mfg-filter-asin" onchange="mfgFilters.asin=this.value; renderMfg();"><option value="">All ASINs</option></select>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <select id="mfg-filter-parent" onchange="mfgFilters.parentAsin=this.value; renderMfg();"><option value="">All Parents</option></select>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <select id="mfg-filter-family" onchange="mfgFilters.family=this.value; renderMfg();"><option value="">All Families</option></select>
+          </div>
+        </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('mfg-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('mfg-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="mfg-scroll">
         <table id="mfg-table">
@@ -228,15 +257,6 @@
               <th style="width:16%">Manufacturing Cost / Unit (USD)</th>
               <th style="width:12%"></th>
               <th style="width:8%"></th>
-            </tr>
-            <tr class="filter-row">
-              <th></th>
-              <th><select id="mfg-filter-asin" onchange="mfgFilters.asin=this.value; renderMfg();"><option value="">All ASINs</option></select></th>
-              <th><select id="mfg-filter-parent" onchange="mfgFilters.parentAsin=this.value; renderMfg();"><option value="">All Parents</option></select></th>
-              <th></th>
-              <th></th>
-              <th></th>
-              <th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -278,6 +298,20 @@
 
       <div class="card">
         <h2>Master Carton Data</h2>
+        <div class="filter-bar">
+          <div class="field">
+            <label>ASIN</label>
+            <select id="logistics-filter-asin" onchange="logisticsFilters.asin=this.value; renderLogistics();"><option value="">All ASINs</option></select>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <select id="logistics-filter-parent" onchange="logisticsFilters.parentAsin=this.value; renderLogistics();"><option value="">All Parents</option></select>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <select id="logistics-filter-family" onchange="logisticsFilters.family=this.value; renderLogistics();"><option value="">All Families</option></select>
+          </div>
+        </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('logistics-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('logistics-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="logistics-scroll">
         <table id="logistics-table">
@@ -295,12 +329,6 @@
               <th style="width:12%">Freight Cost / Unit</th>
               <th style="width:5%"></th>
               <th style="width:8%"></th>
-            </tr>
-            <tr class="filter-row">
-              <th></th>
-              <th><select id="logistics-filter-asin" onchange="logisticsFilters.asin=this.value; renderLogistics();"><option value="">All ASINs</option></select></th>
-              <th><select id="logistics-filter-parent" onchange="logisticsFilters.parentAsin=this.value; renderLogistics();"><option value="">All Parents</option></select></th>
-              <th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -407,6 +435,20 @@
       </div>
 
       <div class="card">
+        <div class="filter-bar">
+          <div class="field">
+            <label>ASIN</label>
+            <select id="sku-filter-asin" onchange="skuFilters.asin=this.value; renderSku();"><option value="">All ASINs</option></select>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <select id="sku-filter-parent" onchange="skuFilters.parentAsin=this.value; renderSku();"><option value="">All Parents</option></select>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <select id="sku-filter-family" onchange="skuFilters.family=this.value; renderSku();"><option value="">All Families</option></select>
+          </div>
+        </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('sku-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="sku-scroll">
         <table id="sku-table">
@@ -426,12 +468,6 @@
               <th style="width:8%">Net Proceeds</th>
               <th style="width:5%"></th>
               <th style="width:5%"></th>
-            </tr>
-            <tr class="filter-row">
-              <th></th>
-              <th><select id="sku-filter-asin" onchange="skuFilters.asin=this.value; renderSku();"><option value="">All ASINs</option></select></th>
-              <th><select id="sku-filter-parent" onchange="skuFilters.parentAsin=this.value; renderSku();"><option value="">All Parents</option></select></th>
-              <th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -707,14 +743,14 @@ function skuSelectOptions(selectedValue){
 }
 
 // ---------------- TAB 0: Catalog ----------------
-const catalogFilters = { asin: '', parentAsin: '' };
+const catalogFilters = { asin: '', parentAsin: '', family: '' };
 
 function renderCatalog(){
   const tbody = document.querySelector('#catalog-table tbody');
   tbody.innerHTML = '';
   let anyVisible = false;
   state.catalog.forEach((row, idx)=>{
-    if(!matchesFilter(row.asin, catalogFilters.asin) || !matchesFilter(row.parentAsin, catalogFilters.parentAsin)) return;
+    if(!matchesFilter(row.asin, catalogFilters.asin) || !matchesFilter(row.parentAsin, catalogFilters.parentAsin) || !matchesFilter(row.family, catalogFilters.family)) return;
     anyVisible = true;
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -912,6 +948,10 @@ function catalogParentAsinForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
   return cat ? (cat.parentAsin||'') : '';
 }
+function catalogFamilyForSku(sku){
+  const cat = state.catalog.find(r=>r.sku===sku);
+  return cat ? (cat.family||'') : '';
+}
 // ---------------- Locked-field / Edit-toggle pattern ----------------
 // SKU is set once (from Catalog, via upload or dropdown) and then displayed
 // as locked text — an explicit Edit click is needed to reassign it, so it
@@ -942,9 +982,11 @@ function matchesFilter(value, filterValue){
 function populateAsinFilterDropdowns(){
   const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
 
   const asinSelectIds = ['catalog-filter-asin', 'mfg-filter-asin', 'logistics-filter-asin', 'sku-filter-asin'];
   const parentSelectIds = ['catalog-filter-parent', 'mfg-filter-parent', 'logistics-filter-parent', 'sku-filter-parent'];
+  const familySelectIds = ['catalog-filter-family', 'mfg-filter-family', 'logistics-filter-family', 'sku-filter-family'];
 
   asinSelectIds.forEach(id=>{
     const el = document.getElementById(id);
@@ -958,11 +1000,17 @@ function populateAsinFilterDropdowns(){
     const current = el.value;
     el.innerHTML = '<option value="">All Parents</option>' + parents.map(p=>`<option value="${p}" ${p===current?'selected':''}>${p}</option>`).join('');
   });
+  familySelectIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const current = el.value;
+    el.innerHTML = '<option value="">All Families</option>' + families.map(fam=>`<option value="${fam}" ${fam===current?'selected':''}>${fam}</option>`).join('');
+  });
 }
 
-const mfgFilters = { asin: '', parentAsin: '' };
-const logisticsFilters = { asin: '', parentAsin: '' };
-const skuFilters = { asin: '', parentAsin: '' };
+const mfgFilters = { asin: '', parentAsin: '', family: '' };
+const logisticsFilters = { asin: '', parentAsin: '', family: '' };
+const skuFilters = { asin: '', parentAsin: '', family: '' };
 
 function renderMfg(){
   const tbody = document.querySelector('#mfg-table tbody');
@@ -971,7 +1019,8 @@ function renderMfg(){
   state.mfg.forEach((row, idx)=>{
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
-    if(!matchesFilter(asin, mfgFilters.asin) || !matchesFilter(parentAsin, mfgFilters.parentAsin)) return;
+    const family = catalogFamilyForSku(row.sku);
+    if(!matchesFilter(asin, mfgFilters.asin) || !matchesFilter(parentAsin, mfgFilters.parentAsin) || !matchesFilter(family, mfgFilters.family)) return;
     anyVisible = true;
     const tr = document.createElement('tr');
     const displayName = catalogNameForSku(row.sku);
@@ -1233,7 +1282,8 @@ function renderLogistics(){
   state.logistics.items.forEach((row, idx)=>{
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
-    if(!matchesFilter(asin, logisticsFilters.asin) || !matchesFilter(parentAsin, logisticsFilters.parentAsin)) return;
+    const family = catalogFamilyForSku(row.sku);
+    if(!matchesFilter(asin, logisticsFilters.asin) || !matchesFilter(parentAsin, logisticsFilters.parentAsin) || !matchesFilter(family, logisticsFilters.family)) return;
     anyVisible = true;
     const cbm = computeCbm(row.l, row.w, row.h);
     const freight = computeFreightPerUnit(cbm, row.unitsPerCarton);
@@ -1463,7 +1513,8 @@ function renderSku(){
   state.sku.forEach((row, idx)=>{
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
-    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin)) return;
+    const family = catalogFamilyForSku(row.sku);
+    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin) || !matchesFilter(family, skuFilters.family)) return;
     anyVisible = true;
     const tr = document.createElement('tr');
     tr.innerHTML = `
