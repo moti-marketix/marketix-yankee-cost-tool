@@ -910,8 +910,8 @@ async function parseAndSaveMfgRows(rows, statusEl){
     if(sku===null && cost===null) continue; // blank row
     if(String(sku).trim().toUpperCase()==='SKU-001' && String(asin).trim().toUpperCase()==='B08EXAMPLE') continue; // example row
 
-    const costNum = parseFloat(cost);
-    if(!sku || isNaN(costNum)){ skipped++; continue; }
+    const costNum = numOrNull(cost);
+    if(!sku || costNum===null){ skipped++; continue; }
 
     const skuStr = String(sku).trim();
     const existing = state.mfg.find(r=>r.sku===skuStr);
@@ -1039,22 +1039,20 @@ async function parseAndSaveLogisticsRows(rows, statusEl){
     if(sku===null) continue;
     if(String(sku).trim().toUpperCase()==='SKU-001') continue; // example row
 
-    const l = cL ? parseFloat(row[headerMap[cL]]) : NaN;
-    const w = cW ? parseFloat(row[headerMap[cW]]) : NaN;
-    const h = cH ? parseFloat(row[headerMap[cH]]) : NaN;
-    const wt = cWt ? parseFloat(row[headerMap[cWt]]) : NaN;
-    const u = cU ? parseFloat(row[headerMap[cU]]) : NaN;
+    const l = cL ? numOrNull(row[headerMap[cL]]) : null;
+    const w = cW ? numOrNull(row[headerMap[cW]]) : null;
+    const h = cH ? numOrNull(row[headerMap[cH]]) : null;
+    const wt = cWt ? numOrNull(row[headerMap[cWt]]) : null;
+    const u = cU ? numOrNull(row[headerMap[cU]]) : null;
 
-    if(!sku || (isNaN(l) && isNaN(w) && isNaN(h))){ skipped++; continue; }
+    if(!sku || (l===null && w===null && h===null)){ skipped++; continue; }
 
     const skuStr = String(sku).trim();
     const rowData = {
       sku: skuStr,
-      l: isNaN(l) ? null : l,
-      w: isNaN(w) ? null : w,
-      h: isNaN(h) ? null : h,
-      weight: isNaN(wt) ? null : wt,
-      unitsPerCarton: isNaN(u) ? null : u,
+      l, w, h,
+      weight: wt,
+      unitsPerCarton: u,
     };
     const existing = state.logistics.items.find(r=>r.sku===skuStr);
     if(existing){
@@ -1239,9 +1237,19 @@ function mmddyyyyToMonth(dateStr){
   return `${yyyy}-${String(mm).padStart(2,'0')}`;
 }
 
+function cleanNumericString(v){
+  if(v===null || v===undefined) return '';
+  return String(v).replace(/[^0-9.\-]/g, ''); // strips $, commas, spaces, etc. — keeps digits, decimal point, minus sign
+}
 function num(v){
-  const n = parseFloat(v);
+  const n = parseFloat(cleanNumericString(v));
   return isNaN(n) ? 0 : n;
+}
+function numOrNull(v){
+  const cleaned = cleanNumericString(v);
+  if(cleaned === '') return null;
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
 }
 
 async function parseAmazonSkuEconomicsReport(rows, statusEl){
