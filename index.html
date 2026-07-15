@@ -1513,13 +1513,47 @@ function findColIdx(headerMap, name){
   return headerMap[normHeader(name)];
 }
 
-function mmddyyyyToMonth(dateStr){
-  if(!dateStr) return null;
-  const parts = String(dateStr).split('/');
-  if(parts.length !== 3) return null;
-  const [mm, dd, yyyy] = parts;
-  if(!yyyy || !mm) return null;
-  return `${yyyy}-${String(mm).padStart(2,'0')}`;
+function mmddyyyyToMonth(dateVal){
+  if(dateVal === null || dateVal === undefined || dateVal === '') return null;
+
+  // Case 1: already a JS Date object (can happen reading .xlsx with date-formatted cells)
+  if(dateVal instanceof Date){
+    if(isNaN(dateVal.getTime())) return null;
+    return `${dateVal.getFullYear()}-${String(dateVal.getMonth()+1).padStart(2,'0')}`;
+  }
+
+  // Case 2: Excel serial date number (days since 1899-12-30)
+  if(typeof dateVal === 'number'){
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    const jsDate = new Date(excelEpoch + dateVal * 86400000);
+    if(isNaN(jsDate.getTime())) return null;
+    return `${jsDate.getUTCFullYear()}-${String(jsDate.getUTCMonth()+1).padStart(2,'0')}`;
+  }
+
+  const str = String(dateVal).trim();
+  if(!str) return null;
+
+  // Case 3: MM/DD/YYYY or M/D/YYYY
+  const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(slashMatch){
+    const [, mm, , yyyy] = slashMatch;
+    return `${yyyy}-${mm.padStart(2,'0')}`;
+  }
+
+  // Case 4: YYYY-MM-DD (ISO-ish)
+  const isoMatch = str.match(/^(\d{4})-(\d{1,2})-\d{1,2}/);
+  if(isoMatch){
+    const [, yyyy, mm] = isoMatch;
+    return `${yyyy}-${mm.padStart(2,'0')}`;
+  }
+
+  // Case 5: last resort — let the browser's own date parser try
+  const parsed = new Date(str);
+  if(!isNaN(parsed.getTime())){
+    return `${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,'0')}`;
+  }
+
+  return null;
 }
 
 function cleanNumericString(v){
@@ -1560,7 +1594,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
   const hasParentAsinCol = headerMap['parent asin'] !== undefined;
   const catalogRowsToUpdate = [];
 
-  let imported = 0, skippedZero = 0, skippedNoMatch = 0;
+  let imported = 0, skippedZero = 0, skippedNoMatch = 0, skippedBadDate = 0;
   const rowsToSave = [];
 
   for(let i=1; i<rows.length; i++){
@@ -1591,6 +1625,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     }
 
     const month = mmddyyyyToMonth(row[headerMap['start date']]);
+    if(!month){ skippedBadDate++; continue; }
 
     const referralFee = num(row[headerMap['referral fee total']]) - num(row[headerMap['referral fee refunds total']]);
     const fbaFees = num(row[headerMap['fba fulfillment fees total']])
@@ -1636,6 +1671,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     let msg = `Done — ${actuallyImported} row(s) actually saved`;
     if(skippedZero) msg += `, ${skippedZero} skipped (no activity)`;
     if(skippedNoMatch) msg += `, ${skippedNoMatch} skipped (ASIN not found in Catalog)`;
+    if(skippedBadDate) msg += `, ${skippedBadDate} skipped (couldn't read the date)`;
     if(catalogRowsToUpdate.length) msg += `, ${catalogRowsToUpdate.length} Parent ASIN(s) auto-filled in Catalog`;
     if(saveFailures.length) msg += `. WARNING: ${saveFailures.length} row(s) matched but FAILED to save to Supabase (${saveFailures[0].error})`;
     statusEl.textContent = msg + '.';
@@ -1645,6 +1681,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     imported: actuallyImported,
     skippedZero,
     skippedNoMatch,
+    skippedBadDate,
     parentAsinUpdated: catalogRowsToUpdate.length,
     error: saveFailures.length ? saveFailures[0].error : undefined,
   };
@@ -1674,7 +1711,7 @@ function readAndParseOneReportFile(file){
         await updateRawFileStats(fileId, {
           success: result && result.success,
           rowsImported: result ? result.imported : undefined,
-          rowsSkipped: result ? (result.skippedZero||0) + (result.skippedNoMatch||0) : undefined,
+          rowsSkipped: result ? (result.skippedZero||0) + (result.skippedNoMatch||0) + (result.skippedBadDate||0) : undefined,
           error: result ? result.error : undefined,
         });
         resolve({ filename: file.name, ...result });
@@ -1707,12 +1744,14 @@ async function handleSkuEconomicsReportUpload(event){
     imported: acc.imported + r.imported,
     skippedZero: acc.skippedZero + r.skippedZero,
     skippedNoMatch: acc.skippedNoMatch + r.skippedNoMatch,
+    skippedBadDate: acc.skippedBadDate + (r.skippedBadDate||0),
     parentAsinUpdated: acc.parentAsinUpdated + r.parentAsinUpdated,
-  }), { imported:0, skippedZero:0, skippedNoMatch:0, parentAsinUpdated:0 });
+  }), { imported:0, skippedZero:0, skippedNoMatch:0, skippedBadDate:0, parentAsinUpdated:0 });
 
   let msg = `Done — ${files.length} file(s) processed, ${totals.imported} row(s) imported`;
   if(totals.skippedZero) msg += `, ${totals.skippedZero} skipped (no activity)`;
   if(totals.skippedNoMatch) msg += `, ${totals.skippedNoMatch} skipped (ASIN not found in Catalog)`;
+  if(totals.skippedBadDate) msg += `, ${totals.skippedBadDate} skipped (couldn't read the date)`;
   if(totals.parentAsinUpdated) msg += `, ${totals.parentAsinUpdated} Parent ASIN(s) updated in Catalog`;
   if(failed.length) msg += `. ${failed.length} file(s) failed: ${failed.map(f=>`${f.filename} (${f.error})`).join('; ')}`;
 
@@ -2197,7 +2236,7 @@ async function reparseRawFile(id){
       await updateRawFileStats(id, {
         success: result.success,
         rowsImported: result.imported,
-        rowsSkipped: (result.skippedZero||0) + (result.skippedNoMatch||0),
+        rowsSkipped: (result.skippedZero||0) + (result.skippedNoMatch||0) + (result.skippedBadDate||0),
         error: result.error,
       });
     } else if(result){
