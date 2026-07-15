@@ -761,24 +761,33 @@ async function uploadRawFile(file, screen){
     return data.id;
   }catch(err){
     // Don't block the actual data import if raw file archiving fails —
-    // just log it, since the parsed data save matters more in the moment.
+    // but DO surface it visibly, since a silent failure here is exactly
+    // why every file was stuck showing "Pending" with no explanation.
     console.error('Raw file archive failed:', err);
+    showSyncStatus('File archiving failed (data import still continues): ' + (err.message||err), true);
     return null;
   }
 }
 
 async function updateRawFileStats(fileId, { success, rowsImported, rowsSkipped, error }){
-  if(!fileId) return; // archiving may have failed — nothing to update
+  if(!fileId){ console.warn('updateRawFileStats: no fileId, skipping (archiving likely failed earlier)'); return; }
   try{
-    await sb.from('raw_files').update({
+    const { data, error: updateError } = await sb.from('raw_files').update({
       parse_status: success ? 'success' : 'error',
       rows_imported: rowsImported ?? null,
       rows_skipped: rowsSkipped ?? null,
       parse_error: error || null,
       parsed_at: new Date().toISOString(),
-    }).eq('id', fileId);
+    }).eq('id', fileId).select();
+    if(updateError) throw updateError;
+    if(!data || !data.length){
+      console.warn('updateRawFileStats: update ran with no error, but matched 0 rows for id', fileId, '— check that this id actually exists in raw_files.');
+    } else {
+      console.log('updateRawFileStats: successfully updated', fileId, data[0]);
+    }
   }catch(err){
     console.error('Could not update raw file parse status:', err);
+    showSyncStatus('Could not save file parse status: ' + (err.message||err), true);
   }
 }
 
