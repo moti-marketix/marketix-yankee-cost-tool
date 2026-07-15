@@ -754,14 +754,31 @@ async function uploadRawFile(file, screen){
     const path = `${CLIENT_ID}/${screen}/${timestamp}_${file.name}`;
     const { error: uploadErr } = await sb.storage.from('raw-uploads').upload(path, file);
     if(uploadErr) throw uploadErr;
-    const { error: logErr } = await sb.from('raw_files').insert({
-      client_id: CLIENT_ID, screen, original_filename: file.name, storage_path: path,
-    });
+    const { data, error: logErr } = await sb.from('raw_files').insert({
+      client_id: CLIENT_ID, screen, original_filename: file.name, storage_path: path, parse_status: 'pending',
+    }).select().single();
     if(logErr) throw logErr;
+    return data.id;
   }catch(err){
     // Don't block the actual data import if raw file archiving fails —
     // just log it, since the parsed data save matters more in the moment.
     console.error('Raw file archive failed:', err);
+    return null;
+  }
+}
+
+async function updateRawFileStats(fileId, { success, rowsImported, rowsSkipped, error }){
+  if(!fileId) return; // archiving may have failed — nothing to update
+  try{
+    await sb.from('raw_files').update({
+      parse_status: success ? 'success' : 'error',
+      rows_imported: rowsImported ?? null,
+      rows_skipped: rowsSkipped ?? null,
+      parse_error: error || null,
+      parsed_at: new Date().toISOString(),
+    }).eq('id', fileId);
+  }catch(err){
+    console.error('Could not update raw file parse status:', err);
   }
 }
 
@@ -782,7 +799,7 @@ async function parseAndSaveCatalogRows(rows, statusEl){
   }
   if(headerRowIdx === -1){
     if(statusEl){ statusEl.textContent = 'Could not find a SKU column in this file. Use the template format.'; statusEl.style.color = 'var(--red)'; }
-    return;
+    return { success: false, error: 'Could not find a SKU column.' };
   }
 
   let added = 0, updated = 0, skipped = 0;
@@ -829,6 +846,7 @@ async function parseAndSaveCatalogRows(rows, statusEl){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}.`;
   }
+  return { success: true, rowsImported: added + updated, rowsSkipped: skipped };
 }
 
 function handleCatalogUpload(event){
@@ -841,12 +859,13 @@ function handleCatalogUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
-      uploadRawFile(file, 'catalog'); // fire-and-forget archive; doesn't block parsing
+      const fileId = await uploadRawFile(file, 'catalog'); // archive first, so we have an id to update
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Catalog');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      await parseAndSaveCatalogRows(rows, statusEl);
+      const result = await parseAndSaveCatalogRows(rows, statusEl);
+      await updateRawFileStats(fileId, result);
     }catch(err){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
@@ -1049,24 +1068,29 @@ function handleFullTemplateUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
-      uploadRawFile(file, 'full_template'); // fire-and-forget archive
+      const fileId = await uploadRawFile(file, 'full_template');
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
 
       statusEl.textContent = 'Importing Catalog...';
       const catalogWs = findSheet(wb, 'Catalog');
       const catalogRows = XLSX.utils.sheet_to_json(catalogWs, {header:1, defval:null});
-      await parseAndSaveCatalogRows(catalogRows, null);
+      const catalogResult = await parseAndSaveCatalogRows(catalogRows, null);
 
       statusEl.textContent = 'Importing Manufacturing Costs...';
       const mfgWs = findSheet(wb, 'Manufacturing Costs');
       const mfgRows = XLSX.utils.sheet_to_json(mfgWs, {header:1, defval:null});
-      await parseAndSaveMfgRows(mfgRows, null);
+      const mfgResult = await parseAndSaveMfgRows(mfgRows, null);
 
       statusEl.textContent = 'Importing Logistics & Freight...';
       const logWs = findSheet(wb, 'Logistics & Freight');
       const logRows = XLSX.utils.sheet_to_json(logWs, {header:1, defval:null});
-      await parseAndSaveLogisticsRows(logRows, null);
+      const logResult = await parseAndSaveLogisticsRows(logRows, null);
+
+      const allSucceeded = [catalogResult, mfgResult, logResult].every(r => r && r.success);
+      const totalImported = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
+      const totalSkipped = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
+      await updateRawFileStats(fileId, { success: allSucceeded, rowsImported: totalImported, rowsSkipped: totalSkipped });
 
       statusEl.style.color = 'var(--green)';
       statusEl.textContent = `Done — imported Catalog (${state.catalog.length} SKUs), Manufacturing Costs (${state.mfg.length} SKUs), and Logistics (${state.logistics.items.length} SKUs).`;
@@ -1093,7 +1117,7 @@ async function parseAndSaveMfgRows(rows, statusEl){
   }
   if(headerRowIdx === -1){
     if(statusEl){ statusEl.textContent = 'Could not find SKU/COST headers in this file. Use the template format.'; statusEl.style.color = 'var(--red)'; }
-    return;
+    return { success: false, error: 'Could not find SKU/COST headers.' };
   }
 
   let added = 0, updated = 0, skipped = 0;
@@ -1130,6 +1154,7 @@ async function parseAndSaveMfgRows(rows, statusEl){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}.`;
   }
+  return { success: true, rowsImported: added + updated, rowsSkipped: skipped };
 }
 
 function handleMfgUpload(event){
@@ -1142,12 +1167,13 @@ function handleMfgUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
-      uploadRawFile(file, 'manufacturing_costs'); // fire-and-forget archive
+      const fileId = await uploadRawFile(file, 'manufacturing_costs');
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Manufacturing Costs');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      await parseAndSaveMfgRows(rows, statusEl);
+      const result = await parseAndSaveMfgRows(rows, statusEl);
+      await updateRawFileStats(fileId, result);
     }catch(err){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
@@ -1232,7 +1258,7 @@ async function parseAndSaveLogisticsRows(rows, statusEl){
   }
   if(headerRowIdx === -1){
     if(statusEl){ statusEl.textContent = 'Could not find carton columns in this file. Use the template format.'; statusEl.style.color = 'var(--red)'; }
-    return;
+    return { success: false, error: 'Could not find carton columns.' };
   }
   const findCol = (prefix) => Object.keys(headerMap).find(k => k.startsWith(prefix));
   const cL = findCol('CARTON L'), cW = findCol('CARTON W'), cH = findCol('CARTON H'), cWt = findCol('WEIGHT'), cU = findCol('UNITS');
@@ -1278,6 +1304,7 @@ async function parseAndSaveLogisticsRows(rows, statusEl){
     statusEl.style.color = 'var(--green)';
     statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}.`;
   }
+  return { success: true, rowsImported: added + updated, rowsSkipped: skipped };
 }
 
 function handleLogisticsUpload(event){
@@ -1290,12 +1317,13 @@ function handleLogisticsUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
-      uploadRawFile(file, 'logistics'); // fire-and-forget archive
+      const fileId = await uploadRawFile(file, 'logistics');
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Logistics & Freight');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      await parseAndSaveLogisticsRows(rows, statusEl);
+      const result = await parseAndSaveLogisticsRows(rows, statusEl);
+      await updateRawFileStats(fileId, result);
     }catch(err){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the template.';
@@ -1578,7 +1606,7 @@ function readAndParseOneReportFile(file){
     const reader = new FileReader();
     reader.onload = async function(e){
       try{
-        uploadRawFile(file, 'sku_economics'); // fire-and-forget archive
+        const fileId = await uploadRawFile(file, 'sku_economics');
         let rows;
         if(isCsv){
           let text = e.target.result;
@@ -1593,6 +1621,12 @@ function readAndParseOneReportFile(file){
           rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
         }
         const result = await parseAmazonSkuEconomicsReport(rows, null);
+        await updateRawFileStats(fileId, {
+          success: result && result.success,
+          rowsImported: result ? result.imported : undefined,
+          rowsSkipped: result ? (result.skippedZero||0) + (result.skippedNoMatch||0) : undefined,
+          error: result ? result.error : undefined,
+        });
         resolve({ filename: file.name, ...result });
       }catch(err){
         console.error(err);
@@ -1975,6 +2009,21 @@ function formatDateTime(iso){
   return d.toLocaleString(undefined, { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
+function parseStatusBadge(f){
+  if(f.parse_status === 'success'){
+    const imported = f.rows_imported ?? 0;
+    const skipped = f.rows_skipped ?? 0;
+    if(imported === 0){
+      return `<span class="pill neg">&#9888; 0 rows imported</span>`;
+    }
+    return `<span class="pill pos">&#10003; ${imported} imported${skipped ? `, ${skipped} skipped` : ''}</span>`;
+  }
+  if(f.parse_status === 'error'){
+    return `<span class="pill neg">&#10007; Failed${f.parse_error ? ': '+f.parse_error : ''}</span>`;
+  }
+  return `<span style="color:var(--grey); font-style:italic;">Pending...</span>`;
+}
+
 function renderRawFiles(){
   const container = document.getElementById('files-groups');
   container.innerHTML = '';
@@ -1991,9 +2040,10 @@ function renderRawFiles(){
     table.innerHTML = `
       <thead>
         <tr>
-          <th style="width:40%">Filename</th>
-          <th style="width:25%">Uploaded</th>
-          <th style="width:35%">Actions</th>
+          <th style="width:32%">Filename</th>
+          <th style="width:18%">Uploaded</th>
+          <th style="width:22%">Status</th>
+          <th style="width:28%">Actions</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -2004,6 +2054,7 @@ function renderRawFiles(){
       tr.innerHTML = `
         <td>${f.original_filename}</td>
         <td>${formatDateTime(f.uploaded_at)}</td>
+        <td>${parseStatusBadge(f)}</td>
         <td>
           <button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" onclick="downloadRawFile('${f.id}')">Download</button>
           <button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" onclick="reparseRawFile('${f.id}')">Re-parse</button>
@@ -2054,11 +2105,16 @@ async function reparseRawFile(id){
       const arrayBuffer = await data.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
       const catalogRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Catalog'), {header:1, defval:null});
-      await parseAndSaveCatalogRows(catalogRows, null);
+      const catalogResult = await parseAndSaveCatalogRows(catalogRows, null);
       const mfgRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Manufacturing Costs'), {header:1, defval:null});
-      await parseAndSaveMfgRows(mfgRows, null);
+      const mfgResult = await parseAndSaveMfgRows(mfgRows, null);
       const logRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Logistics & Freight'), {header:1, defval:null});
-      await parseAndSaveLogisticsRows(logRows, null);
+      const logResult = await parseAndSaveLogisticsRows(logRows, null);
+      const allSucceeded = [catalogResult, mfgResult, logResult].every(r => r && r.success);
+      const totalImported = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
+      const totalSkipped = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
+      await updateRawFileStats(id, { success: allSucceeded, rowsImported: totalImported, rowsSkipped: totalSkipped });
+      await loadRawFiles(); renderRawFiles();
       alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics have all been reloaded from this file.');
       return;
     }
@@ -2081,10 +2137,23 @@ async function reparseRawFile(id){
       rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
     }
 
-    if(fileRow.screen === 'catalog') await parseAndSaveCatalogRows(rows, null);
-    else if(fileRow.screen === 'manufacturing_costs') await parseAndSaveMfgRows(rows, null);
-    else if(fileRow.screen === 'logistics') await parseAndSaveLogisticsRows(rows, null);
-    else if(fileRow.screen === 'sku_economics') await parseAmazonSkuEconomicsReport(rows, null);
+    let result;
+    if(fileRow.screen === 'catalog') result = await parseAndSaveCatalogRows(rows, null);
+    else if(fileRow.screen === 'manufacturing_costs') result = await parseAndSaveMfgRows(rows, null);
+    else if(fileRow.screen === 'logistics') result = await parseAndSaveLogisticsRows(rows, null);
+    else if(fileRow.screen === 'sku_economics') result = await parseAmazonSkuEconomicsReport(rows, null);
+
+    if(fileRow.screen === 'sku_economics' && result){
+      await updateRawFileStats(id, {
+        success: result.success,
+        rowsImported: result.imported,
+        rowsSkipped: (result.skippedZero||0) + (result.skippedNoMatch||0),
+        error: result.error,
+      });
+    } else if(result){
+      await updateRawFileStats(id, result);
+    }
+    await loadRawFiles(); renderRawFiles();
 
     alert('Re-parse complete — data has been reloaded from this file.');
   }catch(err){
