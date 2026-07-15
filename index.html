@@ -1831,7 +1831,7 @@ function onNetProceedsPeriodTypeChange(){
 
 function renderNetProceedsSummary(){
   const valueSelect = document.getElementById('netproceeds-period-value');
-  if(!valueSelect.options.length) onNetProceedsPeriodTypeChange();
+  if(!valueSelect.options.length) populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
 
   const level = document.getElementById('netproceeds-level').value;
   const periodType = document.getElementById('netproceeds-period-type').value;
@@ -1915,7 +1915,7 @@ function renderNetProceedsSummary(){
 function renderSummary(){
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
-  if(!valueSelect.options.length) onSummaryPeriodTypeChange();
+  if(!valueSelect.options.length) populatePeriodValueSelect('summary-period-type', 'summary-period-value', 'summary-period-value-label');
 
   const level = document.getElementById('summary-level').value;
   const months = monthsInScope();
