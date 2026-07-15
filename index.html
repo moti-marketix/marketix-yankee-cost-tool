@@ -65,6 +65,22 @@
     font-weight:700; font-size:11.5px; text-transform:uppercase; letter-spacing:0.3px;
     border-bottom:2px solid var(--border);
   }
+  tr.filter-row th{
+    background:#fff; padding:4px 8px 8px 8px; border-bottom:1px solid var(--border);
+  }
+  tr.filter-row th input{
+    width:100%; padding:4px 8px; font-size:12px; font-weight:400; text-transform:none;
+    border:1px solid var(--border); border-radius:5px;
+  }
+  .locked-field{
+    display:flex; align-items:center; gap:6px; font-size:13px; color:#222;
+  }
+  .locked-value{ font-weight:600; }
+  .locked-readonly{ color:var(--grey); }
+  .btn-edit{
+    background:none; border:none; color:var(--blue); cursor:pointer; font-size:13px; padding:2px 4px;
+  }
+  .btn-edit:hover{ color:var(--navy); }
   td{padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:middle;}
   tr:hover td{background:#FAFBFC;}
   td input, td select{width:100%; padding:5px 8px; font-size:13px;}
@@ -156,6 +172,12 @@
               <th style="width:10%">Status</th>
               <th style="width:4%"></th>
             </tr>
+            <tr class="filter-row">
+              <th></th>
+              <th><input type="text" placeholder="Filter ASIN..." oninput="catalogFilters.asin=this.value; renderCatalog();"></th>
+              <th><input type="text" placeholder="Filter Parent..." oninput="catalogFilters.parentAsin=this.value; renderCatalog();"></th>
+              <th></th><th></th><th></th><th></th><th></th>
+            </tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -184,7 +206,26 @@
 
       <div class="card">
         <table id="mfg-table">
-          <thead><tr><th style="width:22%">SKU</th><th style="width:38%">Product Name</th><th style="width:22%">Manufacturing Cost / Unit (USD)</th><th style="width:10%"></th></tr></thead>
+          <thead>
+            <tr>
+              <th style="width:14%">SKU</th>
+              <th style="width:12%">ASIN</th>
+              <th style="width:12%">Parent ASIN</th>
+              <th style="width:26%">Product Name</th>
+              <th style="width:16%">Manufacturing Cost / Unit (USD)</th>
+              <th style="width:12%"></th>
+              <th style="width:8%"></th>
+            </tr>
+            <tr class="filter-row">
+              <th></th>
+              <th><input type="text" placeholder="Filter ASIN..." oninput="mfgFilters.asin=this.value; renderMfg();"></th>
+              <th><input type="text" placeholder="Filter Parent ASIN..." oninput="mfgFilters.parentAsin=this.value; renderMfg();"></th>
+              <th></th>
+              <th></th>
+              <th></th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody></tbody>
         </table>
         <div id="mfg-empty" class="empty" style="display:none;">No products yet — add your first SKU below, or upload a template above.</div>
@@ -226,15 +267,24 @@
         <table id="logistics-table">
           <thead>
             <tr>
-              <th style="width:11%">SKU</th>
-              <th style="width:9%">L (cm)</th>
-              <th style="width:9%">W (cm)</th>
-              <th style="width:9%">H (cm)</th>
-              <th style="width:9%">Weight (kg)</th>
-              <th style="width:9%">CBM</th>
-              <th style="width:11%">Units / Carton</th>
-              <th style="width:14%">Freight Cost / Unit</th>
-              <th style="width:9%"></th>
+              <th style="width:9%">SKU</th>
+              <th style="width:8%">ASIN</th>
+              <th style="width:8%">Parent ASIN</th>
+              <th style="width:7%">L (cm)</th>
+              <th style="width:7%">W (cm)</th>
+              <th style="width:7%">H (cm)</th>
+              <th style="width:8%">Weight (kg)</th>
+              <th style="width:7%">CBM</th>
+              <th style="width:9%">Units / Carton</th>
+              <th style="width:12%">Freight Cost / Unit</th>
+              <th style="width:5%"></th>
+              <th style="width:8%"></th>
+            </tr>
+            <tr class="filter-row">
+              <th></th>
+              <th><input type="text" placeholder="Filter ASIN..." oninput="logisticsFilters.asin=this.value; renderLogistics();"></th>
+              <th><input type="text" placeholder="Filter Parent..." oninput="logisticsFilters.parentAsin=this.value; renderLogistics();"></th>
+              <th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -306,17 +356,26 @@
         <table id="sku-table">
           <thead>
             <tr>
-              <th style="width:10%">SKU</th>
-              <th style="width:9%">Month</th>
-              <th style="width:8%">Units Sold</th>
-              <th style="width:10%">Revenue</th>
-              <th style="width:9%">Referral Fees</th>
-              <th style="width:9%">FBA Fees</th>
-              <th style="width:9%">Storage Fees</th>
-              <th style="width:9%">Ad Spend</th>
-              <th style="width:8%">Refunds</th>
-              <th style="width:10%">Net Proceeds</th>
-              <th style="width:9%"></th>
+              <th style="width:9%">SKU</th>
+              <th style="width:8%">ASIN</th>
+              <th style="width:8%">Parent ASIN</th>
+              <th style="width:7%">Month</th>
+              <th style="width:6%">Units</th>
+              <th style="width:8%">Revenue</th>
+              <th style="width:7%">Referral</th>
+              <th style="width:7%">FBA</th>
+              <th style="width:7%">Storage</th>
+              <th style="width:7%">Ad Spend</th>
+              <th style="width:6%">Refunds</th>
+              <th style="width:8%">Net Proceeds</th>
+              <th style="width:5%"></th>
+              <th style="width:5%"></th>
+            </tr>
+            <tr class="filter-row">
+              <th></th>
+              <th><input type="text" placeholder="Filter ASIN..." oninput="skuFilters.asin=this.value; renderSku();"></th>
+              <th><input type="text" placeholder="Filter Parent..." oninput="skuFilters.parentAsin=this.value; renderSku();"></th>
+              <th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -578,11 +637,15 @@ function skuSelectOptions(selectedValue){
 }
 
 // ---------------- TAB 0: Catalog ----------------
+const catalogFilters = { asin: '', parentAsin: '' };
+
 function renderCatalog(){
   const tbody = document.querySelector('#catalog-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('catalog-empty').style.display = state.catalog.length ? 'none' : 'block';
+  let anyVisible = false;
   state.catalog.forEach((row, idx)=>{
+    if(!matchesFilter(row.asin, catalogFilters.asin) || !matchesFilter(row.parentAsin, catalogFilters.parentAsin)) return;
+    anyVisible = true;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
@@ -602,6 +665,7 @@ function renderCatalog(){
     `;
     tbody.appendChild(tr);
   });
+  document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
 }
 function addCatalogRow(){
   state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
@@ -733,26 +797,74 @@ function catalogNameForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
   return cat ? (cat.name||'') : '';
 }
+function catalogAsinForSku(sku){
+  const cat = state.catalog.find(r=>r.sku===sku);
+  return cat ? (cat.asin||'') : '';
+}
+function catalogParentAsinForSku(sku){
+  const cat = state.catalog.find(r=>r.sku===sku);
+  return cat ? (cat.parentAsin||'') : '';
+}
+// ---------------- Locked-field / Edit-toggle pattern ----------------
+// SKU is set once (from Catalog, via upload or dropdown) and then displayed
+// as locked text — an explicit Edit click is needed to reassign it, so it
+// can't be accidentally changed while editing other fields in the row.
+const editingRows = { mfg: new Set(), logistics: new Set(), sku: new Set() };
+
+function toggleRowEdit(tableKey, idx){
+  const set = editingRows[tableKey];
+  if(set.has(idx)) set.delete(idx); else set.add(idx);
+  if(tableKey==='mfg') renderMfg();
+  else if(tableKey==='logistics') renderLogistics();
+  else if(tableKey==='sku') renderSku();
+}
+
+function skuCellHtml(tableKey, idx, sku, updateFnName){
+  const isEditing = editingRows[tableKey].has(idx);
+  if(isEditing || !sku){
+    return `<select onchange="${updateFnName}(${idx},'sku',this.value)">${skuSelectOptions(sku)}</select>`;
+  }
+  return `<div class="locked-field"><span class="locked-value">${sku}</span><button class="btn-edit" onclick="toggleRowEdit('${tableKey}',${idx})" title="Change SKU">&#9998;</button></div>`;
+}
+
+function matchesFilter(value, filterText){
+  if(!filterText) return true;
+  return (value||'').toUpperCase().includes(filterText.toUpperCase());
+}
+
+const mfgFilters = { asin: '', parentAsin: '' };
+const logisticsFilters = { asin: '', parentAsin: '' };
+const skuFilters = { asin: '', parentAsin: '' };
+
 function renderMfg(){
   const tbody = document.querySelector('#mfg-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('mfg-empty').style.display = state.mfg.length ? 'none' : 'block';
+  let anyVisible = false;
   state.mfg.forEach((row, idx)=>{
+    const asin = catalogAsinForSku(row.sku);
+    const parentAsin = catalogParentAsinForSku(row.sku);
+    if(!matchesFilter(asin, mfgFilters.asin) || !matchesFilter(parentAsin, mfgFilters.parentAsin)) return;
+    anyVisible = true;
     const tr = document.createElement('tr');
     const displayName = catalogNameForSku(row.sku);
     tr.innerHTML = `
-      <td><select onchange="updateMfg(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
+      <td>${skuCellHtml('mfg', idx, row.sku, 'updateMfg')}</td>
+      <td class="locked-readonly">${asin || '—'}</td>
+      <td class="locked-readonly">${parentAsin || '—'}</td>
       <td class="computed">${displayName || '<span style="color:var(--grey); font-style:italic;">(from Catalog)</span>'}</td>
       <td><input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00"></td>
+      <td></td>
       <td><button class="btn-del" onclick="deleteMfg(${idx})">&times;</button></td>
     `;
     tbody.appendChild(tr);
   });
+  document.getElementById('mfg-empty').style.display = anyVisible ? 'none' : 'block';
 }
 function addMfgRow(){ state.mfg.push({sku:'', mfgCost:null}); renderMfg(); }
 function updateMfg(idx, field, value){
   const row = state.mfg[idx];
   row[field] = field==='mfgCost' ? (value===''?null:parseFloat(value)) : value;
+  if(field==='sku') editingRows.mfg.delete(idx); // lock again after a deliberate reassignment
   if(!row.sku) return;
   debounceSave('mfg-'+idx, ()=>saveMfgRow(row));
   if(field==='sku') renderMfg();
@@ -974,13 +1086,19 @@ function renderLogistics(){
   document.getElementById('avgCbmPrice').value = state.logistics.avgCbmPrice ?? '';
   const tbody = document.querySelector('#logistics-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('logistics-empty').style.display = state.logistics.items.length ? 'none' : 'block';
+  let anyVisible = false;
   state.logistics.items.forEach((row, idx)=>{
+    const asin = catalogAsinForSku(row.sku);
+    const parentAsin = catalogParentAsinForSku(row.sku);
+    if(!matchesFilter(asin, logisticsFilters.asin) || !matchesFilter(parentAsin, logisticsFilters.parentAsin)) return;
+    anyVisible = true;
     const cbm = computeCbm(row.l, row.w, row.h);
     const freight = computeFreightPerUnit(cbm, row.unitsPerCarton);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><select onchange="updateLogistics(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
+      <td>${skuCellHtml('logistics', idx, row.sku, 'updateLogistics')}</td>
+      <td class="locked-readonly">${asin || '—'}</td>
+      <td class="locked-readonly">${parentAsin || '—'}</td>
       <td><input type="number" class="narrow" value="${row.l??''}" oninput="updateLogistics(${idx},'l',this.value)"></td>
       <td><input type="number" class="narrow" value="${row.w??''}" oninput="updateLogistics(${idx},'w',this.value)"></td>
       <td><input type="number" class="narrow" value="${row.h??''}" oninput="updateLogistics(${idx},'h',this.value)"></td>
@@ -988,15 +1106,18 @@ function renderLogistics(){
       <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
       <td><input type="number" class="narrow" value="${row.unitsPerCarton??''}" oninput="updateLogistics(${idx},'unitsPerCarton',this.value)"></td>
       <td class="computed">${freight!==null ? fmt(freight) : '—'}</td>
+      <td></td>
       <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
     `;
     tbody.appendChild(tr);
   });
+  document.getElementById('logistics-empty').style.display = anyVisible ? 'none' : 'block';
 }
 function addLogisticsRow(){ state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null}); renderLogistics(); }
 function updateLogistics(idx, field, value){
   const row = state.logistics.items[idx];
   row[field] = (field==='sku') ? value : (value===''?null:parseFloat(value));
+  if(field==='sku') editingRows.logistics.delete(idx);
   renderLogistics();
   if(!row.sku) return;
   debounceSave('logistics-'+idx, ()=>saveLogisticsRow(row));
@@ -1185,11 +1306,17 @@ function deleteWarehouse(idx){
 function renderSku(){
   const tbody = document.querySelector('#sku-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('sku-empty').style.display = state.sku.length ? 'none' : 'block';
+  let anyVisible = false;
   state.sku.forEach((row, idx)=>{
+    const asin = catalogAsinForSku(row.sku);
+    const parentAsin = catalogParentAsinForSku(row.sku);
+    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin)) return;
+    anyVisible = true;
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><select onchange="updateSku(${idx},'sku',this.value)">${skuSelectOptions(row.sku)}</select></td>
+      <td>${skuCellHtml('sku', idx, row.sku, 'updateSku')}</td>
+      <td class="locked-readonly">${asin || '—'}</td>
+      <td class="locked-readonly">${parentAsin || '—'}</td>
       <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
       <td><input type="number" value="${row.units??''}" oninput="updateSku(${idx},'units',this.value)"></td>
       <td><input type="number" step="0.01" value="${row.revenue??''}" oninput="updateSku(${idx},'revenue',this.value)"></td>
@@ -1199,10 +1326,12 @@ function renderSku(){
       <td><input type="number" step="0.01" value="${row.adSpend??''}" oninput="updateSku(${idx},'adSpend',this.value)"></td>
       <td><input type="number" step="0.01" value="${row.refunds??''}" oninput="updateSku(${idx},'refunds',this.value)"></td>
       <td><input type="number" step="0.01" value="${row.netProceeds??''}" oninput="updateSku(${idx},'netProceeds',this.value)" placeholder="optional"></td>
+      <td></td>
       <td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>
     `;
     tbody.appendChild(tr);
   });
+  document.getElementById('sku-empty').style.display = anyVisible ? 'none' : 'block';
 }
 function addSkuRow(){
   state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
@@ -1211,6 +1340,8 @@ function addSkuRow(){
 function updateSku(idx, field, value){
   const row = state.sku[idx];
   row[field] = (field==='sku'||field==='month') ? value : (value===''?null:parseFloat(value));
+  if(field==='sku') editingRows.sku.delete(idx);
+  if(field==='sku') renderSku();
   if(!row.sku || !row.month) return;
   debounceSave('sku-'+idx, ()=>saveSkuRow(row));
 }
