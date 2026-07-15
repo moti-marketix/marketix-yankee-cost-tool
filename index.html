@@ -81,9 +81,11 @@
     background:none; border:none; color:var(--blue); cursor:pointer; font-size:13px; padding:2px 4px;
   }
   .btn-edit:hover{ color:var(--navy); }
-  td{padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  td{padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap;}
+  th{ white-space:nowrap; }
+  .table-scroll{ overflow-x:auto; }
   tr:hover td{background:#FAFBFC;}
-  td input, td select{width:100%; padding:5px 8px; font-size:13px;}
+  td input, td select{width:100%; padding:5px 8px; font-size:13px; white-space:nowrap;}
   .computed{color:var(--blue); font-weight:600;}
   .btn{
     border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:600;
@@ -160,6 +162,7 @@
       </div>
 
       <div class="card">
+        <div class="table-scroll">
         <table id="catalog-table">
           <thead>
             <tr>
@@ -174,13 +177,14 @@
             </tr>
             <tr class="filter-row">
               <th></th>
-              <th><input type="text" placeholder="Filter ASIN..." oninput="catalogFilters.asin=this.value; renderCatalog();"></th>
-              <th><input type="text" placeholder="Filter Parent..." oninput="catalogFilters.parentAsin=this.value; renderCatalog();"></th>
+              <th><select id="catalog-filter-asin" onchange="catalogFilters.asin=this.value; renderCatalog();"><option value="">All ASINs</option></select></th>
+              <th><select id="catalog-filter-parent" onchange="catalogFilters.parentAsin=this.value; renderCatalog();"><option value="">All Parents</option></select></th>
               <th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
+        </div>
         <div id="catalog-empty" class="empty" style="display:none;">No products yet — add your first SKU below, or upload a template above.</div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addCatalogRow()">+ Add Product</button>
@@ -205,6 +209,7 @@
       </div>
 
       <div class="card">
+        <div class="table-scroll">
         <table id="mfg-table">
           <thead>
             <tr>
@@ -218,8 +223,8 @@
             </tr>
             <tr class="filter-row">
               <th></th>
-              <th><input type="text" placeholder="Filter ASIN..." oninput="mfgFilters.asin=this.value; renderMfg();"></th>
-              <th><input type="text" placeholder="Filter Parent ASIN..." oninput="mfgFilters.parentAsin=this.value; renderMfg();"></th>
+              <th><select id="mfg-filter-asin" onchange="mfgFilters.asin=this.value; renderMfg();"><option value="">All ASINs</option></select></th>
+              <th><select id="mfg-filter-parent" onchange="mfgFilters.parentAsin=this.value; renderMfg();"><option value="">All Parents</option></select></th>
               <th></th>
               <th></th>
               <th></th>
@@ -228,6 +233,7 @@
           </thead>
           <tbody></tbody>
         </table>
+        </div>
         <div id="mfg-empty" class="empty" style="display:none;">No products yet — add your first SKU below, or upload a template above.</div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addMfgRow()">+ Add Product</button>
@@ -264,6 +270,7 @@
 
       <div class="card">
         <h2>Master Carton Data</h2>
+        <div class="table-scroll">
         <table id="logistics-table">
           <thead>
             <tr>
@@ -282,13 +289,14 @@
             </tr>
             <tr class="filter-row">
               <th></th>
-              <th><input type="text" placeholder="Filter ASIN..." oninput="logisticsFilters.asin=this.value; renderLogistics();"></th>
-              <th><input type="text" placeholder="Filter Parent..." oninput="logisticsFilters.parentAsin=this.value; renderLogistics();"></th>
+              <th><select id="logistics-filter-asin" onchange="logisticsFilters.asin=this.value; renderLogistics();"><option value="">All ASINs</option></select></th>
+              <th><select id="logistics-filter-parent" onchange="logisticsFilters.parentAsin=this.value; renderLogistics();"><option value="">All Parents</option></select></th>
               <th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
+        </div>
         <div id="logistics-empty" class="empty" style="display:none;">No carton data yet — add a SKU below, or upload a template above.</div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addLogisticsRow()">+ Add SKU</button>
@@ -353,6 +361,7 @@
       </div>
 
       <div class="card">
+        <div class="table-scroll">
         <table id="sku-table">
           <thead>
             <tr>
@@ -373,13 +382,14 @@
             </tr>
             <tr class="filter-row">
               <th></th>
-              <th><input type="text" placeholder="Filter ASIN..." oninput="skuFilters.asin=this.value; renderSku();"></th>
-              <th><input type="text" placeholder="Filter Parent..." oninput="skuFilters.parentAsin=this.value; renderSku();"></th>
+              <th><select id="sku-filter-asin" onchange="skuFilters.asin=this.value; renderSku();"><option value="">All ASINs</option></select></th>
+              <th><select id="sku-filter-parent" onchange="skuFilters.parentAsin=this.value; renderSku();"><option value="">All Parents</option></select></th>
               <th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
+        </div>
         <div id="sku-empty" class="empty" style="display:none;">No SKU economics data yet — upload a report above, or add a row manually.</div>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addSkuRow()">+ Add Row</button>
@@ -666,6 +676,7 @@ function renderCatalog(){
     tbody.appendChild(tr);
   });
   document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
+  populateAsinFilterDropdowns();
 }
 function addCatalogRow(){
   state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
@@ -827,9 +838,30 @@ function skuCellHtml(tableKey, idx, sku, updateFnName){
   return `<div class="locked-field"><span class="locked-value">${sku}</span><button class="btn-edit" onclick="toggleRowEdit('${tableKey}',${idx})" title="Change SKU">&#9998;</button></div>`;
 }
 
-function matchesFilter(value, filterText){
-  if(!filterText) return true;
-  return (value||'').toUpperCase().includes(filterText.toUpperCase());
+function matchesFilter(value, filterValue){
+  if(!filterValue) return true; // "All" option
+  return value === filterValue;
+}
+
+function populateAsinFilterDropdowns(){
+  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+
+  const asinSelectIds = ['catalog-filter-asin', 'mfg-filter-asin', 'logistics-filter-asin', 'sku-filter-asin'];
+  const parentSelectIds = ['catalog-filter-parent', 'mfg-filter-parent', 'logistics-filter-parent', 'sku-filter-parent'];
+
+  asinSelectIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const current = el.value;
+    el.innerHTML = '<option value="">All ASINs</option>' + asins.map(a=>`<option value="${a}" ${a===current?'selected':''}>${a}</option>`).join('');
+  });
+  parentSelectIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const current = el.value;
+    el.innerHTML = '<option value="">All Parents</option>' + parents.map(p=>`<option value="${p}" ${p===current?'selected':''}>${p}</option>`).join('');
+  });
 }
 
 const mfgFilters = { asin: '', parentAsin: '' };
@@ -1420,13 +1452,16 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     const sku = asinToSku[String(asin).trim().toUpperCase()];
     if(!sku){ skippedNoMatch++; continue; }
 
-    // Auto-fill Parent ASIN in Catalog if the report has it and Catalog doesn't yet
+    // Parent ASIN comes from the report, not the Catalog sheet — the report is
+    // the authoritative source, so overwrite Catalog's value even if one is
+    // already set (it may have been mistakenly filled with an FNSKU instead).
     if(hasParentAsinCol){
       const parentAsin = row[headerMap['parent asin']];
       if(parentAsin){
         const catRow = state.catalog.find(r=>r.sku===sku);
-        if(catRow && !catRow.parentAsin){
-          catRow.parentAsin = String(parentAsin).trim();
+        const cleanParentAsin = String(parentAsin).trim();
+        if(catRow && catRow.parentAsin !== cleanParentAsin){
+          catRow.parentAsin = cleanParentAsin;
           catalogRowsToUpdate.push(catRow);
         }
       }
