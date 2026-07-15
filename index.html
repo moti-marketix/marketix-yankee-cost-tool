@@ -123,11 +123,21 @@
       <p class="subtitle">The master list of products. Every other tab references SKUs from here.</p>
 
       <div class="card">
-        <h2>Bulk Import</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Download the shared template (one file, one sheet per screen), fill in the "Catalog" sheet, then upload it here.</p>
+        <h2>Bulk Import — All Sheets at Once</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Fill in the Catalog, Manufacturing Costs, and Logistics &amp; Freight sheets in one file, then upload it once here — all three screens get populated in a single action.</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
-          <button class="btn btn-primary" onclick="document.getElementById('catalog-upload').click()">&#8679; Upload Filled Template</button>
+          <button class="btn btn-primary" onclick="document.getElementById('full-template-upload').click()">&#8679; Upload Full Template</button>
+          <input type="file" id="full-template-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleFullTemplateUpload(event)">
+        </div>
+        <div id="full-template-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
+        <h2>Bulk Import — Catalog Sheet Only</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Use this instead if you only want to update the Catalog sheet on its own, without touching Manufacturing or Logistics.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" onclick="document.getElementById('catalog-upload').click()">&#8679; Upload Catalog Sheet Only</button>
           <input type="file" id="catalog-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleCatalogUpload(event)">
         </div>
         <div id="catalog-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
@@ -829,6 +839,48 @@ function downloadFullTemplate(){
   XLSX.utils.book_append_sheet(wb, buildMfgSheet(), "Manufacturing Costs");
   XLSX.utils.book_append_sheet(wb, buildLogisticsSheet(), "Logistics & Freight");
   XLSX.writeFile(wb, "Yankee_Data_Template.xlsx");
+}
+
+// --- Bulk import: all three sheets from one file, one upload ---
+function handleFullTemplateUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('full-template-upload-status');
+  statusEl.textContent = 'Reading file...';
+  statusEl.style.color = 'var(--grey)';
+
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      uploadRawFile(file, 'full_template'); // fire-and-forget archive
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+
+      statusEl.textContent = 'Importing Catalog...';
+      const catalogWs = findSheet(wb, 'Catalog');
+      const catalogRows = XLSX.utils.sheet_to_json(catalogWs, {header:1, defval:null});
+      await parseAndSaveCatalogRows(catalogRows, null);
+
+      statusEl.textContent = 'Importing Manufacturing Costs...';
+      const mfgWs = findSheet(wb, 'Manufacturing Costs');
+      const mfgRows = XLSX.utils.sheet_to_json(mfgWs, {header:1, defval:null});
+      await parseAndSaveMfgRows(mfgRows, null);
+
+      statusEl.textContent = 'Importing Logistics & Freight...';
+      const logWs = findSheet(wb, 'Logistics & Freight');
+      const logRows = XLSX.utils.sheet_to_json(logWs, {header:1, defval:null});
+      await parseAndSaveLogisticsRows(logRows, null);
+
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `Done — imported Catalog (${state.catalog.length} SKUs), Manufacturing Costs (${state.mfg.length} SKUs), and Logistics (${state.logistics.items.length} SKUs).`;
+    }catch(err){
+      console.error(err);
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not read this file — make sure it\'s a .xlsx export of the shared template, with all three sheets present.';
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 // --- Bulk import: upload filled template ---
@@ -1536,6 +1588,7 @@ function renderSummary(){
 
 // ---------------- UPLOADED FILES ----------------
 const SCREEN_LABELS = {
+  full_template: 'Full Template (Catalog + Manufacturing + Logistics)',
   catalog: 'Catalog',
   manufacturing_costs: 'Manufacturing Costs',
   logistics: 'Logistics & Freight',
@@ -1567,7 +1620,7 @@ function renderRawFiles(){
   container.innerHTML = '';
   document.getElementById('files-empty').style.display = state.rawFiles.length ? 'none' : 'block';
 
-  const screens = ['catalog', 'manufacturing_costs', 'logistics', 'sku_economics'];
+  const screens = ['full_template', 'catalog', 'manufacturing_costs', 'logistics', 'sku_economics'];
   screens.forEach(screen=>{
     const files = state.rawFiles.filter(f=>f.screen===screen);
     if(!files.length) return;
@@ -1636,6 +1689,20 @@ async function reparseRawFile(id){
     if(error) throw error;
 
     const isCsv = /\.csv$/i.test(fileRow.original_filename);
+
+    if(fileRow.screen === 'full_template'){
+      const arrayBuffer = await data.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
+      const catalogRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Catalog'), {header:1, defval:null});
+      await parseAndSaveCatalogRows(catalogRows, null);
+      const mfgRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Manufacturing Costs'), {header:1, defval:null});
+      await parseAndSaveMfgRows(mfgRows, null);
+      const logRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Logistics & Freight'), {header:1, defval:null});
+      await parseAndSaveLogisticsRows(logRows, null);
+      alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics have all been reloaded from this file.');
+      return;
+    }
+
     let rows;
     if(isCsv){
       let text = await data.text();
