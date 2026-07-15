@@ -579,18 +579,15 @@ async function upsertRow(table, row, payload){
     if(row.id){
       const { error } = await sb.from(table).update(payload).eq('id', row.id);
       if(error) throw error;
-      showSyncStatus('Saved.');
-      return row.id;
+      return { success: true, id: row.id };
     } else {
       const { data, error } = await sb.from(table).insert(payload).select().single();
       if(error) throw error;
-      showSyncStatus('Saved.');
-      return data.id;
+      return { success: true, id: data.id };
     }
   }catch(err){
-    console.error(err);
-    showSyncStatus('Save failed: ' + (err.message||err), true);
-    return row.id || null;
+    console.error(`Save to ${table} failed:`, err, payload);
+    return { success: false, id: row.id || null, error: err.message || String(err) };
   }
 }
 async function deleteRow(table, id){
@@ -611,18 +608,24 @@ async function saveCatalogRow(row){
     brand: row.brand||null, product_family: row.family||null, status: row.status||'Active',
     updated_at: new Date().toISOString(),
   };
-  row.id = await upsertRow('catalog', row, payload);
+  const result = await upsertRow('catalog', row, payload);
+  row.id = result.id;
+  return result;
 }
 async function saveMfgRow(row){
   const payload = { client_id: CLIENT_ID, sku: row.sku, mfg_cost: row.mfgCost, updated_at: new Date().toISOString() };
-  row.id = await upsertRow('manufacturing_costs', row, payload);
+  const result = await upsertRow('manufacturing_costs', row, payload);
+  row.id = result.id;
+  return result;
 }
 async function saveLogisticsRow(row){
   const payload = {
     client_id: CLIENT_ID, sku: row.sku, carton_l: row.l, carton_w: row.w, carton_h: row.h,
     weight_kg: row.weight, units_per_carton: row.unitsPerCarton, updated_at: new Date().toISOString(),
   };
-  row.id = await upsertRow('logistics', row, payload);
+  const result = await upsertRow('logistics', row, payload);
+  row.id = result.id;
+  return result;
 }
 async function saveAvgCbmPrice(value){
   try{
@@ -639,7 +642,9 @@ async function saveAvgCbmPrice(value){
 }
 async function saveWarehouseRow(row){
   const payload = { client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount, updated_at: new Date().toISOString() };
-  row.id = await upsertRow('warehouse_invoices', row, payload);
+  const result = await upsertRow('warehouse_invoices', row, payload);
+  row.id = result.id;
+  return result;
 }
 async function saveSkuRow(row){
   const payload = {
@@ -648,7 +653,9 @@ async function saveSkuRow(row){
     ad_spend: row.adSpend, refunds: row.refunds, net_proceeds: row.netProceeds,
     updated_at: new Date().toISOString(),
   };
-  row.id = await upsertRow('sku_economics', row, payload);
+  const result = await upsertRow('sku_economics', row, payload);
+  row.id = result.id;
+  return result;
 }
 
 // ---------------- Navigation ----------------
@@ -849,13 +856,21 @@ async function parseAndSaveCatalogRows(rows, statusEl){
     }
   }
   if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-  await Promise.all(rowsToSave.map(r=>saveCatalogRow(r)));
+  const saveResults = await Promise.all(rowsToSave.map(r=>saveCatalogRow(r)));
+  const saveFailures = saveResults.filter(r => r && !r.success);
   renderCatalog();
   if(statusEl){
-    statusEl.style.color = 'var(--green)';
-    statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}.`;
+    statusEl.style.color = saveFailures.length ? 'var(--red)' : 'var(--green)';
+    let msg = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU)` : ''}`;
+    if(saveFailures.length) msg += `. WARNING: ${saveFailures.length} row(s) failed to actually save (${saveFailures[0].error})`;
+    statusEl.textContent = msg + '.';
   }
-  return { success: true, rowsImported: added + updated, rowsSkipped: skipped };
+  return {
+    success: saveFailures.length === 0,
+    rowsImported: (added + updated) - saveFailures.length,
+    rowsSkipped: skipped + saveFailures.length,
+    error: saveFailures.length ? saveFailures[0].error : undefined,
+  };
 }
 
 function handleCatalogUpload(event){
@@ -1157,13 +1172,21 @@ async function parseAndSaveMfgRows(rows, statusEl){
     }
   }
   if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-  await Promise.all(rowsToSave.map(r=>saveMfgRow(r)));
+  const saveResults = await Promise.all(rowsToSave.map(r=>saveMfgRow(r)));
+  const saveFailures = saveResults.filter(r => r && !r.success);
   renderMfg();
   if(statusEl){
-    statusEl.style.color = 'var(--green)';
-    statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}.`;
+    statusEl.style.color = saveFailures.length ? 'var(--red)' : 'var(--green)';
+    let msg = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped (missing SKU or cost)` : ''}`;
+    if(saveFailures.length) msg += `. WARNING: ${saveFailures.length} row(s) failed to actually save (${saveFailures[0].error})`;
+    statusEl.textContent = msg + '.';
   }
-  return { success: true, rowsImported: added + updated, rowsSkipped: skipped };
+  return {
+    success: saveFailures.length === 0,
+    rowsImported: (added + updated) - saveFailures.length,
+    rowsSkipped: skipped + saveFailures.length,
+    error: saveFailures.length ? saveFailures[0].error : undefined,
+  };
 }
 
 function handleMfgUpload(event){
@@ -1307,13 +1330,21 @@ async function parseAndSaveLogisticsRows(rows, statusEl){
     }
   }
   if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-  await Promise.all(rowsToSave.map(r=>saveLogisticsRow(r)));
+  const saveResults = await Promise.all(rowsToSave.map(r=>saveLogisticsRow(r)));
+  const saveFailures = saveResults.filter(r => r && !r.success);
   renderLogistics();
   if(statusEl){
-    statusEl.style.color = 'var(--green)';
-    statusEl.textContent = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}.`;
+    statusEl.style.color = saveFailures.length ? 'var(--red)' : 'var(--green)';
+    let msg = `Done — ${added} added, ${updated} updated${skipped ? `, ${skipped} row(s) skipped` : ''}`;
+    if(saveFailures.length) msg += `. WARNING: ${saveFailures.length} row(s) failed to actually save (${saveFailures[0].error})`;
+    statusEl.textContent = msg + '.';
   }
-  return { success: true, rowsImported: added + updated, rowsSkipped: skipped };
+  return {
+    success: saveFailures.length === 0,
+    rowsImported: (added + updated) - saveFailures.length,
+    rowsSkipped: skipped + saveFailures.length,
+    error: saveFailures.length ? saveFailures[0].error : undefined,
+  };
 }
 
 function handleLogisticsUpload(event){
@@ -1592,21 +1623,31 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
   }
 
   if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
-  await Promise.all(rowsToSave.map(r=>saveSkuRow(r)));
+  const saveResults = await Promise.all(rowsToSave.map(r=>saveSkuRow(r)));
+  const saveFailures = saveResults.filter(r => r && !r.success);
   if(catalogRowsToUpdate.length){
     await Promise.all(catalogRowsToUpdate.map(r=>saveCatalogRow(r)));
     renderCatalog();
   }
   renderSku();
+  const actuallyImported = imported - saveFailures.length;
   if(statusEl){
-    statusEl.style.color = 'var(--green)';
-    let msg = `Done — ${imported} row(s) imported`;
+    statusEl.style.color = saveFailures.length ? 'var(--red)' : 'var(--green)';
+    let msg = `Done — ${actuallyImported} row(s) actually saved`;
     if(skippedZero) msg += `, ${skippedZero} skipped (no activity)`;
     if(skippedNoMatch) msg += `, ${skippedNoMatch} skipped (ASIN not found in Catalog)`;
     if(catalogRowsToUpdate.length) msg += `, ${catalogRowsToUpdate.length} Parent ASIN(s) auto-filled in Catalog`;
+    if(saveFailures.length) msg += `. WARNING: ${saveFailures.length} row(s) matched but FAILED to save to Supabase (${saveFailures[0].error})`;
     statusEl.textContent = msg + '.';
   }
-  return { success: true, imported, skippedZero, skippedNoMatch, parentAsinUpdated: catalogRowsToUpdate.length };
+  return {
+    success: saveFailures.length === 0,
+    imported: actuallyImported,
+    skippedZero,
+    skippedNoMatch,
+    parentAsinUpdated: catalogRowsToUpdate.length,
+    error: saveFailures.length ? saveFailures[0].error : undefined,
+  };
 }
 
 function readAndParseOneReportFile(file){
