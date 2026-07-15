@@ -351,11 +351,11 @@
       <p class="subtitle">Enter figures from Amazon's SKU Economics report — one row per SKU, per month.</p>
 
       <div class="card">
-        <h2>Upload Amazon Report</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the SKU Economics report exactly as exported from Seller Central (.csv or .xlsx) — no template needed. Rows are matched to your Catalog by ASIN, and rows with zero activity that month are skipped automatically.</p>
+        <h2>Upload Amazon Report(s)</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the SKU Economics report exactly as exported from Seller Central (.csv or .xlsx) — no template needed. Select multiple files at once (e.g. one per month) to import them all in a single action. Rows are matched to your Catalog by ASIN, and rows with zero activity that month are skipped automatically.</p>
         <div class="btn-row" style="margin-top:0;">
-          <button class="btn btn-primary" onclick="document.getElementById('sku-report-upload').click()">&#8679; Upload Amazon Report</button>
-          <input type="file" id="sku-report-upload" accept=".csv,.xlsx,.xls" style="display:none;" onchange="handleSkuEconomicsReportUpload(event)">
+          <button class="btn btn-primary" onclick="document.getElementById('sku-report-upload').click()">&#8679; Upload Amazon Report(s)</button>
+          <input type="file" id="sku-report-upload" accept=".csv,.xlsx,.xls" multiple style="display:none;" onchange="handleSkuEconomicsReportUpload(event)">
         </div>
         <div id="sku-report-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
       </div>
@@ -1418,7 +1418,7 @@ function numOrNull(v){
 async function parseAmazonSkuEconomicsReport(rows, statusEl){
   if(!rows.length){
     if(statusEl){ statusEl.textContent = 'File appears to be empty.'; statusEl.style.color = 'var(--red)'; }
-    return;
+    return { success: false, error: 'File appears to be empty.' };
   }
   const headers = rows[0].map(normHeader);
   const headerMap = {};
@@ -1427,8 +1427,9 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
   const required = ['asin', 'start date', 'units sold', 'net proceeds total'];
   const missing = required.filter(r => headerMap[r]===undefined);
   if(missing.length){
-    if(statusEl){ statusEl.textContent = `This doesn't look like an Amazon SKU Economics report — missing columns: ${missing.join(', ')}.`; statusEl.style.color = 'var(--red)'; }
-    return;
+    const errorMsg = `This doesn't look like an Amazon SKU Economics report — missing columns: ${missing.join(', ')}.`;
+    if(statusEl){ statusEl.textContent = errorMsg; statusEl.style.color = 'var(--red)'; }
+    return { success: false, error: errorMsg };
   }
 
   // Build ASIN -> SKU lookup from Catalog
@@ -1514,43 +1515,72 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     if(catalogRowsToUpdate.length) msg += `, ${catalogRowsToUpdate.length} Parent ASIN(s) auto-filled in Catalog`;
     statusEl.textContent = msg + '.';
   }
+  return { success: true, imported, skippedZero, skippedNoMatch, parentAsinUpdated: catalogRowsToUpdate.length };
 }
 
-function handleSkuEconomicsReportUpload(event){
-  const file = event.target.files[0];
-  if(!file) return;
-  const statusEl = document.getElementById('sku-report-upload-status');
-  statusEl.textContent = 'Reading file...';
-  statusEl.style.color = 'var(--grey)';
-
-  const isCsv = /\.csv$/i.test(file.name);
-  const reader = new FileReader();
-  reader.onload = async function(e){
-    try{
-      uploadRawFile(file, 'sku_economics'); // fire-and-forget archive
-      let rows;
-      if(isCsv){
-        let text = e.target.result;
-        if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
-        const wb = XLSX.read(text, {type:'string'});
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      } else {
-        const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, {type:'array'});
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+function readAndParseOneReportFile(file){
+  return new Promise((resolve)=>{
+    const isCsv = /\.csv$/i.test(file.name);
+    const reader = new FileReader();
+    reader.onload = async function(e){
+      try{
+        uploadRawFile(file, 'sku_economics'); // fire-and-forget archive
+        let rows;
+        if(isCsv){
+          let text = e.target.result;
+          if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
+          const wb = XLSX.read(text, {type:'string'});
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+        } else {
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, {type:'array'});
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+        }
+        const result = await parseAmazonSkuEconomicsReport(rows, null);
+        resolve({ filename: file.name, ...result });
+      }catch(err){
+        console.error(err);
+        resolve({ filename: file.name, success: false, error: 'Could not read this file — make sure it\'s the SKU Economics report exported from Amazon.' });
       }
-      await parseAmazonSkuEconomicsReport(rows, statusEl);
-    }catch(err){
-      console.error(err);
-      statusEl.style.color = 'var(--red)';
-      statusEl.textContent = 'Could not read this file — make sure it\'s the SKU Economics report exported from Amazon.';
-    }
-    event.target.value = '';
-  };
-  if(isCsv) reader.readAsText(file);
-  else reader.readAsArrayBuffer(file);
+    };
+    if(isCsv) reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
+  });
+}
+
+async function handleSkuEconomicsReportUpload(event){
+  const files = Array.from(event.target.files || []);
+  if(!files.length) return;
+  const statusEl = document.getElementById('sku-report-upload-status');
+
+  const results = [];
+  for(let i=0; i<files.length; i++){
+    statusEl.style.color = 'var(--grey)';
+    statusEl.textContent = `Processing file ${i+1} of ${files.length}: ${files[i].name}...`;
+    const result = await readAndParseOneReportFile(files[i]);
+    results.push(result);
+  }
+
+  const succeeded = results.filter(r=>r.success);
+  const failed = results.filter(r=>!r.success);
+  const totals = succeeded.reduce((acc,r)=>({
+    imported: acc.imported + r.imported,
+    skippedZero: acc.skippedZero + r.skippedZero,
+    skippedNoMatch: acc.skippedNoMatch + r.skippedNoMatch,
+    parentAsinUpdated: acc.parentAsinUpdated + r.parentAsinUpdated,
+  }), { imported:0, skippedZero:0, skippedNoMatch:0, parentAsinUpdated:0 });
+
+  let msg = `Done — ${files.length} file(s) processed, ${totals.imported} row(s) imported`;
+  if(totals.skippedZero) msg += `, ${totals.skippedZero} skipped (no activity)`;
+  if(totals.skippedNoMatch) msg += `, ${totals.skippedNoMatch} skipped (ASIN not found in Catalog)`;
+  if(totals.parentAsinUpdated) msg += `, ${totals.parentAsinUpdated} Parent ASIN(s) updated in Catalog`;
+  if(failed.length) msg += `. ${failed.length} file(s) failed: ${failed.map(f=>`${f.filename} (${f.error})`).join('; ')}`;
+
+  statusEl.style.color = failed.length ? 'var(--red)' : 'var(--green)';
+  statusEl.textContent = msg + '.';
+  event.target.value = '';
 }
 
 // ---------------- SUMMARY ----------------
