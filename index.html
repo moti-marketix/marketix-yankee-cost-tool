@@ -178,15 +178,15 @@
         <div class="filter-bar">
           <div class="field">
             <label>ASIN</label>
-            <select id="catalog-filter-asin" onchange="catalogFilters.asin=this.value; renderCatalog();"><option value="">All ASINs</option></select>
+            <input type="text" id="catalog-filter-asin" list="catalog-filter-asin-list" placeholder="Search ASIN..." oninput="catalogFilters.asin=this.value; renderCatalog();"><datalist id="catalog-filter-asin-list"></datalist>
           </div>
           <div class="field">
             <label>Parent ASIN</label>
-            <select id="catalog-filter-parent" onchange="catalogFilters.parentAsin=this.value; renderCatalog();"><option value="">All Parents</option></select>
+            <input type="text" id="catalog-filter-parent" list="catalog-filter-parent-list" placeholder="Search Parent ASIN..." oninput="catalogFilters.parentAsin=this.value; renderCatalog();"><datalist id="catalog-filter-parent-list"></datalist>
           </div>
           <div class="field">
             <label>Product Family</label>
-            <select id="catalog-filter-family" onchange="catalogFilters.family=this.value; renderCatalog();"><option value="">All Families</option></select>
+            <input type="text" id="catalog-filter-family" list="catalog-filter-family-list" placeholder="Search Product Family..." oninput="catalogFilters.family=this.value; renderCatalog();"><datalist id="catalog-filter-family-list"></datalist>
           </div>
         </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('catalog-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('catalog-scroll',300)">&#9654;</button></div>
@@ -234,15 +234,15 @@
         <div class="filter-bar">
           <div class="field">
             <label>ASIN</label>
-            <select id="mfg-filter-asin" onchange="mfgFilters.asin=this.value; renderMfg();"><option value="">All ASINs</option></select>
+            <input type="text" id="mfg-filter-asin" list="mfg-filter-asin-list" placeholder="Search ASIN..." oninput="mfgFilters.asin=this.value; renderMfg();"><datalist id="mfg-filter-asin-list"></datalist>
           </div>
           <div class="field">
             <label>Parent ASIN</label>
-            <select id="mfg-filter-parent" onchange="mfgFilters.parentAsin=this.value; renderMfg();"><option value="">All Parents</option></select>
+            <input type="text" id="mfg-filter-parent" list="mfg-filter-parent-list" placeholder="Search Parent ASIN..." oninput="mfgFilters.parentAsin=this.value; renderMfg();"><datalist id="mfg-filter-parent-list"></datalist>
           </div>
           <div class="field">
             <label>Product Family</label>
-            <select id="mfg-filter-family" onchange="mfgFilters.family=this.value; renderMfg();"><option value="">All Families</option></select>
+            <input type="text" id="mfg-filter-family" list="mfg-filter-family-list" placeholder="Search Product Family..." oninput="mfgFilters.family=this.value; renderMfg();"><datalist id="mfg-filter-family-list"></datalist>
           </div>
         </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('mfg-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('mfg-scroll',300)">&#9654;</button></div>
@@ -301,15 +301,15 @@
         <div class="filter-bar">
           <div class="field">
             <label>ASIN</label>
-            <select id="logistics-filter-asin" onchange="logisticsFilters.asin=this.value; renderLogistics();"><option value="">All ASINs</option></select>
+            <input type="text" id="logistics-filter-asin" list="logistics-filter-asin-list" placeholder="Search ASIN..." oninput="logisticsFilters.asin=this.value; renderLogistics();"><datalist id="logistics-filter-asin-list"></datalist>
           </div>
           <div class="field">
             <label>Parent ASIN</label>
-            <select id="logistics-filter-parent" onchange="logisticsFilters.parentAsin=this.value; renderLogistics();"><option value="">All Parents</option></select>
+            <input type="text" id="logistics-filter-parent" list="logistics-filter-parent-list" placeholder="Search Parent ASIN..." oninput="logisticsFilters.parentAsin=this.value; renderLogistics();"><datalist id="logistics-filter-parent-list"></datalist>
           </div>
           <div class="field">
             <label>Product Family</label>
-            <select id="logistics-filter-family" onchange="logisticsFilters.family=this.value; renderLogistics();"><option value="">All Families</option></select>
+            <input type="text" id="logistics-filter-family" list="logistics-filter-family-list" placeholder="Search Product Family..." oninput="logisticsFilters.family=this.value; renderLogistics();"><datalist id="logistics-filter-family-list"></datalist>
           </div>
         </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('logistics-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('logistics-scroll',300)">&#9654;</button></div>
@@ -405,11 +405,11 @@
           </div>
           <div class="field">
             <label>ASIN</label>
-            <select id="netproceeds-filter-asin" onchange="renderNetProceedsSummary()"><option value="">All ASINs</option></select>
+            <input type="text" id="netproceeds-filter-asin" list="netproceeds-filter-asin-list" placeholder="Search ASIN..." oninput="renderNetProceedsSummary()"><datalist id="netproceeds-filter-asin-list"></datalist>
           </div>
           <div class="field">
             <label>Parent ASIN</label>
-            <select id="netproceeds-filter-parent" onchange="renderNetProceedsSummary()"><option value="">All Parents</option></select>
+            <input type="text" id="netproceeds-filter-parent" list="netproceeds-filter-parent-list" placeholder="Search Parent ASIN..." oninput="renderNetProceedsSummary()"><datalist id="netproceeds-filter-parent-list"></datalist>
           </div>
           <div class="field">
             <label>Sort by Net Proceeds / Unit</label>
@@ -455,15 +455,15 @@
         <div class="filter-bar">
           <div class="field">
             <label>ASIN</label>
-            <select id="sku-filter-asin" onchange="skuFilters.asin=this.value; renderSku();"><option value="">All ASINs</option></select>
+            <input type="text" id="sku-filter-asin" list="sku-filter-asin-list" placeholder="Search ASIN..." oninput="skuFilters.asin=this.value; renderSku();"><datalist id="sku-filter-asin-list"></datalist>
           </div>
           <div class="field">
             <label>Parent ASIN</label>
-            <select id="sku-filter-parent" onchange="skuFilters.parentAsin=this.value; renderSku();"><option value="">All Parents</option></select>
+            <input type="text" id="sku-filter-parent" list="sku-filter-parent-list" placeholder="Search Parent ASIN..." oninput="skuFilters.parentAsin=this.value; renderSku();"><datalist id="sku-filter-parent-list"></datalist>
           </div>
           <div class="field">
             <label>Product Family</label>
-            <select id="sku-filter-family" onchange="skuFilters.family=this.value; renderSku();"><option value="">All Families</option></select>
+            <input type="text" id="sku-filter-family" list="sku-filter-family-list" placeholder="Search Product Family..." oninput="skuFilters.family=this.value; renderSku();"><datalist id="sku-filter-family-list"></datalist>
           </div>
         </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('sku-scroll',300)">&#9654;</button></div>
@@ -993,8 +993,8 @@ function skuCellHtml(tableKey, idx, sku, updateFnName){
 }
 
 function matchesFilter(value, filterValue){
-  if(!filterValue) return true; // "All" option
-  return value === filterValue;
+  if(!filterValue) return true; // empty search box = no filter
+  return (value||'').toUpperCase().includes(filterValue.trim().toUpperCase());
 }
 
 function populateAsinFilterDropdowns(){
@@ -1002,27 +1002,24 @@ function populateAsinFilterDropdowns(){
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
   const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
 
-  const asinSelectIds = ['catalog-filter-asin', 'mfg-filter-asin', 'logistics-filter-asin', 'sku-filter-asin'];
-  const parentSelectIds = ['catalog-filter-parent', 'mfg-filter-parent', 'logistics-filter-parent', 'sku-filter-parent'];
-  const familySelectIds = ['catalog-filter-family', 'mfg-filter-family', 'logistics-filter-family', 'sku-filter-family'];
+  const asinListIds = ['catalog-filter-asin-list', 'mfg-filter-asin-list', 'logistics-filter-asin-list', 'sku-filter-asin-list'];
+  const parentListIds = ['catalog-filter-parent-list', 'mfg-filter-parent-list', 'logistics-filter-parent-list', 'sku-filter-parent-list'];
+  const familyListIds = ['catalog-filter-family-list', 'mfg-filter-family-list', 'logistics-filter-family-list', 'sku-filter-family-list'];
 
-  asinSelectIds.forEach(id=>{
+  asinListIds.forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
-    const current = el.value;
-    el.innerHTML = '<option value="">All ASINs</option>' + asins.map(a=>`<option value="${a}" ${a===current?'selected':''}>${a}</option>`).join('');
+    el.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
   });
-  parentSelectIds.forEach(id=>{
+  parentListIds.forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
-    const current = el.value;
-    el.innerHTML = '<option value="">All Parents</option>' + parents.map(p=>`<option value="${p}" ${p===current?'selected':''}>${p}</option>`).join('');
+    el.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
   });
-  familySelectIds.forEach(id=>{
+  familyListIds.forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
-    const current = el.value;
-    el.innerHTML = '<option value="">All Families</option>' + families.map(fam=>`<option value="${fam}" ${fam===current?'selected':''}>${fam}</option>`).join('');
+    el.innerHTML = families.map(fam=>`<option value="${fam}">`).join('');
   });
 }
 
@@ -1982,22 +1979,17 @@ function populateNetProceedsFilterDropdowns(){
   const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
 
-  const asinEl = document.getElementById('netproceeds-filter-asin');
-  if(asinEl){
-    const current = asinEl.value;
-    asinEl.innerHTML = '<option value="">All ASINs</option>' + asins.map(a=>`<option value="${a}" ${a===current?'selected':''}>${a}</option>`).join('');
-  }
-  const parentEl = document.getElementById('netproceeds-filter-parent');
-  if(parentEl){
-    const current = parentEl.value;
-    parentEl.innerHTML = '<option value="">All Parents</option>' + parents.map(p=>`<option value="${p}" ${p===current?'selected':''}>${p}</option>`).join('');
-  }
+  const asinListEl = document.getElementById('netproceeds-filter-asin-list');
+  if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
+
+  const parentListEl = document.getElementById('netproceeds-filter-parent-list');
+  if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
 }
 
 function renderNetProceedsSummary(){
   const valueSelect = document.getElementById('netproceeds-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
-  if(!document.getElementById('netproceeds-filter-asin').options.length) populateNetProceedsFilterDropdowns();
+  if(!document.getElementById('netproceeds-filter-asin-list').options.length) populateNetProceedsFilterDropdowns();
 
   const periodType = document.getElementById('netproceeds-period-type').value;
   const periodValue = document.getElementById('netproceeds-period-value').value;
