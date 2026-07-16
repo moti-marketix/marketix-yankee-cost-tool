@@ -454,6 +454,19 @@
       <div class="card">
         <div class="filter-bar">
           <div class="field">
+            <label>Period</label>
+            <select id="sku-table-period-type" onchange="onSkuTablePeriodTypeChange()">
+              <option value="all">All Time</option>
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="ytd">Year to Date</option>
+            </select>
+          </div>
+          <div class="field">
+            <label id="sku-table-period-value-label">Month</label>
+            <select id="sku-table-period-value" onchange="renderSku()" style="display:none;"></select>
+          </div>
+          <div class="field">
             <label>ASIN</label>
             <input type="text" id="sku-filter-asin" list="sku-filter-asin-list" placeholder="Search ASIN..." oninput="skuFilters.asin=this.value; renderSku();"><datalist id="sku-filter-asin-list"></datalist>
           </div>
@@ -465,28 +478,23 @@
             <label>Product Family</label>
             <input type="text" id="sku-filter-family" list="sku-filter-family-list" placeholder="Search Product Family..." oninput="skuFilters.family=this.value; renderSku();"><datalist id="sku-filter-family-list"></datalist>
           </div>
+          <div class="field">
+            <label>Sort by Net Proceeds</label>
+            <select id="sku-table-sort" onchange="renderSku()">
+              <option value="none">Default (no sort)</option>
+              <option value="desc">Highest to Lowest</option>
+              <option value="asc">Lowest to Highest</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:0; margin-bottom:12px; position:relative;">
+          <button class="btn btn-ghost" onclick="toggleColumnCustomizer()">&#9881; Customize Columns</button>
+          <div id="sku-column-customizer" style="display:none; position:absolute; top:36px; left:0; z-index:20; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.12); padding:14px; width:340px; max-height:340px; overflow-y:auto;"></div>
         </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('sku-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="sku-scroll">
         <table id="sku-table">
-          <thead>
-            <tr>
-              <th style="width:9%">SKU</th>
-              <th style="width:8%">ASIN</th>
-              <th style="width:8%">Parent ASIN</th>
-              <th style="width:7%">Month</th>
-              <th style="width:6%">Units</th>
-              <th style="width:8%">Revenue</th>
-              <th style="width:7%">Referral</th>
-              <th style="width:7%">FBA</th>
-              <th style="width:7%">Storage</th>
-              <th style="width:7%">Ad Spend</th>
-              <th style="width:6%">Refunds</th>
-              <th style="width:8%">Net Proceeds</th>
-              <th style="width:5%"></th>
-              <th style="width:5%"></th>
-            </tr>
-          </thead>
+          <thead><tr id="sku-table-header-row"></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -616,6 +624,17 @@ async function loadAllFromSupabase(){
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
       referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
       adSpend: r.ad_spend, refunds: r.refunds, netProceeds: r.net_proceeds,
+      unitsReturned: r.units_returned, netUnitsSold: r.net_units_sold,
+      avgSalesPrice: r.avg_sales_price, salesGross: r.sales_gross,
+      agedInventorySurcharge: r.aged_inventory_surcharge, baseFulfillmentFee: r.base_fulfillment_fee,
+      baseMonthlyStorageFee: r.base_monthly_storage_fee, fbaInventoryReimbursement: r.fba_inventory_reimbursement,
+      fbaDisposalOrderFee: r.fba_disposal_order_fee, fbaFulfillmentFeeRaw: r.fba_fulfillment_fee_raw,
+      fbaInboundPlacementFee: r.fba_inbound_placement_fee, fbaRemovalOrderFee: r.fba_removal_order_fee,
+      inboundTransportationFee: r.inbound_transportation_fee, liquidationProcessingFee: r.liquidation_processing_fee,
+      liquidationReferralFee: r.liquidation_referral_fee, monthlyInventoryStorageFee: r.monthly_inventory_storage_fee,
+      referralFeeRefunds: r.referral_fee_refunds, referralFeeRaw: r.referral_fee_raw,
+      refundAdministrationFee: r.refund_administration_fee, storageUtilizationSurcharge: r.storage_utilization_surcharge,
+      sponsoredProductsCharge: r.sponsored_products_charge, netProceedsPerUnit: r.net_proceeds_per_unit,
     }));
 
     showSyncStatus('All data loaded from Supabase.');
@@ -704,6 +723,17 @@ async function saveSkuRow(row){
     client_id: CLIENT_ID, sku: row.sku, month: row.month, units: row.units, revenue: row.revenue,
     referral_fees: row.referralFees, fba_fees: row.fbaFees, storage_fees: row.storageFees,
     ad_spend: row.adSpend, refunds: row.refunds, net_proceeds: row.netProceeds,
+    units_returned: row.unitsReturned, net_units_sold: row.netUnitsSold,
+    avg_sales_price: row.avgSalesPrice, sales_gross: row.salesGross,
+    aged_inventory_surcharge: row.agedInventorySurcharge, base_fulfillment_fee: row.baseFulfillmentFee,
+    base_monthly_storage_fee: row.baseMonthlyStorageFee, fba_inventory_reimbursement: row.fbaInventoryReimbursement,
+    fba_disposal_order_fee: row.fbaDisposalOrderFee, fba_fulfillment_fee_raw: row.fbaFulfillmentFeeRaw,
+    fba_inbound_placement_fee: row.fbaInboundPlacementFee, fba_removal_order_fee: row.fbaRemovalOrderFee,
+    inbound_transportation_fee: row.inboundTransportationFee, liquidation_processing_fee: row.liquidationProcessingFee,
+    liquidation_referral_fee: row.liquidationReferralFee, monthly_inventory_storage_fee: row.monthlyInventoryStorageFee,
+    referral_fee_refunds: row.referralFeeRefunds, referral_fee_raw: row.referralFeeRaw,
+    refund_administration_fee: row.refundAdministrationFee, storage_utilization_surcharge: row.storageUtilizationSurcharge,
+    sponsored_products_charge: row.sponsoredProductsCharge, net_proceeds_per_unit: row.netProceedsPerUnit,
     updated_at: new Date().toISOString(),
   };
   const result = await upsertRow('sku_economics', row, payload);
@@ -1521,36 +1551,146 @@ function deleteWarehouse(idx){
 }
 
 // ---------------- TAB 4: SKU Economics ----------------
+// ---------------- Column definitions for the SKU Economics table ----------------
+const skuColumnDefs = [
+  { key: 'units', label: 'Units Sold', money: false },
+  { key: 'revenue', label: 'Revenue (Net Sales)', money: true },
+  { key: 'referralFees', label: 'Referral Fees (net)', money: true },
+  { key: 'fbaFees', label: 'FBA Fees (combined)', money: true },
+  { key: 'storageFees', label: 'Storage Fees (combined)', money: true },
+  { key: 'adSpend', label: 'Ad Spend', money: true },
+  { key: 'refunds', label: 'Refunds (admin fee)', money: true },
+  { key: 'netProceeds', label: 'Net Proceeds', money: true },
+  { key: 'unitsReturned', label: 'Units Returned', money: false },
+  { key: 'netUnitsSold', label: 'Net Units Sold', money: false },
+  { key: 'avgSalesPrice', label: 'Avg Sales Price', money: true },
+  { key: 'salesGross', label: 'Sales (Gross)', money: true },
+  { key: 'agedInventorySurcharge', label: 'Aged Inventory Surcharge', money: true },
+  { key: 'baseFulfillmentFee', label: 'Base Fulfillment Fee', money: true },
+  { key: 'baseMonthlyStorageFee', label: 'Base Monthly Storage Fee', money: true },
+  { key: 'fbaInventoryReimbursement', label: 'FBA Inventory Reimbursement', money: true },
+  { key: 'fbaDisposalOrderFee', label: 'FBA Disposal Order Fee', money: true },
+  { key: 'fbaFulfillmentFeeRaw', label: 'FBA Fulfillment Fees', money: true },
+  { key: 'fbaInboundPlacementFee', label: 'FBA Inbound Placement Fee', money: true },
+  { key: 'fbaRemovalOrderFee', label: 'FBA Removal Order Fee', money: true },
+  { key: 'inboundTransportationFee', label: 'Inbound Transportation Fee', money: true },
+  { key: 'liquidationProcessingFee', label: 'Liquidation Processing Fee', money: true },
+  { key: 'liquidationReferralFee', label: 'Liquidation Referral Fee', money: true },
+  { key: 'monthlyInventoryStorageFee', label: 'Monthly Inventory Storage Fee', money: true },
+  { key: 'referralFeeRefunds', label: 'Referral Fee Refunds', money: true },
+  { key: 'referralFeeRaw', label: 'Referral Fee (gross)', money: true },
+  { key: 'refundAdministrationFee', label: 'Refund Administration Fee', money: true },
+  { key: 'storageUtilizationSurcharge', label: 'Storage Utilization Surcharge', money: true },
+  { key: 'sponsoredProductsCharge', label: 'Sponsored Products Charge', money: true },
+  { key: 'netProceedsPerUnit', label: 'Net Proceeds / Unit (Amazon)', money: true },
+];
+const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','referralFees','fbaFees','storageFees','adSpend','refunds','netProceeds'];
+
+function loadVisibleSkuColumns(){
+  try{
+    const saved = localStorage.getItem('skuVisibleColumns');
+    if(saved) return new Set(JSON.parse(saved));
+  }catch(e){}
+  return new Set(DEFAULT_VISIBLE_SKU_COLUMNS);
+}
+let visibleSkuColumns = loadVisibleSkuColumns();
+function saveVisibleSkuColumns(){
+  try{ localStorage.setItem('skuVisibleColumns', JSON.stringify(Array.from(visibleSkuColumns))); }catch(e){}
+}
+function toggleSkuColumn(key){
+  if(visibleSkuColumns.has(key)) visibleSkuColumns.delete(key);
+  else visibleSkuColumns.add(key);
+  saveVisibleSkuColumns();
+  renderSku();
+}
+function toggleColumnCustomizer(){
+  const panel = document.getElementById('sku-column-customizer');
+  const isOpen = panel.style.display !== 'none';
+  if(isOpen){ panel.style.display = 'none'; return; }
+  panel.innerHTML = `
+    <div style="font-weight:700; color:var(--navy); margin-bottom:8px; font-size:13px;">Show columns</div>
+    ${skuColumnDefs.map(col => `
+      <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; cursor:pointer;">
+        <input type="checkbox" ${visibleSkuColumns.has(col.key)?'checked':''} onchange="toggleSkuColumn('${col.key}')">
+        ${col.label}
+      </label>
+    `).join('')}
+  `;
+  panel.style.display = 'block';
+}
+
+// ---------------- Period filter for the raw table ----------------
+function onSkuTablePeriodTypeChange(){
+  const periodType = document.getElementById('sku-table-period-type').value;
+  const valueSelect = document.getElementById('sku-table-period-value');
+  if(periodType === 'all'){
+    valueSelect.style.display = 'none';
+  } else {
+    valueSelect.style.display = '';
+    populatePeriodValueSelect('sku-table-period-type', 'sku-table-period-value', 'sku-table-period-value-label');
+  }
+  renderSku();
+}
+
 function renderSku(){
-  const tbody = document.querySelector('#sku-table tbody');
-  tbody.innerHTML = '';
-  let anyVisible = false;
-  state.sku.forEach((row, idx)=>{
+  const periodType = document.getElementById('sku-table-period-type').value;
+  let monthsInScopeForTable = null; // null = no restriction (All Time)
+  if(periodType !== 'all'){
+    const periodValue = document.getElementById('sku-table-period-value').value;
+    monthsInScopeForTable = computeMonthsInScope(periodType, periodValue);
+  }
+  const sortOrder = document.getElementById('sku-table-sort').value;
+
+  // Build header dynamically based on visible columns
+  const headerRow = document.getElementById('sku-table-header-row');
+  const baseHeaders = ['SKU','ASIN','Parent ASIN','Month'];
+  const dataHeaders = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key)).map(c=>c.label);
+  headerRow.innerHTML = [...baseHeaders, ...dataHeaders, '', ''].map(h=>`<th>${h}</th>`).join('');
+
+  // Build filtered + sorted row list, keeping original state.sku indices for update/delete
+  let visibleEntries = state.sku.map((row, idx)=>({row, idx})).filter(({row})=>{
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const family = catalogFamilyForSku(row.sku);
-    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin) || !matchesFilter(family, skuFilters.family)) return;
-    anyVisible = true;
+    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin) || !matchesFilter(family, skuFilters.family)) return false;
+    if(monthsInScopeForTable !== null && !monthsInScopeForTable.includes(row.month)) return false;
+    return true;
+  });
+
+  if(sortOrder !== 'none'){
+    visibleEntries.sort((a,b)=>{
+      const av = a.row.netProceeds, bv = b.row.netProceeds;
+      if(av===null || av===undefined) return 1;
+      if(bv===null || bv===undefined) return -1;
+      return sortOrder === 'asc' ? av - bv : bv - av;
+    });
+  }
+
+  const tbody = document.querySelector('#sku-table tbody');
+  tbody.innerHTML = '';
+  const visibleDataCols = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key));
+
+  visibleEntries.forEach(({row, idx})=>{
+    const asin = catalogAsinForSku(row.sku);
+    const parentAsin = catalogParentAsinForSku(row.sku);
     const tr = document.createElement('tr');
-    tr.innerHTML = `
+    let cells = `
       <td>${skuCellHtml('sku', idx, row.sku, 'updateSku')}</td>
       <td class="locked-readonly">${asin || '—'}</td>
       <td class="locked-readonly">${parentAsin || '—'}</td>
       <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
-      <td><input type="number" value="${row.units??''}" oninput="updateSku(${idx},'units',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.revenue??''}" oninput="updateSku(${idx},'revenue',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.referralFees??''}" oninput="updateSku(${idx},'referralFees',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.fbaFees??''}" oninput="updateSku(${idx},'fbaFees',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.storageFees??''}" oninput="updateSku(${idx},'storageFees',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.adSpend??''}" oninput="updateSku(${idx},'adSpend',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.refunds??''}" oninput="updateSku(${idx},'refunds',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.netProceeds??''}" oninput="updateSku(${idx},'netProceeds',this.value)" placeholder="optional"></td>
-      <td></td>
-      <td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>
     `;
+    visibleDataCols.forEach(col=>{
+      const val = row[col.key];
+      const step = col.money ? 'step="0.01"' : '';
+      cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
+    });
+    cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
+    tr.innerHTML = cells;
     tbody.appendChild(tr);
   });
-  document.getElementById('sku-empty').style.display = anyVisible ? 'none' : 'block';
+
+  document.getElementById('sku-empty').style.display = visibleEntries.length ? 'none' : 'block';
   renderNetProceedsSummary();
 }
 function addSkuRow(){
@@ -1561,7 +1701,7 @@ function updateSku(idx, field, value){
   const row = state.sku[idx];
   row[field] = (field==='sku'||field==='month') ? value : (value===''?null:parseFloat(value));
   if(field==='sku') editingRows.sku.delete(idx);
-  if(field==='sku') renderSku();
+  if(field==='sku' || field==='month') renderSku();
   if(!row.sku || !row.month) return;
   debounceSave('sku-'+idx, ()=>saveSkuRow(row));
 }
@@ -1707,11 +1847,42 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     const refunds = num(row[headerMap['refund administration fee total']]);
     const revenue = num(row[headerMap['net sales']]);
 
+    // Individual raw line items, kept separate for the full detail view
+    const unitsReturned = numOrNull(row[headerMap['units returned']]);
+    const netUnitsSold = numOrNull(row[headerMap['net units sold']]);
+    const avgSalesPrice = numOrNull(row[headerMap['average sales price']]);
+    const salesGross = numOrNull(row[headerMap['sales']]);
+    const agedInventorySurcharge = numOrNull(row[headerMap['aged inventory surcharge total']]);
+    const baseFulfillmentFee = numOrNull(row[headerMap['base fulfillment fee total']]);
+    const baseMonthlyStorageFee = numOrNull(row[headerMap['base monthly storage fee total']]);
+    const fbaInventoryReimbursement = numOrNull(row[headerMap['fba inventory reimbursement total']]);
+    const fbaDisposalOrderFee = numOrNull(row[headerMap['fba disposal order fee total']]);
+    const fbaFulfillmentFeeRaw = numOrNull(row[headerMap['fba fulfillment fees total']]);
+    const fbaInboundPlacementFee = numOrNull(row[headerMap['fba inbound placement service fee total']]);
+    const fbaRemovalOrderFee = numOrNull(row[headerMap['fba removal order fee total']]);
+    const inboundTransportationFee = numOrNull(row[headerMap['inbound transportation fee total']]);
+    const liquidationProcessingFee = numOrNull(row[headerMap['liquidation processing fee total']]);
+    const liquidationReferralFee = numOrNull(row[headerMap['liquidation referral fee total']]);
+    const monthlyInventoryStorageFee = numOrNull(row[headerMap['monthly inventory storage fee total']]);
+    const referralFeeRefunds = numOrNull(row[headerMap['referral fee refunds total']]);
+    const referralFeeRaw = numOrNull(row[headerMap['referral fee total']]);
+    const refundAdministrationFee = numOrNull(row[headerMap['refund administration fee total']]);
+    const storageUtilizationSurcharge = numOrNull(row[headerMap['storage utilization surcharge total']]);
+    const sponsoredProductsCharge = numOrNull(row[headerMap['sponsored products charge total']]);
+    const netProceedsPerUnit = numOrNull(row[headerMap['net proceeds per net unit sold']]);
+
     const existing = state.sku.find(r=>r.sku===sku && r.month===month);
     const rowData = {
       sku, month, units: unitsSold, revenue,
       referralFees: referralFee, fbaFees, storageFees, adSpend, refunds,
       netProceeds,
+      unitsReturned, netUnitsSold, avgSalesPrice, salesGross,
+      agedInventorySurcharge, baseFulfillmentFee, baseMonthlyStorageFee,
+      fbaInventoryReimbursement, fbaDisposalOrderFee, fbaFulfillmentFeeRaw,
+      fbaInboundPlacementFee, fbaRemovalOrderFee, inboundTransportationFee,
+      liquidationProcessingFee, liquidationReferralFee, monthlyInventoryStorageFee,
+      referralFeeRefunds, referralFeeRaw, refundAdministrationFee,
+      storageUtilizationSurcharge, sponsoredProductsCharge, netProceedsPerUnit,
     };
     if(existing){
       Object.assign(existing, rowData);
