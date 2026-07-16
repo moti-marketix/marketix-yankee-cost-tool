@@ -454,11 +454,11 @@
     <!-- ===================== SUMMARY ===================== -->
     <section id="tab-summary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Profitability Summary</h1></div>
-      <p class="subtitle">Real net profit — Manufacturing + Freight + Warehouse + Amazon fees, all in one place.</p>
+      <p class="subtitle">Net Proceeds (from Amazon) minus COGS (Manufacturing + Freight). Warehouse cost per unit is a planned next addition, not included yet.</p>
 
       <div class="card">
         <h2>View</h2>
-        <div class="row-inline">
+        <div class="filter-bar">
           <div class="field">
             <label>Level</label>
             <select id="summary-level" onchange="renderSummary()">
@@ -478,16 +478,39 @@
             <label id="summary-period-value-label">Month</label>
             <select id="summary-period-value" onchange="renderSummary()"></select>
           </div>
+          <div class="field">
+            <label>ASIN</label>
+            <input type="text" id="summary-filter-asin" list="summary-filter-asin-list" placeholder="Search ASIN..." oninput="renderSummary()"><datalist id="summary-filter-asin-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <input type="text" id="summary-filter-parent" list="summary-filter-parent-list" placeholder="Search Parent ASIN..." oninput="renderSummary()"><datalist id="summary-filter-parent-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <input type="text" id="summary-filter-family" list="summary-filter-family-list" placeholder="Search Product Family..." oninput="renderSummary()"><datalist id="summary-filter-family-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Sort by Net Profit</label>
+            <select id="summary-sort" onchange="renderSummary()">
+              <option value="none">Default (no sort)</option>
+              <option value="desc">Highest to Lowest</option>
+              <option value="asc">Lowest to Highest</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <div class="kpi-grid" id="summary-kpis"></div>
 
       <div class="card">
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('summary-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('summary-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="summary-scroll">
         <table id="summary-table">
           <thead></thead>
           <tbody></tbody>
         </table>
+        </div>
         <div id="summary-empty" class="empty" style="display:none;">Add data in tabs 1–4 to see profitability here.</div>
       </div>
     </section>
@@ -766,6 +789,7 @@ function renderCatalog(){
   });
   document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
   populateAsinFilterDropdowns();
+  populateSummaryFilterDropdowns();
 }
 function addCatalogRow(){
   state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
@@ -2094,40 +2118,39 @@ function onSummaryPeriodTypeChange(){
 
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows){
-  let units=0, revenue=0, cogs=0, fees=0, refunds=0, netProfit=0;
+  let units=0, revenue=0, cogs=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
   rows.forEach(row=>{
-    const landed = landedCostForSku(row.sku) || 0;
-    const wh = warehouseCostForMonth(row.month) || 0;
+    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only — Warehouse cost/unit is a planned next addition
     const u = row.units || 0;
-    const rowCogs = (landed + wh) * u;
-    const rowFees = (row.referralFees||0) + (row.fbaFees||0) + (row.storageFees||0) + (row.adSpend||0);
-    const rowRefunds = row.refunds || 0;
-    let rowProfit;
-    if(row.netProceeds!==null && row.netProceeds!==undefined) rowProfit = row.netProceeds - rowCogs;
-    else rowProfit = (row.revenue||0) - rowFees - rowRefunds - rowCogs;
+    const rowCogs = landed * u;
 
     units += u;
     revenue += (row.revenue||0);
     cogs += rowCogs;
-    fees += rowFees;
-    refunds += rowRefunds;
-    netProfit += rowProfit;
+
+    if(row.netProceeds!==null && row.netProceeds!==undefined){
+      netProfit += (row.netProceeds - rowCogs);
+      rowsWithProfit++;
+    } else {
+      rowsMissingNetProceeds++;
+    }
   });
-  return { units, revenue, cogs, fees, refunds, netProfit };
+  const margin = revenue ? (netProfit/revenue*100) : null;
+  const roi = cogs ? (netProfit/cogs*100) : null;
+  return { units, revenue, cogs, netProfit, margin, roi, rowsWithProfit, rowsMissingNetProceeds };
 }
 
 function summaryRowHtml(label, agg, indent){
-  const margin = agg.revenue ? (agg.netProfit/agg.revenue*100) : null;
   const indentStyle = indent ? `style="padding-left:${indent}px; color:var(--grey);"` : '';
+  const missingNote = agg.rowsMissingNetProceeds ? ` <span style="color:var(--red); font-size:11px;">(${agg.rowsMissingNetProceeds} missing Net Proceeds)</span>` : '';
   return `
-    <td ${indentStyle}>${label}</td>
+    <td ${indentStyle}>${label}${missingNote}</td>
     <td>${agg.units.toLocaleString()}</td>
     <td>${fmt(agg.revenue)}</td>
     <td>${fmt(agg.cogs)}</td>
-    <td>${fmt(agg.fees)}</td>
-    <td>${fmt(agg.refunds)}</td>
     <td><strong>${fmt(agg.netProfit)}</strong></td>
-    <td>${margin!==null ? `<span class="pill ${margin>=0?'pos':'neg'}">${margin.toFixed(1)}%</span>` : '—'}</td>
+    <td>${agg.margin!==null ? `<span class="pill ${agg.margin>=0?'pos':'neg'}">${agg.margin.toFixed(1)}%</span>` : '—'}</td>
+    <td>${agg.roi!==null ? `<span class="pill ${agg.roi>=0?'pos':'neg'}">${agg.roi.toFixed(1)}%</span>` : '—'}</td>
   `;
 }
 
@@ -2139,14 +2162,39 @@ function toggleParentExpand(key){
 }
 
 // ---------------- Net Proceeds by Item (SKU Economics tab) ----------------
+function populateSummaryFilterDropdowns(){
+  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+
+  const asinListEl = document.getElementById('summary-filter-asin-list');
+  if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
+  const parentListEl = document.getElementById('summary-filter-parent-list');
+  if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
+  const familyListEl = document.getElementById('summary-filter-family-list');
+  if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
+}
+
 function renderSummary(){
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('summary-period-type', 'summary-period-value', 'summary-period-value-label');
+  if(!document.getElementById('summary-filter-asin-list').options.length) populateSummaryFilterDropdowns();
 
   const level = document.getElementById('summary-level').value;
+  const asinFilter = document.getElementById('summary-filter-asin').value;
+  const parentFilter = document.getElementById('summary-filter-parent').value;
+  const familyFilter = document.getElementById('summary-filter-family').value;
+  const sortOrder = document.getElementById('summary-sort').value;
+
   const months = monthsInScope();
-  const scopedRows = state.sku.filter(r => r.sku && r.month && months.includes(r.month));
+  const scopedRows = state.sku.filter(r => {
+    if(!r.sku || !r.month || !months.includes(r.month)) return false;
+    if(!matchesFilter(catalogAsinForSku(r.sku), asinFilter)) return false;
+    if(!matchesFilter(catalogParentAsinForSku(r.sku), parentFilter)) return false;
+    if(!matchesFilter(catalogFamilyForSku(r.sku), familyFilter)) return false;
+    return true;
+  });
 
   const thead = document.querySelector('#summary-table thead');
   const tbody = document.querySelector('#summary-table tbody');
@@ -2155,35 +2203,40 @@ function renderSummary(){
 
   thead.innerHTML = `
     <tr>
-      <th style="width:16%">${level==='parent' ? 'Parent ASIN' : 'SKU'}</th>
-      <th style="width:9%">Units</th>
-      <th style="width:12%">Revenue</th>
-      <th style="width:12%">COGS</th>
-      <th style="width:13%">Fees + Ads</th>
-      <th style="width:10%">Refunds</th>
-      <th style="width:13%">Net Profit</th>
-      <th style="width:9%">Margin %</th>
+      <th style="width:20%">${level==='parent' ? 'Parent ASIN' : 'SKU'}</th>
+      <th style="width:11%">Units</th>
+      <th style="width:15%">Revenue</th>
+      <th style="width:15%">COGS</th>
+      <th style="width:16%">Net Profit</th>
+      <th style="width:12%">Margin %</th>
+      <th style="width:11%">ROI %</th>
     </tr>
   `;
 
   if(level === 'child'){
     const bySku = {};
     scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
-    Object.keys(bySku).sort().forEach(sku=>{
-      const agg = aggregateRows(bySku[sku]);
+    let items = Object.keys(bySku).map(sku=>({ key: sku, agg: aggregateRows(bySku[sku]) }));
+    if(sortOrder !== 'none') items.sort((a,b)=> sortOrder==='asc' ? a.agg.netProfit-b.agg.netProfit : b.agg.netProfit-a.agg.netProfit);
+    else items.sort((a,b)=> a.key.localeCompare(b.key));
+
+    items.forEach(({key, agg})=>{
       const tr = document.createElement('tr');
-      tr.innerHTML = summaryRowHtml(sku, agg);
+      tr.innerHTML = summaryRowHtml(key, agg);
       tbody.appendChild(tr);
     });
   } else {
     const byParent = {};
     scopedRows.forEach(r=>{
-      const parent = parentAsinForSku(r.sku) || `(no parent — ${r.sku})`;
+      const parent = catalogParentAsinForSku(r.sku) || `(no parent — ${r.sku})`;
       (byParent[parent] = byParent[parent]||[]).push(r);
     });
-    Object.keys(byParent).sort().forEach(parent=>{
+    let parentItems = Object.keys(byParent).map(parent=>({ key: parent, agg: aggregateRows(byParent[parent]) }));
+    if(sortOrder !== 'none') parentItems.sort((a,b)=> sortOrder==='asc' ? a.agg.netProfit-b.agg.netProfit : b.agg.netProfit-a.agg.netProfit);
+    else parentItems.sort((a,b)=> a.key.localeCompare(b.key));
+
+    parentItems.forEach(({key: parent, agg})=>{
       const childRows = byParent[parent];
-      const agg = aggregateRows(childRows);
       const isExpanded = expandedParents.has(parent);
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
@@ -2207,12 +2260,11 @@ function renderSummary(){
 
   const overall = aggregateRows(scopedRows);
   const kpis = document.getElementById('summary-kpis');
-  const avgMargin = overall.revenue ? (overall.netProfit/overall.revenue*100) : null;
   kpis.innerHTML = `
     <div class="kpi"><div class="label">Rows in Scope</div><div class="value">${scopedRows.length}</div></div>
     <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(overall.revenue)}</div></div>
     <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmt(overall.netProfit)}</div></div>
-    <div class="kpi"><div class="label">Blended Margin</div><div class="value">${avgMargin!==null ? avgMargin.toFixed(1)+'%' : '—'}</div></div>
+    <div class="kpi"><div class="label">Margin % / ROI %</div><div class="value">${overall.margin!==null ? overall.margin.toFixed(1)+'%' : '—'} / ${overall.roi!==null ? overall.roi.toFixed(1)+'%' : '—'}</div></div>
   `;
 }
 
