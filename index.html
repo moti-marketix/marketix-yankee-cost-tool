@@ -412,10 +412,11 @@
           <table id="netproceeds-table">
             <thead>
               <tr>
-                <th style="width:25%">SKU</th>
-                <th style="width:25%">ASIN</th>
-                <th style="width:25%">Parent ASIN</th>
-                <th style="width:25%">Net Proceeds / Unit</th>
+                <th style="width:20%">SKU</th>
+                <th style="width:20%">ASIN</th>
+                <th style="width:20%">Parent ASIN</th>
+                <th style="width:20%">Net Proceeds / Unit</th>
+                <th style="width:20%">Net Proceeds Total</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -1988,6 +1989,7 @@ function renderNetProceedsSummary(){
       <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
       <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
       <td><strong>${perUnit!==null ? fmt(perUnit) : '—'}</strong></td>
+      <td>${fmt(totalNetProceeds)}</td>
     `;
     tbody.appendChild(tr);
   });
