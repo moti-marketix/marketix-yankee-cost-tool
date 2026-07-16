@@ -1640,15 +1640,16 @@ function renderSku(){
     monthsInScopeForTable = computeMonthsInScope(periodType, periodValue);
   }
   const sortOrder = document.getElementById('sku-table-sort').value;
+  const isAggregatedView = (periodType === 'quarter' || periodType === 'ytd');
 
   // Build header dynamically based on visible columns
   const headerRow = document.getElementById('sku-table-header-row');
-  const baseHeaders = ['SKU','ASIN','Parent ASIN','Month'];
+  const baseHeaders = isAggregatedView ? ['SKU','ASIN','Parent ASIN'] : ['SKU','ASIN','Parent ASIN','Month'];
   const dataHeaders = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key)).map(c=>c.label);
   headerRow.innerHTML = [...baseHeaders, ...dataHeaders, '', ''].map(h=>`<th>${h}</th>`).join('');
 
-  // Build filtered + sorted row list, keeping original state.sku indices for update/delete
-  let visibleEntries = state.sku.map((row, idx)=>({row, idx})).filter(({row})=>{
+  // Filter first (same rules regardless of view mode)
+  let filteredEntries = state.sku.map((row, idx)=>({row, idx})).filter(({row})=>{
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const family = catalogFamilyForSku(row.sku);
@@ -1657,40 +1658,93 @@ function renderSku(){
     return true;
   });
 
-  if(sortOrder !== 'none'){
-    visibleEntries.sort((a,b)=>{
-      const av = a.row.netProceeds, bv = b.row.netProceeds;
-      if(av===null || av===undefined) return 1;
-      if(bv===null || bv===undefined) return -1;
-      return sortOrder === 'asc' ? av - bv : bv - av;
-    });
-  }
-
   const tbody = document.querySelector('#sku-table tbody');
   tbody.innerHTML = '';
   const visibleDataCols = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key));
+  let anyRows = false;
 
-  visibleEntries.forEach(({row, idx})=>{
-    const asin = catalogAsinForSku(row.sku);
-    const parentAsin = catalogParentAsinForSku(row.sku);
-    const tr = document.createElement('tr');
-    let cells = `
-      <td>${skuCellHtml('sku', idx, row.sku, 'updateSku')}</td>
-      <td class="locked-readonly">${asin || '—'}</td>
-      <td class="locked-readonly">${parentAsin || '—'}</td>
-      <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
-    `;
-    visibleDataCols.forEach(col=>{
-      const val = row[col.key];
-      const step = col.money ? 'step="0.01"' : '';
-      cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
+  if(isAggregatedView){
+    // ---- Aggregated: one row per SKU, summed across every month in scope ----
+    const bySku = {};
+    filteredEntries.forEach(({row})=>{ (bySku[row.sku] = bySku[row.sku]||[]).push(row); });
+
+    let items = Object.keys(bySku).map(sku=>{
+      const rows = bySku[sku];
+      const summed = {};
+      visibleDataCols.forEach(col=>{
+        summed[col.key] = rows.reduce((sum,r)=> sum + (r[col.key]||0), 0);
+      });
+      return { sku, summed, netProceeds: rows.reduce((s,r)=>s+(r.netProceeds||0),0) };
     });
-    cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
-    tr.innerHTML = cells;
-    tbody.appendChild(tr);
-  });
 
-  document.getElementById('sku-empty').style.display = visibleEntries.length ? 'none' : 'block';
+    if(sortOrder !== 'none'){
+      items.sort((a,b)=> sortOrder === 'asc' ? a.netProceeds - b.netProceeds : b.netProceeds - a.netProceeds);
+    }
+
+    anyRows = items.length > 0;
+    items.forEach(({sku, summed})=>{
+      const asin = catalogAsinForSku(sku);
+      const parentAsin = catalogParentAsinForSku(sku);
+      const tr = document.createElement('tr');
+      let cells = `
+        <td>${sku}</td>
+        <td class="locked-readonly">${asin || '—'}</td>
+        <td class="locked-readonly">${parentAsin || '—'}</td>
+      `;
+      visibleDataCols.forEach(col=>{
+        cells += `<td>${col.money ? fmt(summed[col.key]) : summed[col.key].toLocaleString()}</td>`;
+      });
+      cells += `<td colspan="2" style="color:var(--grey); font-size:12px; font-style:italic;">summed — edit in Month view</td>`;
+      tr.innerHTML = cells;
+      tbody.appendChild(tr);
+    });
+
+  } else {
+    // ---- Granular: grouped by month, individually editable ----
+    if(sortOrder !== 'none'){
+      filteredEntries.sort((a,b)=>{
+        const av = a.row.netProceeds, bv = b.row.netProceeds;
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return sortOrder === 'asc' ? av - bv : bv - av;
+      });
+    }
+
+    const byMonth = {};
+    filteredEntries.forEach(entry=>{ (byMonth[entry.row.month||'(no month)'] = byMonth[entry.row.month||'(no month)']||[]).push(entry); });
+    const months = Object.keys(byMonth).sort().reverse(); // most recent month first
+
+    anyRows = filteredEntries.length > 0;
+    const totalCols = baseHeaders.length + visibleDataCols.length + 2;
+
+    months.forEach(month=>{
+      const dividerTr = document.createElement('tr');
+      dividerTr.innerHTML = `<td colspan="${totalCols}" style="background:var(--blue-light); color:var(--navy); font-weight:700; padding:8px 10px;">${month}</td>`;
+      tbody.appendChild(dividerTr);
+
+      byMonth[month].forEach(({row, idx})=>{
+        const asin = catalogAsinForSku(row.sku);
+        const parentAsin = catalogParentAsinForSku(row.sku);
+        const tr = document.createElement('tr');
+        let cells = `
+          <td>${skuCellHtml('sku', idx, row.sku, 'updateSku')}</td>
+          <td class="locked-readonly">${asin || '—'}</td>
+          <td class="locked-readonly">${parentAsin || '—'}</td>
+          <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
+        `;
+        visibleDataCols.forEach(col=>{
+          const val = row[col.key];
+          const step = col.money ? 'step="0.01"' : '';
+          cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
+        });
+        cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
+        tr.innerHTML = cells;
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  document.getElementById('sku-empty').style.display = anyRows ? 'none' : 'block';
   renderNetProceedsSummary();
 }
 function addSkuRow(){
