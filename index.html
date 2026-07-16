@@ -403,6 +403,21 @@
             <label id="netproceeds-period-value-label">Month</label>
             <select id="netproceeds-period-value" onchange="renderNetProceedsSummary()"></select>
           </div>
+          <div class="field">
+            <label>ASIN</label>
+            <select id="netproceeds-filter-asin" onchange="renderNetProceedsSummary()"><option value="">All ASINs</option></select>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <select id="netproceeds-filter-parent" onchange="renderNetProceedsSummary()"><option value="">All Parents</option></select>
+          </div>
+          <div class="field">
+            <label>Sort by Net Proceeds / Unit</label>
+            <select id="netproceeds-sort" onchange="renderNetProceedsSummary()">
+              <option value="desc">Highest to Lowest</option>
+              <option value="asc">Lowest to Highest</option>
+            </select>
+          </div>
         </div>
         <div class="scroll-controls">
           <button class="scroll-btn" onclick="scrollTable('netproceeds-scroll',-300)">&#9664;</button>
@@ -412,11 +427,12 @@
           <table id="netproceeds-table">
             <thead>
               <tr>
-                <th style="width:20%">SKU</th>
-                <th style="width:20%">ASIN</th>
-                <th style="width:20%">Parent ASIN</th>
-                <th style="width:20%">Net Proceeds / Unit</th>
-                <th style="width:20%">Net Proceeds Total</th>
+                <th style="width:17%">SKU</th>
+                <th style="width:17%">ASIN</th>
+                <th style="width:17%">Parent ASIN</th>
+                <th style="width:15%">Net Units Sold</th>
+                <th style="width:17%">Net Proceeds / Unit</th>
+                <th style="width:17%">Net Proceeds Total</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -774,6 +790,7 @@ function renderCatalog(){
   });
   document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
   populateAsinFilterDropdowns();
+  populateNetProceedsFilterDropdowns();
 }
 function addCatalogRow(){
   state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
@@ -1961,33 +1978,69 @@ function onNetProceedsPeriodTypeChange(){
   renderNetProceedsSummary();
 }
 
+function populateNetProceedsFilterDropdowns(){
+  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+
+  const asinEl = document.getElementById('netproceeds-filter-asin');
+  if(asinEl){
+    const current = asinEl.value;
+    asinEl.innerHTML = '<option value="">All ASINs</option>' + asins.map(a=>`<option value="${a}" ${a===current?'selected':''}>${a}</option>`).join('');
+  }
+  const parentEl = document.getElementById('netproceeds-filter-parent');
+  if(parentEl){
+    const current = parentEl.value;
+    parentEl.innerHTML = '<option value="">All Parents</option>' + parents.map(p=>`<option value="${p}" ${p===current?'selected':''}>${p}</option>`).join('');
+  }
+}
+
 function renderNetProceedsSummary(){
   const valueSelect = document.getElementById('netproceeds-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
+  if(!document.getElementById('netproceeds-filter-asin').options.length) populateNetProceedsFilterDropdowns();
 
   const periodType = document.getElementById('netproceeds-period-type').value;
   const periodValue = document.getElementById('netproceeds-period-value').value;
+  const asinFilter = document.getElementById('netproceeds-filter-asin').value;
+  const parentFilter = document.getElementById('netproceeds-filter-parent').value;
+  const sortOrder = document.getElementById('netproceeds-sort').value;
+
   const months = computeMonthsInScope(periodType, periodValue);
   const scopedRows = state.sku.filter(r => r.sku && r.month && months.includes(r.month) && r.netProceeds!==null && r.netProceeds!==undefined);
 
   const tbody = document.querySelector('#netproceeds-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('netproceeds-empty').style.display = scopedRows.length ? 'none' : 'block';
 
   const bySku = {};
   scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
 
-  Object.keys(bySku).sort().forEach(sku=>{
-    const rows = bySku[sku];
-    const totalNetProceeds = rows.reduce((sum,r)=>sum + (r.netProceeds||0), 0);
-    const totalUnits = rows.reduce((sum,r)=>sum + (r.units||0), 0);
-    const perUnit = totalUnits ? totalNetProceeds / totalUnits : null;
+  let items = Object.keys(bySku)
+    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter))
+    .map(sku=>{
+      const rows = bySku[sku];
+      const totalNetProceeds = rows.reduce((sum,r)=>sum + (r.netProceeds||0), 0);
+      const totalUnits = rows.reduce((sum,r)=>sum + (r.units||0), 0);
+      const perUnit = totalUnits ? totalNetProceeds / totalUnits : null;
+      return { sku, totalNetProceeds, totalUnits, perUnit };
+    });
 
+  items.sort((a,b)=>{
+    // Rows with no per-unit figure (0 units) sort to the bottom regardless of direction
+    if(a.perUnit === null && b.perUnit === null) return 0;
+    if(a.perUnit === null) return 1;
+    if(b.perUnit === null) return -1;
+    return sortOrder === 'asc' ? a.perUnit - b.perUnit : b.perUnit - a.perUnit;
+  });
+
+  document.getElementById('netproceeds-empty').style.display = items.length ? 'none' : 'block';
+
+  items.forEach(({sku, totalNetProceeds, totalUnits, perUnit})=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${sku}</td>
       <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
       <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
+      <td>${totalUnits.toLocaleString()}</td>
       <td><strong>${perUnit!==null ? fmt(perUnit) : '—'}</strong></td>
       <td>${fmt(totalNetProceeds)}</td>
     `;
