@@ -604,6 +604,7 @@ async function loadAllFromSupabase(){
       referralFeeRefunds: r.referral_fee_refunds, referralFeeRaw: r.referral_fee_raw,
       refundAdministrationFee: r.refund_administration_fee, storageUtilizationSurcharge: r.storage_utilization_surcharge,
       sponsoredProductsCharge: r.sponsored_products_charge, netProceedsPerUnit: r.net_proceeds_per_unit,
+      inboundTransportationFeeQty: r.inbound_transportation_fee_qty, fbaInboundPlacementFeeQty: r.fba_inbound_placement_fee_qty,
     }));
 
     showSyncStatus('All data loaded from Supabase.');
@@ -703,6 +704,7 @@ async function saveSkuRow(row){
     referral_fee_refunds: row.referralFeeRefunds, referral_fee_raw: row.referralFeeRaw,
     refund_administration_fee: row.refundAdministrationFee, storage_utilization_surcharge: row.storageUtilizationSurcharge,
     sponsored_products_charge: row.sponsoredProductsCharge, net_proceeds_per_unit: row.netProceedsPerUnit,
+    inbound_transportation_fee_qty: row.inboundTransportationFeeQty, fba_inbound_placement_fee_qty: row.fbaInboundPlacementFeeQty,
     updated_at: new Date().toISOString(),
   };
   const result = await upsertRow('sku_economics', row, payload);
@@ -1892,6 +1894,8 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     const storageUtilizationSurcharge = numOrNull(row[headerMap['storage utilization surcharge total']]);
     const sponsoredProductsCharge = numOrNull(row[headerMap['sponsored products charge total']]);
     const netProceedsPerUnit = numOrNull(row[headerMap['net proceeds per net unit sold']]);
+    const inboundTransportationFeeQty = numOrNull(row[headerMap['inbound transportation fee quantity']]);
+    const fbaInboundPlacementFeeQty = numOrNull(row[headerMap['fba inbound placement service fee quantity']]);
 
     const existing = state.sku.find(r=>r.sku===sku && r.month===month);
     const rowData = {
@@ -1905,6 +1909,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
       liquidationProcessingFee, liquidationReferralFee, monthlyInventoryStorageFee,
       referralFeeRefunds, referralFeeRaw, refundAdministrationFee,
       storageUtilizationSurcharge, sponsoredProductsCharge, netProceedsPerUnit,
+      inboundTransportationFeeQty, fbaInboundPlacementFeeQty,
     };
     if(existing){
       Object.assign(existing, rowData);
@@ -2118,6 +2123,18 @@ function onSummaryPeriodTypeChange(){
 
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows){
+  // Inbound Transportation Fee and FBA Inbound Placement Fee are charged on the WHOLE
+  // inbound shipment, not just the units that happened to sell this period. Allocate a
+  // fair per-unit rate (fee ÷ units actually shipped in) and only charge that rate ×
+  // units SOLD — not the full fee, and not zero either.
+  function fairShareOfInboundFee(feeTotal, feeQty, unitsSold){
+    feeTotal = feeTotal || 0;
+    if(!feeQty) return feeTotal; // no quantity basis — treat entire fee as inventory-related, add it all back
+    const ratePerUnit = feeTotal / feeQty;
+    const fairShare = ratePerUnit * unitsSold;
+    return feeTotal - fairShare; // the portion NOT attributable to sold units — this is what gets added back
+  }
+
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
   let adjustedNetProceedsTotal=0, unitsWithProfit=0;
   rows.forEach(row=>{
@@ -2136,10 +2153,12 @@ function aggregateRows(rows){
       netProceedsTotal += row.netProceeds;
       netProfit += (row.netProceeds - rowCogs - rowWh);
       rowsWithProfit++;
-      // Add back inventory-movement costs (inbound freight + storage) that aren't
-      // really tied to the units sold this period — isolates "are the units we
-      // actually sold this period profitable" from "is the whole operation's cash flow healthy".
-      const inventoryRelatedCosts = (row.inboundTransportationFee||0) + (row.fbaInboundPlacementFee||0) + (row.storageFees||0);
+
+      const inboundTransportationAddBack = fairShareOfInboundFee(row.inboundTransportationFee, row.inboundTransportationFeeQty, u);
+      const fbaInboundPlacementAddBack = fairShareOfInboundFee(row.fbaInboundPlacementFee, row.fbaInboundPlacementFeeQty, u);
+      // Storage still reflects inventory sitting in the warehouse regardless of sales —
+      // no clean "units sold" basis for it, so it's added back in full, as before.
+      const inventoryRelatedCosts = inboundTransportationAddBack + fbaInboundPlacementAddBack + (row.storageFees||0);
       adjustedNetProceedsTotal += (row.netProceeds + inventoryRelatedCosts);
       unitsWithProfit += u;
     } else {
