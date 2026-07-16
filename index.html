@@ -2119,6 +2119,7 @@ function onSummaryPeriodTypeChange(){
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
+  let adjustedNetProceedsTotal=0, unitsWithProfit=0;
   rows.forEach(row=>{
     const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only
     const whPerUnit = warehouseCostForMonth(row.month) || 0;
@@ -2135,14 +2136,21 @@ function aggregateRows(rows){
       netProceedsTotal += row.netProceeds;
       netProfit += (row.netProceeds - rowCogs - rowWh);
       rowsWithProfit++;
+      // Add back inventory-movement costs (inbound freight + storage) that aren't
+      // really tied to the units sold this period — isolates "are the units we
+      // actually sold this period profitable" from "is the whole operation's cash flow healthy".
+      const inventoryRelatedCosts = (row.inboundTransportationFee||0) + (row.fbaInboundPlacementFee||0) + (row.storageFees||0);
+      adjustedNetProceedsTotal += (row.netProceeds + inventoryRelatedCosts);
+      unitsWithProfit += u;
     } else {
       rowsMissingNetProceeds++;
     }
   });
+  const adjustedNetProceedsPerUnit = unitsWithProfit ? (adjustedNetProceedsTotal / unitsWithProfit) : null;
   const margin = revenue ? (netProfit/revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
   const netProceedsPct = revenue ? (netProceedsTotal/revenue*100) : null;
-  return { units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds };
+  return { units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds, adjustedNetProceedsPerUnit, adjustedNetProceedsTotal };
 }
 
 function summaryRowHtml(label, agg, indent){
@@ -2159,6 +2167,8 @@ function summaryRowHtml(label, agg, indent){
     <td><strong>${fmt(agg.netProfit)}</strong></td>
     <td>${agg.margin!==null ? `<span class="pill ${agg.margin>=0?'pos':'neg'}">${agg.margin.toFixed(1)}%</span>` : '—'}</td>
     <td>${agg.roi!==null ? `<span class="pill ${agg.roi>=0?'pos':'neg'}">${agg.roi.toFixed(1)}%</span>` : '—'}</td>
+    <td>${agg.adjustedNetProceedsPerUnit!==null ? fmt(agg.adjustedNetProceedsPerUnit) : '—'}</td>
+    <td>${fmt(agg.adjustedNetProceedsTotal)}</td>
   `;
 }
 
@@ -2221,6 +2231,8 @@ function renderSummary(){
       <th style="width:11%">Net Profit</th>
       <th style="width:9%">Margin %</th>
       <th style="width:8%">ROI %</th>
+      <th style="width:12%">Adj. Net Proceeds/Unit</th>
+      <th style="width:12%">Adj. Net Proceeds (Bottom Line)</th>
     </tr>
   `;
 
