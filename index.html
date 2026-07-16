@@ -388,60 +388,6 @@
       <p class="subtitle">Enter figures from Amazon's SKU Economics report — one row per SKU, per month.</p>
 
       <div class="card">
-        <h2>Net Proceeds Per Unit</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Straight from Amazon's report — no landed cost or warehouse rate mixed in yet. One row per SKU, with Net Proceeds divided by units for whatever period you pick.</p>
-        <div class="row-inline">
-          <div class="field">
-            <label>Period</label>
-            <select id="netproceeds-period-type" onchange="onNetProceedsPeriodTypeChange()">
-              <option value="month">Month</option>
-              <option value="quarter">Quarter</option>
-              <option value="ytd">Year to Date</option>
-            </select>
-          </div>
-          <div class="field">
-            <label id="netproceeds-period-value-label">Month</label>
-            <select id="netproceeds-period-value" onchange="renderNetProceedsSummary()"></select>
-          </div>
-          <div class="field">
-            <label>ASIN</label>
-            <input type="text" id="netproceeds-filter-asin" list="netproceeds-filter-asin-list" placeholder="Search ASIN..." oninput="renderNetProceedsSummary()"><datalist id="netproceeds-filter-asin-list"></datalist>
-          </div>
-          <div class="field">
-            <label>Parent ASIN</label>
-            <input type="text" id="netproceeds-filter-parent" list="netproceeds-filter-parent-list" placeholder="Search Parent ASIN..." oninput="renderNetProceedsSummary()"><datalist id="netproceeds-filter-parent-list"></datalist>
-          </div>
-          <div class="field">
-            <label>Sort by Net Proceeds / Unit</label>
-            <select id="netproceeds-sort" onchange="renderNetProceedsSummary()">
-              <option value="desc">Highest to Lowest</option>
-              <option value="asc">Lowest to Highest</option>
-            </select>
-          </div>
-        </div>
-        <div class="scroll-controls">
-          <button class="scroll-btn" onclick="scrollTable('netproceeds-scroll',-300)">&#9664;</button>
-          <button class="scroll-btn" onclick="scrollTable('netproceeds-scroll',300)">&#9654;</button>
-        </div>
-        <div class="table-scroll" id="netproceeds-scroll">
-          <table id="netproceeds-table">
-            <thead>
-              <tr>
-                <th style="width:17%">SKU</th>
-                <th style="width:17%">ASIN</th>
-                <th style="width:17%">Parent ASIN</th>
-                <th style="width:15%">Net Units Sold</th>
-                <th style="width:17%">Net Proceeds / Unit</th>
-                <th style="width:17%">Net Proceeds Total</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <div id="netproceeds-empty" class="empty" style="display:none;">No data yet for this period.</div>
-      </div>
-
-      <div class="card">
         <h2>Upload Amazon Report(s)</h2>
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the SKU Economics report exactly as exported from Seller Central (.csv or .xlsx) — no template needed. Select multiple files at once (e.g. one per month) to import them all in a single action. Rows are matched to your Catalog by ASIN, and rows with zero activity that month are skipped automatically.</p>
         <div class="btn-row" style="margin-top:0;">
@@ -751,7 +697,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     if(item.dataset.tab === 'summary') renderSummary();
     if(item.dataset.tab === 'warehouse') renderWarehouse();
     if(item.dataset.tab === 'files'){ loadRawFiles().then(renderRawFiles); }
-    if(item.dataset.tab === 'sku'){ renderNetProceedsSummary(); }
+    if(item.dataset.tab === 'sku'){ renderSku(); }
   });
 });
 
@@ -820,7 +766,6 @@ function renderCatalog(){
   });
   document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
   populateAsinFilterDropdowns();
-  populateNetProceedsFilterDropdowns();
 }
 function addCatalogRow(){
   state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
@@ -1745,7 +1690,6 @@ function renderSku(){
   }
 
   document.getElementById('sku-empty').style.display = anyRows ? 'none' : 'block';
-  renderNetProceedsSummary();
 }
 function addSkuRow(){
   state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
@@ -2195,76 +2139,6 @@ function toggleParentExpand(key){
 }
 
 // ---------------- Net Proceeds by Item (SKU Economics tab) ----------------
-function onNetProceedsPeriodTypeChange(){
-  populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
-  renderNetProceedsSummary();
-}
-
-function populateNetProceedsFilterDropdowns(){
-  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
-  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
-
-  const asinListEl = document.getElementById('netproceeds-filter-asin-list');
-  if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
-
-  const parentListEl = document.getElementById('netproceeds-filter-parent-list');
-  if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
-}
-
-function renderNetProceedsSummary(){
-  const valueSelect = document.getElementById('netproceeds-period-value');
-  if(!valueSelect.options.length) populatePeriodValueSelect('netproceeds-period-type', 'netproceeds-period-value', 'netproceeds-period-value-label');
-  if(!document.getElementById('netproceeds-filter-asin-list').options.length) populateNetProceedsFilterDropdowns();
-
-  const periodType = document.getElementById('netproceeds-period-type').value;
-  const periodValue = document.getElementById('netproceeds-period-value').value;
-  const asinFilter = document.getElementById('netproceeds-filter-asin').value;
-  const parentFilter = document.getElementById('netproceeds-filter-parent').value;
-  const sortOrder = document.getElementById('netproceeds-sort').value;
-
-  const months = computeMonthsInScope(periodType, periodValue);
-  const scopedRows = state.sku.filter(r => r.sku && r.month && months.includes(r.month) && r.netProceeds!==null && r.netProceeds!==undefined);
-
-  const tbody = document.querySelector('#netproceeds-table tbody');
-  tbody.innerHTML = '';
-
-  const bySku = {};
-  scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
-
-  let items = Object.keys(bySku)
-    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter))
-    .map(sku=>{
-      const rows = bySku[sku];
-      const totalNetProceeds = rows.reduce((sum,r)=>sum + (r.netProceeds||0), 0);
-      const totalUnits = rows.reduce((sum,r)=>sum + (r.units||0), 0);
-      const perUnit = totalUnits ? totalNetProceeds / totalUnits : null;
-      return { sku, totalNetProceeds, totalUnits, perUnit };
-    });
-
-  items.sort((a,b)=>{
-    // Rows with no per-unit figure (0 units) sort to the bottom regardless of direction
-    if(a.perUnit === null && b.perUnit === null) return 0;
-    if(a.perUnit === null) return 1;
-    if(b.perUnit === null) return -1;
-    return sortOrder === 'asc' ? a.perUnit - b.perUnit : b.perUnit - a.perUnit;
-  });
-
-  document.getElementById('netproceeds-empty').style.display = items.length ? 'none' : 'block';
-
-  items.forEach(({sku, totalNetProceeds, totalUnits, perUnit})=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${sku}</td>
-      <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
-      <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
-      <td>${totalUnits.toLocaleString()}</td>
-      <td><strong>${perUnit!==null ? fmt(perUnit) : '—'}</strong></td>
-      <td>${fmt(totalNetProceeds)}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
 function renderSummary(){
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
