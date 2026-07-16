@@ -454,7 +454,7 @@
     <!-- ===================== SUMMARY ===================== -->
     <section id="tab-summary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Profitability Summary</h1></div>
-      <p class="subtitle">Net Profit = Net Proceeds (from Amazon) − COGS (Manufacturing + Freight) − WH (Warehouse, annual blended rate).</p>
+      <p class="subtitle">Net Profit = Net Proceeds (from Amazon) − COGS (Manufacturing + Freight) − Warehouse cost/unit.</p>
 
       <div class="card">
         <h2>View</h2>
@@ -2118,13 +2118,13 @@ function onSummaryPeriodTypeChange(){
 
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows){
-  let units=0, revenue=0, netProceeds=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
+  let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
   rows.forEach(row=>{
-    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight
-    const whRate = warehouseCostForMonth(row.month) || 0; // annual blended warehouse rate
+    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only
+    const whPerUnit = warehouseCostForMonth(row.month) || 0;
     const u = row.units || 0;
     const rowCogs = landed * u;
-    const rowWh = whRate * u;
+    const rowWh = whPerUnit * u;
 
     units += u;
     revenue += (row.revenue||0);
@@ -2132,17 +2132,17 @@ function aggregateRows(rows){
     wh += rowWh;
 
     if(row.netProceeds!==null && row.netProceeds!==undefined){
-      netProceeds += row.netProceeds;
+      netProceedsTotal += row.netProceeds;
       netProfit += (row.netProceeds - rowCogs - rowWh);
       rowsWithProfit++;
     } else {
       rowsMissingNetProceeds++;
     }
   });
-  const netProceedsPct = revenue ? (netProceeds/revenue*100) : null;
   const margin = revenue ? (netProfit/revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
-  return { units, revenue, netProceeds, netProceedsPct, cogs, wh, netProfit, margin, roi, rowsWithProfit, rowsMissingNetProceeds };
+  const netProceedsPct = revenue ? (netProceedsTotal/revenue*100) : null;
+  return { units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds };
 }
 
 function summaryRowHtml(label, agg, indent){
@@ -2152,7 +2152,7 @@ function summaryRowHtml(label, agg, indent){
     <td ${indentStyle}>${label}${missingNote}</td>
     <td>${agg.units.toLocaleString()}</td>
     <td>${fmt(agg.revenue)}</td>
-    <td>${fmt(agg.netProceeds)}</td>
+    <td>${fmt(agg.netProceedsTotal)}</td>
     <td>${agg.netProceedsPct!==null ? agg.netProceedsPct.toFixed(1)+'%' : '—'}</td>
     <td>${fmt(agg.cogs)}</td>
     <td>${fmt(agg.wh)}</td>
@@ -2212,12 +2212,12 @@ function renderSummary(){
   thead.innerHTML = `
     <tr>
       <th style="width:14%">${level==='parent' ? 'Parent ASIN' : 'SKU'}</th>
-      <th style="width:8%">Units</th>
-      <th style="width:11%">Revenue</th>
-      <th style="width:11%">Net Proceeds</th>
+      <th style="width:7%">Units</th>
+      <th style="width:10%">Revenue</th>
+      <th style="width:10%">Net Proceeds</th>
       <th style="width:9%">Net Proceeds %</th>
       <th style="width:10%">COGS</th>
-      <th style="width:9%">WH</th>
+      <th style="width:8%">WH</th>
       <th style="width:11%">Net Profit</th>
       <th style="width:9%">Margin %</th>
       <th style="width:8%">ROI %</th>
