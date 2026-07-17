@@ -2473,8 +2473,9 @@ function renderRawFiles(){
     table.innerHTML = `
       <thead>
         <tr>
-          <th style="width:32%">Filename</th>
-          <th style="width:18%">Uploaded</th>
+          <th style="width:4%"><input type="checkbox" onchange="toggleSelectAllInGroup(this, '${screen}')"></th>
+          <th style="width:30%">Filename</th>
+          <th style="width:16%">Uploaded</th>
           <th style="width:22%">Status</th>
           <th style="width:28%">Actions</th>
         </tr>
@@ -2485,6 +2486,7 @@ function renderRawFiles(){
     files.forEach(f=>{
       const tr = document.createElement('tr');
       tr.innerHTML = `
+        <td><input type="checkbox" class="reparse-checkbox" data-screen="${screen}" value="${f.id}"></td>
         <td>${f.original_filename}</td>
         <td>${formatDateTime(f.uploaded_at)}</td>
         <td>${parseStatusBadge(f)}</td>
@@ -2497,10 +2499,46 @@ function renderRawFiles(){
       tbody.appendChild(tr);
     });
 
-    card.innerHTML = `<h2>${SCREEN_LABELS[screen] || screen}</h2>`;
+    const headerBar = document.createElement('div');
+    headerBar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;';
+    headerBar.innerHTML = `
+      <h2 style="margin:0;">${SCREEN_LABELS[screen] || screen}</h2>
+      <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px;" onclick="bulkReparseGroup('${screen}')">&#8635; Re-parse Selected</button>
+    `;
+    card.appendChild(headerBar);
     card.appendChild(table);
+    const progressDiv = document.createElement('div');
+    progressDiv.id = `bulk-reparse-progress-${screen}`;
+    progressDiv.style.cssText = 'margin-top:10px; font-size:13px; color:var(--navy);';
+    card.appendChild(progressDiv);
     container.appendChild(card);
   });
+}
+
+function toggleSelectAllInGroup(headerCheckbox, screen){
+  document.querySelectorAll(`.reparse-checkbox[data-screen="${screen}"]`).forEach(cb=>{
+    cb.checked = headerCheckbox.checked;
+  });
+}
+
+async function bulkReparseGroup(screen){
+  const checkboxes = Array.from(document.querySelectorAll(`.reparse-checkbox[data-screen="${screen}"]:checked`));
+  if(!checkboxes.length){
+    alert('Check at least one file first.');
+    return;
+  }
+  if(!confirm(`Re-parse ${checkboxes.length} file(s)? Existing rows matched by SKU (and month, where relevant) will be updated, not duplicated.`)) return;
+
+  const progressEl = document.getElementById(`bulk-reparse-progress-${screen}`);
+  const ids = checkboxes.map(cb=>cb.value);
+
+  for(let i=0; i<ids.length; i++){
+    progressEl.innerHTML = `&#8987; Re-parsing file ${i+1} of ${ids.length}...`;
+    await reparseRawFile(ids[i], { silent: true });
+  }
+  progressEl.innerHTML = `&#10003; Done — re-parsed ${ids.length} file(s).`;
+  await loadRawFiles();
+  renderRawFiles();
 }
 
 async function downloadRawFile(id){
@@ -2523,10 +2561,11 @@ async function downloadRawFile(id){
   }
 }
 
-async function reparseRawFile(id){
+async function reparseRawFile(id, opts){
+  const silent = opts && opts.silent;
   const fileRow = state.rawFiles.find(f=>f.id===id);
   if(!fileRow) return;
-  if(!confirm(`Re-parse "${fileRow.original_filename}"? This will re-import its data — existing rows matched by SKU (and month, where relevant) will be updated, not duplicated.`)) return;
+  if(!silent && !confirm(`Re-parse "${fileRow.original_filename}"? This will re-import its data — existing rows matched by SKU (and month, where relevant) will be updated, not duplicated.`)) return;
 
   try{
     const { data, error } = await sb.storage.from('raw-uploads').download(fileRow.storage_path);
@@ -2547,8 +2586,10 @@ async function reparseRawFile(id){
       const totalImported = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
       const totalSkipped = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
       await updateRawFileStats(id, { success: allSucceeded, rowsImported: totalImported, rowsSkipped: totalSkipped });
-      await loadRawFiles(); renderRawFiles();
-      alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics have all been reloaded from this file.');
+      if(!silent){
+        await loadRawFiles(); renderRawFiles();
+        alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics have all been reloaded from this file.');
+      }
       return;
     }
 
@@ -2589,12 +2630,14 @@ async function reparseRawFile(id){
     } else if(result){
       await updateRawFileStats(id, result);
     }
-    await loadRawFiles(); renderRawFiles();
 
-    alert('Re-parse complete — data has been reloaded from this file.');
+    if(!silent){
+      await loadRawFiles(); renderRawFiles();
+      alert('Re-parse complete — data has been reloaded from this file.');
+    }
   }catch(err){
     console.error(err);
-    alert('Could not re-parse this file: ' + (err.message||err));
+    if(!silent) alert('Could not re-parse this file: ' + (err.message||err));
   }
 }
 
