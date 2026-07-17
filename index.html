@@ -290,6 +290,13 @@
         <h2>Master Carton Data</h2>
         <div class="filter-bar">
           <div class="field">
+            <label>Level</label>
+            <select id="logistics-level" onchange="renderLogistics()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN</option>
+            </select>
+          </div>
+          <div class="field">
             <label>ASIN</label>
             <input type="text" id="logistics-filter-asin" list="logistics-filter-asin-list" placeholder="Search ASIN..." oninput="logisticsFilters.asin=this.value; renderLogistics();"><datalist id="logistics-filter-asin-list"></datalist>
           </div>
@@ -301,26 +308,19 @@
             <label>Product Family</label>
             <input type="text" id="logistics-filter-family" list="logistics-filter-family-list" placeholder="Search Product Family..." oninput="logisticsFilters.family=this.value; renderLogistics();"><datalist id="logistics-filter-family-list"></datalist>
           </div>
+          <div class="field">
+            <label>Sort by Freight Cost/Unit</label>
+            <select id="logistics-sort" onchange="renderLogistics()">
+              <option value="none">Default (no sort)</option>
+              <option value="desc">Highest to Lowest</option>
+              <option value="asc">Lowest to Highest</option>
+            </select>
+          </div>
         </div>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('logistics-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('logistics-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="logistics-scroll">
         <table id="logistics-table">
-          <thead>
-            <tr>
-              <th style="width:9%">SKU</th>
-              <th style="width:8%">ASIN</th>
-              <th style="width:8%">Parent ASIN</th>
-              <th style="width:7%">L (cm)</th>
-              <th style="width:7%">W (cm)</th>
-              <th style="width:7%">H (cm)</th>
-              <th style="width:8%">Weight (kg)</th>
-              <th style="width:7%">CBM</th>
-              <th style="width:9%">Units / Carton</th>
-              <th style="width:12%">Freight Cost / Unit (from Shipment Costs)</th>
-              <th style="width:5%"></th>
-              <th style="width:8%"></th>
-            </tr>
-          </thead>
+          <thead><tr id="logistics-header-row"></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -1393,22 +1393,23 @@ function computeFreightPerUnit(cbm, unitsPerCarton){
   if(!price || !cbm || !unitsPerCarton) return null;
   return (price * cbm) / unitsPerCarton;
 }
+const expandedLogisticsParents = new Set();
 function renderLogistics(){
+  const level = document.getElementById('logistics-level').value;
+  const sortOrder = document.getElementById('logistics-sort').value;
+  const headerRow = document.getElementById('logistics-header-row');
   const tbody = document.querySelector('#logistics-table tbody');
   tbody.innerHTML = '';
-  let anyVisible = false;
-  state.logistics.items.forEach((row, idx)=>{
+
+  function childRowHtml(row, idx, indent){
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
-    const family = catalogFamilyForSku(row.sku);
-    if(!matchesFilter(asin, logisticsFilters.asin) || !matchesFilter(parentAsin, logisticsFilters.parentAsin) || !matchesFilter(family, logisticsFilters.family)) return;
-    anyVisible = true;
     const cbm = computeCbm(row.l, row.w, row.h);
     const shipmentData = shipmentFreightDataForSku(row.sku);
     const freight = shipmentData ? shipmentData.freightPerUnit : null;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${skuCellHtml('logistics', idx, row.sku, 'updateLogistics')}</td>
+    const indentStyle = indent ? `style="padding-left:${indent}px;"` : '';
+    return `
+      <td ${indentStyle}>${skuCellHtml('logistics', idx, row.sku, 'updateLogistics')}</td>
       <td class="locked-readonly">${asin || '—'}</td>
       <td class="locked-readonly">${parentAsin || '—'}</td>
       <td><input type="number" class="narrow" value="${row.l??''}" oninput="updateLogistics(${idx},'l',this.value)"></td>
@@ -1421,9 +1422,111 @@ function renderLogistics(){
       <td></td>
       <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
     `;
-    tbody.appendChild(tr);
-  });
-  document.getElementById('logistics-empty').style.display = anyVisible ? 'none' : 'block';
+  }
+
+  if(level === 'parent'){
+    headerRow.innerHTML = ['Parent ASIN','# SKUs','Weighted Avg CBM/Unit','Weighted Avg Freight Cost/Unit','','']
+      .map(h=>`<th>${h}</th>`).join('');
+
+    const visibleEntries = state.logistics.items.map((row, idx)=>({row, idx})).filter(({row})=>{
+      const asin = catalogAsinForSku(row.sku);
+      const parentAsin = catalogParentAsinForSku(row.sku);
+      const family = catalogFamilyForSku(row.sku);
+      return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family);
+    });
+
+    const byParent = {};
+    visibleEntries.forEach(entry=>{
+      const parent = catalogParentAsinForSku(entry.row.sku) || `(no parent — ${entry.row.sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(entry);
+    });
+
+    let parentRows = Object.keys(byParent).map(parent=>{
+      const entries = byParent[parent];
+      let totalUnits=0, weightedCbmSum=0, weightedFreightSum=0, hasFreightData=false;
+      entries.forEach(({row})=>{
+        const shipmentData = shipmentFreightDataForSku(row.sku);
+        const cbm = computeCbm(row.l, row.w, row.h);
+        const cbmPerUnit = (cbm && row.unitsPerCarton) ? cbm/row.unitsPerCarton : null;
+        const units = shipmentData ? shipmentData.totalUnits : 0;
+        if(shipmentData && shipmentData.freightPerUnit!==null){
+          totalUnits += units;
+          weightedFreightSum += units * shipmentData.freightPerUnit;
+          hasFreightData = true;
+        }
+        if(cbmPerUnit!==null && units){
+          weightedCbmSum += units * cbmPerUnit;
+        }
+      });
+      const weightedAvgCbmPerUnit = totalUnits ? weightedCbmSum/totalUnits : null;
+      const weightedAvgFreightPerUnit = (hasFreightData && totalUnits) ? weightedFreightSum/totalUnits : null;
+      return { parent, entries, weightedAvgCbmPerUnit, weightedAvgFreightPerUnit };
+    });
+
+    if(sortOrder !== 'none'){
+      parentRows.sort((a,b)=> sortOrder==='asc' ? (a.weightedAvgFreightPerUnit??0)-(b.weightedAvgFreightPerUnit??0) : (b.weightedAvgFreightPerUnit??0)-(a.weightedAvgFreightPerUnit??0));
+    } else {
+      parentRows.sort((a,b)=>a.parent.localeCompare(b.parent));
+    }
+
+    document.getElementById('logistics-empty').style.display = parentRows.length ? 'none' : 'block';
+
+    parentRows.forEach(pr=>{
+      const isExpanded = expandedLogisticsParents.has(pr.parent);
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>{
+        if(expandedLogisticsParents.has(pr.parent)) expandedLogisticsParents.delete(pr.parent);
+        else expandedLogisticsParents.add(pr.parent);
+        renderLogistics();
+      };
+      tr.innerHTML = `
+        <td>${isExpanded ? '&#9662;' : '&#9656;'} ${pr.parent}</td>
+        <td>${pr.entries.length}</td>
+        <td>${pr.weightedAvgCbmPerUnit!==null ? fmtNum(pr.weightedAvgCbmPerUnit,4) : '—'}</td>
+        <td><strong>${pr.weightedAvgFreightPerUnit!==null ? fmt(pr.weightedAvgFreightPerUnit) : '—'}</strong></td>
+        <td></td><td></td>
+      `;
+      tbody.appendChild(tr);
+
+      if(isExpanded){
+        pr.entries.forEach(({row, idx})=>{
+          const childTr = document.createElement('tr');
+          childTr.style.background = '#FAFBFC';
+          childTr.innerHTML = childRowHtml(row, idx, 28);
+          tbody.appendChild(childTr);
+        });
+      }
+    });
+
+  } else {
+    headerRow.innerHTML = ['SKU','ASIN','Parent ASIN','L (cm)','W (cm)','H (cm)','Weight (kg)','CBM','Units / Carton','Freight Cost / Unit (from Shipment Costs)','','']
+      .map(h=>`<th>${h}</th>`).join('');
+
+    let visibleEntries = state.logistics.items.map((row, idx)=>({row, idx})).filter(({row})=>{
+      const asin = catalogAsinForSku(row.sku);
+      const parentAsin = catalogParentAsinForSku(row.sku);
+      const family = catalogFamilyForSku(row.sku);
+      return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family);
+    });
+
+    if(sortOrder !== 'none'){
+      visibleEntries.sort((a,b)=>{
+        const af = shipmentFreightDataForSku(a.row.sku)?.freightPerUnit ?? null;
+        const bf = shipmentFreightDataForSku(b.row.sku)?.freightPerUnit ?? null;
+        if(af===null) return 1;
+        if(bf===null) return -1;
+        return sortOrder==='asc' ? af-bf : bf-af;
+      });
+    }
+
+    document.getElementById('logistics-empty').style.display = visibleEntries.length ? 'none' : 'block';
+    visibleEntries.forEach(({row, idx})=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = childRowHtml(row, idx, 0);
+      tbody.appendChild(tr);
+    });
+  }
 }
 function addLogisticsRow(){ state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null}); renderLogistics(); }
 function updateLogistics(idx, field, value){
