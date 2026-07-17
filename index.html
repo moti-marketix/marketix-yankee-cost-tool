@@ -140,6 +140,7 @@
     <div class="nav-item active" data-tab="catalog"><span class="num">1</span>Catalog</div>
     <div class="nav-item" data-tab="mfg"><span class="num">2</span>Manufacturing Costs</div>
     <div class="nav-item" data-tab="logistics"><span class="num">3</span>Logistics &amp; Freight</div>
+    <div class="nav-item" data-tab="shipments"><span class="num">3b</span>Shipment Costs</div>
     <div class="nav-item" data-tab="warehouse"><span class="num">4</span>Warehouse Costs</div>
     <div class="nav-item" data-tab="sku"><span class="num">5</span>SKU Economics</div>
     <div class="nav-item" data-tab="summary"><span class="num">&#9733;</span>Profitability Summary</div>
@@ -338,6 +339,93 @@
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addLogisticsRow()">+ Add SKU</button>
         </div>
+      </div>
+    </section>
+
+    <!-- ===================== SHIPMENT COSTS ===================== -->
+    <section id="tab-shipments" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Shipment Costs</h1></div>
+      <p class="subtitle">Real per-shipment freight rates, cross-referenced with actual quantities — one weighted average Freight Cost/Unit per SKU for the year, replacing the flat "Avg Price per CBM" estimate wherever real shipment data exists.</p>
+
+      <div class="card">
+        <h2>Upload Shipment Cost File</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the 2-sheet shipment file (Sheet1 = shipment costs, Sheet2 = SKU-by-shipment quantities, row 1 = Patent#/Container# matching keys). Re-uploading replaces all shipment data with this file's contents.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-primary" onclick="document.getElementById('shipments-upload').click()">&#8679; Upload Shipment File</button>
+          <input type="file" id="shipments-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleShipmentsUpload(event)">
+        </div>
+        <div id="shipments-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="kpi-grid" id="shipments-kpis"></div>
+
+      <div class="card">
+        <h2>Per-SKU Freight Cost Summary</h2>
+        <div class="filter-bar">
+          <div class="field">
+            <label>ASIN</label>
+            <input type="text" id="shipments-filter-asin" list="shipments-filter-asin-list" placeholder="Search ASIN..." oninput="renderShipments()"><datalist id="shipments-filter-asin-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <input type="text" id="shipments-filter-parent" list="shipments-filter-parent-list" placeholder="Search Parent ASIN..." oninput="renderShipments()"><datalist id="shipments-filter-parent-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <input type="text" id="shipments-filter-family" list="shipments-filter-family-list" placeholder="Search Product Family..." oninput="renderShipments()"><datalist id="shipments-filter-family-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Sort by Avg Freight Cost/Unit</label>
+            <select id="shipments-sku-sort" onchange="renderShipments()">
+              <option value="none">Default (no sort)</option>
+              <option value="desc">Highest to Lowest</option>
+              <option value="asc">Lowest to Highest</option>
+            </select>
+          </div>
+        </div>
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('shipments-sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('shipments-sku-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="shipments-sku-scroll">
+          <table id="shipments-sku-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>ASIN</th>
+                <th>Parent ASIN</th>
+                <th>Units Shipped</th>
+                <th>Weighted Avg Cost/CBM</th>
+                <th>CBM/Unit</th>
+                <th>Avg Freight Cost/Unit</th>
+                <th>Total Freight Cost</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="shipments-sku-empty" class="empty" style="display:none;">No shipment data yet — upload a file above.</div>
+      </div>
+
+      <div class="card">
+        <h2>Raw Shipments</h2>
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('shipments-raw-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('shipments-raw-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="shipments-raw-scroll">
+          <table id="shipments-raw-table">
+            <thead>
+              <tr>
+                <th>Patent#</th>
+                <th>Container#</th>
+                <th>Destination</th>
+                <th>Total Units</th>
+                <th>Total Boxes</th>
+                <th>Cost/CBM</th>
+                <th>Total Shipping Cost</th>
+                <th>Placement Fee</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="shipments-raw-empty" class="empty" style="display:none;">No shipments uploaded yet.</div>
       </div>
     </section>
 
@@ -556,6 +644,8 @@ let state = {
   warehouse: [],
   sku: [],
   rawFiles: [],
+  shipments: [],
+  shipmentContents: [],
 };
 
 function showSyncStatus(msg, isError){
@@ -575,16 +665,18 @@ function debounceSave(key, fn, delay=600){
 async function loadAllFromSupabase(){
   showSyncStatus('Loading data…');
   try{
-    const [catalogRes, mfgRes, logisticsRes, settingsRes, warehouseRes, skuRes] = await Promise.all([
+    const [catalogRes, mfgRes, logisticsRes, settingsRes, warehouseRes, skuRes, shipmentsRes, shipmentContentsRes] = await Promise.all([
       sb.from('catalog').select('*').eq('client_id', CLIENT_ID),
       sb.from('manufacturing_costs').select('*').eq('client_id', CLIENT_ID),
       sb.from('logistics').select('*').eq('client_id', CLIENT_ID),
       sb.from('client_settings').select('*').eq('client_id', CLIENT_ID).maybeSingle(),
       sb.from('warehouse_invoices').select('*').eq('client_id', CLIENT_ID),
       sb.from('sku_economics').select('*').eq('client_id', CLIENT_ID),
+      sb.from('shipments').select('*').eq('client_id', CLIENT_ID),
+      sb.from('shipment_contents').select('*').eq('client_id', CLIENT_ID),
     ]);
 
-    for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes]){
+    for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes, shipmentsRes, shipmentContentsRes]){
       if(r.error) throw r.error;
     }
     if(settingsRes.error) throw settingsRes.error;
@@ -618,6 +710,15 @@ async function loadAllFromSupabase(){
       refundAdministrationFee: r.refund_administration_fee, storageUtilizationSurcharge: r.storage_utilization_surcharge,
       sponsoredProductsCharge: r.sponsored_products_charge, netProceedsPerUnit: r.net_proceeds_per_unit,
       inboundTransportationFeeQty: r.inbound_transportation_fee_qty, fbaInboundPlacementFeeQty: r.fba_inbound_placement_fee_qty,
+    }));
+
+    state.shipments = (shipmentsRes.data||[]).map(r=>({
+      id: r.id, patent: r.patent, container: r.container, destination: r.destination,
+      totalUnits: r.total_units, totalBoxes: r.total_boxes, costPerCbm: r.cost_per_cbm,
+      totalShippingCost: r.total_shipping_cost, placementFee: r.placement_fee,
+    }));
+    state.shipmentContents = (shipmentContentsRes.data||[]).map(r=>({
+      id: r.id, shipmentId: r.shipment_id, sku: r.sku, units: r.units,
     }));
 
     showSyncStatus('All data loaded from Supabase.');
@@ -734,6 +835,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     document.getElementById('tab-'+item.dataset.tab).style.display='block';
     if(item.dataset.tab === 'summary') renderSummary();
     if(item.dataset.tab === 'warehouse') renderWarehouse();
+    if(item.dataset.tab === 'shipments') renderShipments();
     if(item.dataset.tab === 'files'){ loadRawFiles().then(renderRawFiles); }
     if(item.dataset.tab === 'sku'){ renderSku(); }
   });
@@ -1538,6 +1640,273 @@ function deleteWarehouse(idx){
 }
 
 // ---------------- TAB 4: SKU Economics ----------------
+// ================= SHIPMENT COSTS =================
+function parseShipmentWorkbook(wb){
+  const ws1 = wb.Sheets[wb.SheetNames[0]];
+  const ws2 = wb.Sheets[wb.SheetNames[1]];
+  const sheet1Rows = XLSX.utils.sheet_to_json(ws1, {header:1, defval:null});
+  const sheet2Rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null});
+
+  // --- Sheet1: one row per shipment ---
+  // A=Container#, B=Patent#, C=Destination, D=Shipment ID, E=Total units, F=Total boxes, G=Cost per CBM, H=Total Shipping cost, I=Placement Fee
+  const shipments = [];
+  for(let i=1; i<sheet1Rows.length; i++){
+    const row = sheet1Rows[i] || [];
+    const container = row[0], patent = row[1], destination = row[2];
+    if(!container && !patent) continue;
+    shipments.push({
+      container: container ? String(container).trim() : null,
+      patent: patent ? String(patent).trim() : null,
+      destination: destination ? String(destination).trim() : null,
+      totalUnits: num(row[4]), totalBoxes: num(row[5]), costPerCbm: num(row[6]),
+      totalShippingCost: num(row[7]), placementFee: num(row[8]),
+    });
+  }
+
+  const shipmentsByKey = {};
+  shipments.forEach(s=>{
+    if(s.patent) shipmentsByKey[s.patent] = s;
+    if(s.container) shipmentsByKey[s.container] = s;
+  });
+
+  // --- Sheet2: row 0 = matching key(s) per column (from column F / index 5 onward), row 1 = labels, row 2+ = SKU data ---
+  const headerKeyRow = sheet2Rows[0] || [];
+  const colKeys = {};
+  for(let c=5; c<headerKeyRow.length; c++){
+    const val = headerKeyRow[c];
+    if(val) colKeys[c] = String(val).split('+').map(k=>k.trim()).filter(Boolean);
+  }
+
+  const colResolution = {};
+  const unmatchedKeys = new Set();
+  Object.keys(colKeys).forEach(c=>{
+    const keys = colKeys[c];
+    let matched = null;
+    for(const k of keys){ if(shipmentsByKey[k]){ matched = shipmentsByKey[k]; break; } }
+    if(matched) colResolution[c] = matched;
+    else { colResolution[c] = null; keys.forEach(k=>unmatchedKeys.add(k)); }
+  });
+
+  const contents = [];
+  for(let r=2; r<sheet2Rows.length; r++){
+    const row = sheet2Rows[r] || [];
+    const sku = row[1];
+    if(!sku) continue;
+    Object.keys(colKeys).forEach(c=>{
+      const shipment = colResolution[c];
+      if(!shipment) return;
+      const unitsNum = num(row[c]);
+      if(!unitsNum) return;
+      contents.push({ sku: String(sku).trim(), shipment, units: unitsNum });
+    });
+  }
+
+  return { shipments, contents, unmatchedKeys: Array.from(unmatchedKeys) };
+}
+
+async function handleShipmentsUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('shipments-upload-status');
+  statusEl.textContent = 'Reading file...';
+  statusEl.style.color = 'var(--grey)';
+
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      const fileId = await uploadRawFile(file, 'shipment_costs');
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
+
+      statusEl.textContent = `Saving ${shipments.length} shipment(s) and ${contents.length} SKU-shipment record(s)...`;
+
+      // Full replace: clear existing shipment data for this client, then insert fresh
+      await sb.from('shipment_contents').delete().eq('client_id', CLIENT_ID);
+      await sb.from('shipments').delete().eq('client_id', CLIENT_ID);
+
+      const shipmentInsertPayload = shipments.map(s=>({
+        client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
+        total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
+        total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
+      }));
+      const { data: insertedShipments, error: shipErr } = await sb.from('shipments').insert(shipmentInsertPayload).select();
+      if(shipErr) throw shipErr;
+
+      // Map each shipment object (by identity) to its newly-created DB id, using patent/container as the join key
+      const dbIdByKey = {};
+      insertedShipments.forEach(row=>{
+        if(row.patent) dbIdByKey[row.patent] = row.id;
+        if(row.container) dbIdByKey[row.container] = row.id;
+      });
+
+      const contentsInsertPayload = contents.map(c=>{
+        const key = c.shipment.patent || c.shipment.container;
+        return { client_id: CLIENT_ID, shipment_id: dbIdByKey[key], sku: c.sku, units: c.units };
+      }).filter(c=>c.shipment_id);
+
+      let contentsError = null;
+      if(contentsInsertPayload.length){
+        const { error } = await sb.from('shipment_contents').insert(contentsInsertPayload);
+        contentsError = error;
+      }
+      if(contentsError) throw contentsError;
+
+      await updateRawFileStats(fileId, {
+        success: true,
+        rowsImported: shipments.length + contentsInsertPayload.length,
+        rowsSkipped: unmatchedKeys.length,
+        error: unmatchedKeys.length ? `Unmatched keys: ${unmatchedKeys.join(', ')}` : undefined,
+      });
+
+      await loadAllFromSupabase();
+      renderShipments();
+
+      statusEl.style.color = unmatchedKeys.length ? 'var(--red)' : 'var(--green)';
+      let msg = `Done — ${shipments.length} shipments, ${contentsInsertPayload.length} SKU-shipment records saved`;
+      if(unmatchedKeys.length) msg += `. WARNING: ${unmatchedKeys.length} shipment reference(s) in Sheet2 had no matching row in Sheet1: ${unmatchedKeys.join(', ')}`;
+      statusEl.textContent = msg + '.';
+    }catch(err){
+      console.error(err);
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not process this file: ' + (err.message||err);
+    }
+    event.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Weighted average Freight Cost/Unit for a SKU, from real shipment data (quantity-weighted across all its shipments)
+function shipmentFreightDataForSku(sku){
+  const entries = state.shipmentContents.filter(c=>c.sku===sku);
+  if(!entries.length) return null;
+
+  let totalUnits = 0, weightedCostPerCbmSum = 0;
+  entries.forEach(entry=>{
+    const shipment = state.shipments.find(s=>s.id===entry.shipmentId);
+    if(!shipment || !shipment.costPerCbm) return;
+    totalUnits += entry.units;
+    weightedCostPerCbmSum += entry.units * shipment.costPerCbm;
+  });
+  if(!totalUnits) return null;
+
+  const weightedAvgCostPerCbm = weightedCostPerCbmSum / totalUnits;
+  const logRow = state.logistics.items.find(r=>r.sku===sku);
+  const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
+  const cbmPerUnit = (cbm && logRow.unitsPerCarton) ? (cbm / logRow.unitsPerCarton) : null;
+  const freightPerUnit = cbmPerUnit!==null ? weightedAvgCostPerCbm * cbmPerUnit : null;
+
+  return { totalUnits, weightedAvgCostPerCbm, cbmPerUnit, freightPerUnit };
+}
+
+function populateShipmentsFilterDropdowns(){
+  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+  const asinListEl = document.getElementById('shipments-filter-asin-list');
+  if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
+  const parentListEl = document.getElementById('shipments-filter-parent-list');
+  if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
+  const familyListEl = document.getElementById('shipments-filter-family-list');
+  if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
+}
+
+const expandedShipments = new Set();
+function toggleShipmentExpand(shipmentId){
+  if(expandedShipments.has(shipmentId)) expandedShipments.delete(shipmentId);
+  else expandedShipments.add(shipmentId);
+  renderShipments();
+}
+
+function renderShipments(){
+  if(!document.getElementById('shipments-filter-asin-list').options.length) populateShipmentsFilterDropdowns();
+
+  const asinFilter = document.getElementById('shipments-filter-asin').value;
+  const parentFilter = document.getElementById('shipments-filter-parent').value;
+  const familyFilter = document.getElementById('shipments-filter-family').value;
+  const sortOrder = document.getElementById('shipments-sku-sort').value;
+
+  // KPIs
+  const totalShipments = state.shipments.length;
+  const totalUnitsShipped = state.shipments.reduce((s,sh)=>s+(sh.totalUnits||0),0);
+  const totalShippingCost = state.shipments.reduce((s,sh)=>s+(sh.totalShippingCost||0),0);
+  const weightedCbmSum = state.shipments.reduce((s,sh)=>s+((sh.totalUnits||0)*(sh.costPerCbm||0)),0);
+  const blendedAvgCostPerCbm = totalUnitsShipped ? weightedCbmSum/totalUnitsShipped : null;
+  document.getElementById('shipments-kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total Shipments</div><div class="value">${totalShipments}</div></div>
+    <div class="kpi"><div class="label">Total Units Shipped</div><div class="value">${totalUnitsShipped.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Blended Avg Cost/CBM</div><div class="value">${blendedAvgCostPerCbm!==null ? fmt(blendedAvgCostPerCbm) : '—'}</div></div>
+    <div class="kpi"><div class="label">Total Shipping Cost</div><div class="value">${fmt(totalShippingCost)}</div></div>
+  `;
+
+  // Per-SKU summary
+  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
+  let skuRows = skusWithShipments
+    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter))
+    .map(sku=>{
+      const data = shipmentFreightDataForSku(sku);
+      return { sku, data };
+    })
+    .filter(r=>r.data);
+
+  if(sortOrder !== 'none'){
+    skuRows.sort((a,b)=> sortOrder==='asc' ? a.data.freightPerUnit-b.data.freightPerUnit : b.data.freightPerUnit-a.data.freightPerUnit);
+  } else {
+    skuRows.sort((a,b)=>a.sku.localeCompare(b.sku));
+  }
+
+  const skuTbody = document.querySelector('#shipments-sku-table tbody');
+  skuTbody.innerHTML = '';
+  document.getElementById('shipments-sku-empty').style.display = skuRows.length ? 'none' : 'block';
+  skuRows.forEach(({sku, data})=>{
+    const totalFreightCost = data.freightPerUnit!==null ? data.freightPerUnit * data.totalUnits : null;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${sku}</td>
+      <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
+      <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
+      <td>${data.totalUnits.toLocaleString()}</td>
+      <td>${fmt(data.weightedAvgCostPerCbm)}</td>
+      <td>${data.cbmPerUnit!==null ? fmtNum(data.cbmPerUnit,4) : '<span style="color:var(--red)">no Logistics data</span>'}</td>
+      <td><strong>${data.freightPerUnit!==null ? fmt(data.freightPerUnit) : '—'}</strong></td>
+      <td>${totalFreightCost!==null ? fmt(totalFreightCost) : '—'}</td>
+    `;
+    skuTbody.appendChild(tr);
+  });
+
+  // Raw shipments table
+  const rawTbody = document.querySelector('#shipments-raw-table tbody');
+  rawTbody.innerHTML = '';
+  document.getElementById('shipments-raw-empty').style.display = state.shipments.length ? 'none' : 'block';
+  state.shipments.forEach(s=>{
+    const isExpanded = expandedShipments.has(s.id);
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = ()=>toggleShipmentExpand(s.id);
+    tr.innerHTML = `
+      <td>${isExpanded ? '&#9662;' : '&#9656;'} ${s.patent||'—'}</td>
+      <td>${s.container||'—'}</td>
+      <td>${s.destination||'—'}</td>
+      <td>${(s.totalUnits||0).toLocaleString()}</td>
+      <td>${(s.totalBoxes||0).toLocaleString()}</td>
+      <td>${fmt(s.costPerCbm)}</td>
+      <td>${fmt(s.totalShippingCost)}</td>
+      <td>${s.placementFee ? fmt(s.placementFee) : '—'}</td>
+      <td></td>
+    `;
+    rawTbody.appendChild(tr);
+    if(isExpanded){
+      const contents = state.shipmentContents.filter(c=>c.shipmentId===s.id);
+      contents.forEach(c=>{
+        const childTr = document.createElement('tr');
+        childTr.style.background = '#FAFBFC';
+        childTr.innerHTML = `<td colspan="9" style="padding-left:28px; color:var(--grey);">${c.sku} — ${c.units.toLocaleString()} units</td>`;
+        rawTbody.appendChild(childTr);
+      });
+    }
+  });
+}
+
 // ---------------- Column definitions for the SKU Economics table ----------------
 const skuColumnDefs = [
   { key: 'units', label: 'Units Sold', money: false },
@@ -2065,11 +2434,21 @@ async function handleSkuEconomicsReportUpload(event){
 // ---------------- SUMMARY ----------------
 function landedCostForSku(sku){
   const mfgRow = state.mfg.find(r=>r.sku===sku);
-  const logRow = state.logistics.items.find(r=>r.sku===sku);
   const mfgCost = mfgRow ? mfgRow.mfgCost : null;
-  const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
-  const freight = logRow ? computeFreightPerUnit(cbm, logRow.unitsPerCarton) : null;
-  if(mfgCost===null && freight===null) return null;
+
+  // Prefer a real, quantity-weighted freight rate from actual shipment data when we have it —
+  // falls back to the flat "Avg Price per CBM" estimate only for SKUs with no shipment history yet.
+  const shipmentData = shipmentFreightDataForSku(sku);
+  let freight;
+  if(shipmentData && shipmentData.freightPerUnit!==null){
+    freight = shipmentData.freightPerUnit;
+  } else {
+    const logRow = state.logistics.items.find(r=>r.sku===sku);
+    const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
+    freight = logRow ? computeFreightPerUnit(cbm, logRow.unitsPerCarton) : null;
+  }
+
+  if(mfgCost===null && (freight===null || freight===undefined)) return null;
   return (mfgCost||0) + (freight||0);
 }
 function warehouseCostForMonth(month){
@@ -2404,6 +2783,7 @@ const SCREEN_LABELS = {
   catalog: 'Catalog',
   manufacturing_costs: 'Manufacturing Costs',
   logistics: 'Logistics & Freight',
+  shipment_costs: 'Shipment Costs',
   sku_economics: 'SKU Economics',
 };
 
@@ -2462,7 +2842,7 @@ function renderRawFiles(){
   container.innerHTML = '';
   document.getElementById('files-empty').style.display = state.rawFiles.length ? 'none' : 'block';
 
-  const screens = ['full_template', 'catalog', 'manufacturing_costs', 'logistics', 'sku_economics'];
+  const screens = ['full_template', 'catalog', 'manufacturing_costs', 'logistics', 'shipment_costs', 'sku_economics'];
   screens.forEach(screen=>{
     const files = state.rawFiles.filter(f=>f.screen===screen);
     if(!files.length) return;
@@ -2573,6 +2953,52 @@ async function reparseRawFile(id, opts){
 
     const isCsv = /\.csv$/i.test(fileRow.original_filename);
 
+    if(fileRow.screen === 'shipment_costs'){
+      const arrayBuffer = await data.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
+      const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
+
+      await sb.from('shipment_contents').delete().eq('client_id', CLIENT_ID);
+      await sb.from('shipments').delete().eq('client_id', CLIENT_ID);
+
+      const shipmentInsertPayload = shipments.map(s=>({
+        client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
+        total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
+        total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
+      }));
+      const { data: insertedShipments, error: shipErr } = await sb.from('shipments').insert(shipmentInsertPayload).select();
+      if(shipErr) throw shipErr;
+
+      const dbIdByKey = {};
+      insertedShipments.forEach(row=>{
+        if(row.patent) dbIdByKey[row.patent] = row.id;
+        if(row.container) dbIdByKey[row.container] = row.id;
+      });
+      const contentsInsertPayload = contents.map(c=>{
+        const key = c.shipment.patent || c.shipment.container;
+        return { client_id: CLIENT_ID, shipment_id: dbIdByKey[key], sku: c.sku, units: c.units };
+      }).filter(c=>c.shipment_id);
+      if(contentsInsertPayload.length){
+        const { error } = await sb.from('shipment_contents').insert(contentsInsertPayload);
+        if(error) throw error;
+      }
+
+      await updateRawFileStats(id, {
+        success: true,
+        rowsImported: shipments.length + contentsInsertPayload.length,
+        rowsSkipped: unmatchedKeys.length,
+        error: unmatchedKeys.length ? `Unmatched keys: ${unmatchedKeys.join(', ')}` : undefined,
+      });
+
+      await loadAllFromSupabase();
+      renderShipments();
+      if(!silent){
+        await loadRawFiles(); renderRawFiles();
+        alert('Re-parse complete — shipment data reloaded from this file.');
+      }
+      return;
+    }
+
     if(fileRow.screen === 'full_template'){
       const arrayBuffer = await data.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
@@ -2665,6 +3091,7 @@ async function initApp(){
   renderCatalog();
   renderMfg();
   renderLogistics();
+  renderShipments();
   renderWarehouse();
   renderSku();
 }
