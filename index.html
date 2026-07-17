@@ -465,7 +465,7 @@
             <label>Level</label>
             <select id="summary-level" onchange="renderSummary()">
               <option value="child">Child ASIN (SKU)</option>
-              <option value="parent">Parent ASIN</option>
+              <option value="parent" selected>Parent ASIN</option>
             </select>
           </div>
           <div class="field">
@@ -473,7 +473,7 @@
             <select id="summary-period-type" onchange="onSummaryPeriodTypeChange()">
               <option value="month">Month</option>
               <option value="quarter">Quarter</option>
-              <option value="ytd">Year to Date</option>
+              <option value="ytd" selected>Year to Date</option>
             </select>
           </div>
           <div class="field" id="summary-period-value-wrap">
@@ -496,7 +496,7 @@
             <label>Sort by Net Profit</label>
             <select id="summary-sort" onchange="renderSummary()">
               <option value="none">Default (no sort)</option>
-              <option value="desc">Highest to Lowest</option>
+              <option value="desc" selected>Highest to Lowest</option>
               <option value="asc">Lowest to Highest</option>
             </select>
           </div>
