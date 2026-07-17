@@ -273,18 +273,7 @@
     <!-- ===================== TAB 2: LOGISTICS ===================== -->
     <section id="tab-logistics" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Logistics &amp; Freight</h1></div>
-      <p class="subtitle">Master carton size, weight, and units per carton — used to calculate freight cost per unit.</p>
-
-      <div class="card">
-        <h2>Freight Rate (Global)</h2>
-        <div class="row-inline">
-          <div class="field">
-            <label>Avg Price per CBM — Current Year (USD)</label>
-            <input type="number" id="avgCbmPrice" step="0.01" placeholder="e.g. 220" oninput="onAvgCbmPriceChange(this.value)">
-          </div>
-        </div>
-        <div class="formula">Freight Cost / Unit = (Avg Price per CBM &times; Master Carton CBM) &divide; Units per Carton</div>
-      </div>
+      <p class="subtitle">Master carton size, weight, and units per carton — CBM feeds Freight Cost/Unit, which now comes from real shipment data on the Shipment Costs page.</p>
 
       <div class="card">
         <h2>Bulk Import</h2>
@@ -327,7 +316,7 @@
               <th style="width:8%">Weight (kg)</th>
               <th style="width:7%">CBM</th>
               <th style="width:9%">Units / Carton</th>
-              <th style="width:12%">Freight Cost / Unit</th>
+              <th style="width:12%">Freight Cost / Unit (from Shipment Costs)</th>
               <th style="width:5%"></th>
               <th style="width:8%"></th>
             </tr>
@@ -363,6 +352,13 @@
         <h2>Per-SKU Freight Cost Summary</h2>
         <div class="filter-bar">
           <div class="field">
+            <label>Level</label>
+            <select id="shipments-level" onchange="renderShipments()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN</option>
+            </select>
+          </div>
+          <div class="field">
             <label>ASIN</label>
             <input type="text" id="shipments-filter-asin" list="shipments-filter-asin-list" placeholder="Search ASIN..." oninput="renderShipments()"><datalist id="shipments-filter-asin-list"></datalist>
           </div>
@@ -386,18 +382,7 @@
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('shipments-sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('shipments-sku-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="shipments-sku-scroll">
           <table id="shipments-sku-table">
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th>ASIN</th>
-                <th>Parent ASIN</th>
-                <th>Units Shipped</th>
-                <th>Weighted Avg Cost/CBM</th>
-                <th>CBM/Unit</th>
-                <th>Avg Freight Cost/Unit</th>
-                <th>Total Freight Cost</th>
-              </tr>
-            </thead>
+            <thead><tr id="shipments-sku-header-row"></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -1409,7 +1394,6 @@ function computeFreightPerUnit(cbm, unitsPerCarton){
   return (price * cbm) / unitsPerCarton;
 }
 function renderLogistics(){
-  document.getElementById('avgCbmPrice').value = state.logistics.avgCbmPrice ?? '';
   const tbody = document.querySelector('#logistics-table tbody');
   tbody.innerHTML = '';
   let anyVisible = false;
@@ -1420,7 +1404,8 @@ function renderLogistics(){
     if(!matchesFilter(asin, logisticsFilters.asin) || !matchesFilter(parentAsin, logisticsFilters.parentAsin) || !matchesFilter(family, logisticsFilters.family)) return;
     anyVisible = true;
     const cbm = computeCbm(row.l, row.w, row.h);
-    const freight = computeFreightPerUnit(cbm, row.unitsPerCarton);
+    const shipmentData = shipmentFreightDataForSku(row.sku);
+    const freight = shipmentData ? shipmentData.freightPerUnit : null;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${skuCellHtml('logistics', idx, row.sku, 'updateLogistics')}</td>
@@ -1432,7 +1417,7 @@ function renderLogistics(){
       <td><input type="number" class="narrow" value="${row.weight??''}" oninput="updateLogistics(${idx},'weight',this.value)"></td>
       <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
       <td><input type="number" class="narrow" value="${row.unitsPerCarton??''}" oninput="updateLogistics(${idx},'unitsPerCarton',this.value)"></td>
-      <td class="computed">${freight!==null ? fmt(freight) : '—'}</td>
+      <td class="computed">${freight!==null ? fmt(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
       <td></td>
       <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
     `;
@@ -1455,13 +1440,6 @@ function deleteLogistics(idx){
   renderLogistics();
   deleteRow('logistics', row.id);
 }
-function onAvgCbmPriceChange(value){
-  const num = value===''? null : parseFloat(value);
-  state.logistics.avgCbmPrice = num;
-  renderLogistics();
-  debounceSave('avgCbmPrice', ()=>saveAvgCbmPrice(num));
-}
-
 async function parseAndSaveLogisticsRows(rows, statusEl){
   let headerRowIdx = -1, headerMap = {};
   for(let i=0; i<Math.min(rows.length,10); i++){
@@ -1812,6 +1790,7 @@ function populateShipmentsFilterDropdowns(){
 }
 
 const expandedShipments = new Set();
+const expandedShipmentSkuParents = new Set();
 function toggleShipmentExpand(shipmentId){
   if(expandedShipments.has(shipmentId)) expandedShipments.delete(shipmentId);
   else expandedShipments.add(shipmentId);
@@ -1840,39 +1819,113 @@ function renderShipments(){
   `;
 
   // Per-SKU summary
-  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
-  let skuRows = skusWithShipments
-    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter))
-    .map(sku=>{
-      const data = shipmentFreightDataForSku(sku);
-      return { sku, data };
-    })
-    .filter(r=>r.data);
-
-  if(sortOrder !== 'none'){
-    skuRows.sort((a,b)=> sortOrder==='asc' ? a.data.freightPerUnit-b.data.freightPerUnit : b.data.freightPerUnit-a.data.freightPerUnit);
-  } else {
-    skuRows.sort((a,b)=>a.sku.localeCompare(b.sku));
-  }
-
+  const level = document.getElementById('shipments-level').value;
+  const headerRow = document.getElementById('shipments-sku-header-row');
   const skuTbody = document.querySelector('#shipments-sku-table tbody');
   skuTbody.innerHTML = '';
-  document.getElementById('shipments-sku-empty').style.display = skuRows.length ? 'none' : 'block';
-  skuRows.forEach(({sku, data})=>{
-    const totalFreightCost = data.freightPerUnit!==null ? data.freightPerUnit * data.totalUnits : null;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${sku}</td>
-      <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
-      <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
-      <td>${data.totalUnits.toLocaleString()}</td>
-      <td>${fmt(data.weightedAvgCostPerCbm)}</td>
-      <td>${data.cbmPerUnit!==null ? fmtNum(data.cbmPerUnit,4) : '<span style="color:var(--red)">no Logistics data</span>'}</td>
-      <td><strong>${data.freightPerUnit!==null ? fmt(data.freightPerUnit) : '—'}</strong></td>
-      <td>${totalFreightCost!==null ? fmt(totalFreightCost) : '—'}</td>
-    `;
-    skuTbody.appendChild(tr);
-  });
+
+  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
+    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter));
+
+  if(level === 'parent'){
+    headerRow.innerHTML = ['Parent ASIN','Units Shipped','Weighted Avg Cost/CBM','Avg Freight Cost/Unit (blended)','Total Freight Cost']
+      .map(h=>`<th>${h}</th>`).join('');
+
+    const byParent = {};
+    skusWithShipments.forEach(sku=>{
+      const parent = catalogParentAsinForSku(sku) || `(no parent — ${sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(sku);
+    });
+
+    let parentRows = Object.keys(byParent).map(parent=>{
+      const skus = byParent[parent];
+      let totalUnits=0, weightedCostSum=0, totalFreightCost=0;
+      skus.forEach(sku=>{
+        const data = shipmentFreightDataForSku(sku);
+        if(!data) return;
+        totalUnits += data.totalUnits;
+        weightedCostSum += data.totalUnits * data.weightedAvgCostPerCbm;
+        if(data.freightPerUnit!==null) totalFreightCost += data.freightPerUnit * data.totalUnits;
+      });
+      const weightedAvgCostPerCbm = totalUnits ? weightedCostSum/totalUnits : null;
+      const avgFreightPerUnitBlended = totalUnits ? totalFreightCost/totalUnits : null;
+      return { parent, skus, totalUnits, weightedAvgCostPerCbm, avgFreightPerUnitBlended, totalFreightCost };
+    }).filter(r=>r.totalUnits>0);
+
+    if(sortOrder !== 'none'){
+      parentRows.sort((a,b)=> sortOrder==='asc' ? (a.avgFreightPerUnitBlended??0)-(b.avgFreightPerUnitBlended??0) : (b.avgFreightPerUnitBlended??0)-(a.avgFreightPerUnitBlended??0));
+    } else {
+      parentRows.sort((a,b)=>a.parent.localeCompare(b.parent));
+    }
+
+    document.getElementById('shipments-sku-empty').style.display = parentRows.length ? 'none' : 'block';
+
+    parentRows.forEach(pr=>{
+      const isExpanded = expandedShipmentSkuParents.has(pr.parent);
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>{
+        if(expandedShipmentSkuParents.has(pr.parent)) expandedShipmentSkuParents.delete(pr.parent);
+        else expandedShipmentSkuParents.add(pr.parent);
+        renderShipments();
+      };
+      tr.innerHTML = `
+        <td>${isExpanded ? '&#9662;' : '&#9656;'} ${pr.parent}</td>
+        <td>${pr.totalUnits.toLocaleString()}</td>
+        <td>${pr.weightedAvgCostPerCbm!==null ? fmt(pr.weightedAvgCostPerCbm) : '—'}</td>
+        <td><strong>${pr.avgFreightPerUnitBlended!==null ? fmt(pr.avgFreightPerUnitBlended) : '—'}</strong></td>
+        <td>${fmt(pr.totalFreightCost)}</td>
+      `;
+      skuTbody.appendChild(tr);
+
+      if(isExpanded){
+        pr.skus.slice().sort().forEach(sku=>{
+          const data = shipmentFreightDataForSku(sku);
+          if(!data) return;
+          const childTotal = data.freightPerUnit!==null ? data.freightPerUnit*data.totalUnits : null;
+          const childTr = document.createElement('tr');
+          childTr.style.background = '#FAFBFC';
+          childTr.innerHTML = `
+            <td style="padding-left:28px; color:var(--grey);">${sku}</td>
+            <td>${data.totalUnits.toLocaleString()}</td>
+            <td>${fmt(data.weightedAvgCostPerCbm)}</td>
+            <td>${data.freightPerUnit!==null ? fmt(data.freightPerUnit) : '—'}</td>
+            <td>${childTotal!==null ? fmt(childTotal) : '—'}</td>
+          `;
+          skuTbody.appendChild(childTr);
+        });
+      }
+    });
+
+  } else {
+    headerRow.innerHTML = ['SKU','ASIN','Parent ASIN','Units Shipped','Weighted Avg Cost/CBM','CBM/Unit','Avg Freight Cost/Unit','Total Freight Cost']
+      .map(h=>`<th>${h}</th>`).join('');
+
+    let skuRows = skusWithShipments.map(sku=>({ sku, data: shipmentFreightDataForSku(sku) })).filter(r=>r.data);
+
+    if(sortOrder !== 'none'){
+      skuRows.sort((a,b)=> sortOrder==='asc' ? (a.data.freightPerUnit??0)-(b.data.freightPerUnit??0) : (b.data.freightPerUnit??0)-(a.data.freightPerUnit??0));
+    } else {
+      skuRows.sort((a,b)=>a.sku.localeCompare(b.sku));
+    }
+
+    document.getElementById('shipments-sku-empty').style.display = skuRows.length ? 'none' : 'block';
+    skuRows.forEach(({sku, data})=>{
+      const totalFreightCost = data.freightPerUnit!==null ? data.freightPerUnit * data.totalUnits : null;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${sku}</td>
+        <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
+        <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
+        <td>${data.totalUnits.toLocaleString()}</td>
+        <td>${fmt(data.weightedAvgCostPerCbm)}</td>
+        <td>${data.cbmPerUnit!==null ? fmtNum(data.cbmPerUnit,4) : '<span style="color:var(--red)">no Logistics data</span>'}</td>
+        <td><strong>${data.freightPerUnit!==null ? fmt(data.freightPerUnit) : '—'}</strong></td>
+        <td>${totalFreightCost!==null ? fmt(totalFreightCost) : '—'}</td>
+      `;
+      skuTbody.appendChild(tr);
+    });
+  }
 
   // Raw shipments table
   const rawTbody = document.querySelector('#shipments-raw-table tbody');
@@ -2436,17 +2489,11 @@ function landedCostForSku(sku){
   const mfgRow = state.mfg.find(r=>r.sku===sku);
   const mfgCost = mfgRow ? mfgRow.mfgCost : null;
 
-  // Prefer a real, quantity-weighted freight rate from actual shipment data when we have it —
-  // falls back to the flat "Avg Price per CBM" estimate only for SKUs with no shipment history yet.
+  // Freight cost now comes exclusively from real shipment data (Shipment Costs page) —
+  // no flat "Avg Price per CBM" estimate anymore. SKUs without shipment history simply
+  // have no freight figure yet, rather than a rough guess.
   const shipmentData = shipmentFreightDataForSku(sku);
-  let freight;
-  if(shipmentData && shipmentData.freightPerUnit!==null){
-    freight = shipmentData.freightPerUnit;
-  } else {
-    const logRow = state.logistics.items.find(r=>r.sku===sku);
-    const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
-    freight = logRow ? computeFreightPerUnit(cbm, logRow.unitsPerCarton) : null;
-  }
+  const freight = shipmentData ? shipmentData.freightPerUnit : null;
 
   if(mfgCost===null && (freight===null || freight===undefined)) return null;
   return (mfgCost||0) + (freight||0);
@@ -2605,14 +2652,13 @@ function showCogsBreakdown(key, level){
     const skuRows = bySku[sku];
     const units = skuRows.reduce((s,r)=>s+(r.units||0),0);
     const mfgRow = state.mfg.find(r=>r.sku===sku);
-    const logRow = state.logistics.items.find(r=>r.sku===sku);
     const mfgCost = mfgRow ? mfgRow.mfgCost : null;
-    const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
-    const freight = logRow ? computeFreightPerUnit(cbm, logRow.unitsPerCarton) : null;
+    const shipmentData = shipmentFreightDataForSku(sku);
+    const freight = shipmentData ? shipmentData.freightPerUnit : null;
     const landed = (mfgCost||0) + (freight||0);
     const subtotal = landed * units;
     grandTotal += subtotal;
-    const missingNote = (mfgCost===null && freight===null) ? ' <span style="color:var(--red); font-size:11px;">(no Manufacturing or Logistics data)</span>' : '';
+    const missingNote = (mfgCost===null && freight===null) ? ' <span style="color:var(--red); font-size:11px;">(no Manufacturing or Shipment Cost data)</span>' : '';
     return `
       <tr>
         <td>${sku}${missingNote}</td>
