@@ -836,6 +836,10 @@ function fmt(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
 }
+function fmtWhole(n){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return '$' + Math.round(Number(n)).toLocaleString(undefined, {maximumFractionDigits:0});
+}
 function fmtNum(n, d=3){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return Number(n).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
@@ -1917,8 +1921,8 @@ function renderShipments(){
   document.getElementById('shipments-kpis').innerHTML = `
     <div class="kpi"><div class="label">Total Shipments</div><div class="value">${totalShipments}</div></div>
     <div class="kpi"><div class="label">Total Units Shipped</div><div class="value">${totalUnitsShipped.toLocaleString()}</div></div>
-    <div class="kpi"><div class="label">Blended Avg Cost/CBM</div><div class="value">${blendedAvgCostPerCbm!==null ? fmt(blendedAvgCostPerCbm) : '—'}</div></div>
-    <div class="kpi"><div class="label">Total Shipping Cost</div><div class="value">${fmt(totalShippingCost)}</div></div>
+    <div class="kpi"><div class="label">Blended Avg Cost/CBM</div><div class="value">${blendedAvgCostPerCbm!==null ? fmtWhole(blendedAvgCostPerCbm) : '—'}</div></div>
+    <div class="kpi"><div class="label">Total Shipping Cost</div><div class="value">${fmtWhole(totalShippingCost)}</div></div>
   `;
 
   // Per-SKU summary
@@ -2184,9 +2188,9 @@ function renderSku(){
     <div class="kpi"><div class="label">Rows in Scope</div><div class="value">${filteredEntries.length}</div></div>
     <div class="kpi"><div class="label">Unique SKUs</div><div class="value">${uniqueSkusInScope}</div></div>
     <div class="kpi"><div class="label">Total Units Sold</div><div class="value">${kpiTotals.units.toLocaleString()}</div></div>
-    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(kpiTotals.revenue)}</div></div>
-    <div class="kpi"><div class="label">Total Net Proceeds</div><div class="value">${fmt(kpiTotals.netProceeds)}</div></div>
-    <div class="kpi"><div class="label">Net Proceeds %</div><div class="value">${kpiNetProceedsPct!==null ? kpiNetProceedsPct.toFixed(1)+'%' : '—'}</div></div>
+    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmtWhole(kpiTotals.revenue)}</div></div>
+    <div class="kpi"><div class="label">Total Net Proceeds</div><div class="value">${fmtWhole(kpiTotals.netProceeds)}</div></div>
+    <div class="kpi"><div class="label">Net Proceeds %</div><div class="value">${kpiNetProceedsPct!==null ? Math.round(kpiNetProceedsPct)+'%' : '—'}</div></div>
   `;
 
   const tbody = document.querySelector('#sku-table tbody');
@@ -2919,10 +2923,10 @@ function renderSummary(){
     <div class="kpi"><div class="label">Units Sold</div><div class="value">${overall.units.toLocaleString()}</div></div>
     <div class="kpi"><div class="label">Units Shipped to FBA</div><div class="value">${unitsShippedToFba.toLocaleString()}</div></div>
     <div class="kpi"><div class="label">Units in Stock</div><div class="value">${unitsInStock.toLocaleString()}</div><div style="font-size:10px; color:var(--grey); margin-top:2px;">net this period, not a running total</div></div>
-    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(overall.revenue)}</div></div>
-    <div class="kpi"><div class="label">Total Net Proceeds</div><div class="value">${fmt(overall.netProceedsTotal)}</div></div>
-    <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmt(overall.netProfit)}</div></div>
-    <div class="kpi"><div class="label">Margin % / ROI %</div><div class="value">${overall.margin!==null ? overall.margin.toFixed(1)+'%' : '—'} / ${overall.roi!==null ? overall.roi.toFixed(1)+'%' : '—'}</div></div>
+    <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmtWhole(overall.revenue)}</div></div>
+    <div class="kpi"><div class="label">Total Net Proceeds</div><div class="value">${fmtWhole(overall.netProceedsTotal)}</div></div>
+    <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmtWhole(overall.netProfit)}</div></div>
+    <div class="kpi"><div class="label">Margin % / ROI %</div><div class="value">${overall.margin!==null ? Math.round(overall.margin)+'%' : '—'} / ${overall.roi!==null ? Math.round(overall.roi)+'%' : '—'}</div></div>
   `;
 }
 
