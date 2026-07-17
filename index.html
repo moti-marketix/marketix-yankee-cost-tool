@@ -2384,10 +2384,13 @@ function renderSummary(){
   }
 
   const overall = aggregateRows(scopedRows);
+  const unitsShippedToFba = scopedRows.reduce((sum,r)=> sum + (r.inboundTransportationFeeQty||0), 0);
+  const unitsInStock = unitsShippedToFba - overall.units; // net units added to stock this period — not a cumulative total on hand
   const kpis = document.getElementById('summary-kpis');
   kpis.innerHTML = `
-    <div class="kpi"><div class="label">Rows in Scope</div><div class="value">${scopedRows.length}</div></div>
-    <div class="kpi"><div class="label">Total Units Sold</div><div class="value">${overall.units.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Units Sold</div><div class="value">${overall.units.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Units Shipped to FBA</div><div class="value">${unitsShippedToFba.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Units in Stock</div><div class="value">${unitsInStock.toLocaleString()}</div><div style="font-size:10px; color:var(--grey); margin-top:2px;">net this period, not a running total</div></div>
     <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmt(overall.revenue)}</div></div>
     <div class="kpi"><div class="label">Total Net Proceeds</div><div class="value">${fmt(overall.netProceedsTotal)}</div></div>
     <div class="kpi"><div class="label">Total Net Profit</div><div class="value">${fmt(overall.netProfit)}</div></div>
