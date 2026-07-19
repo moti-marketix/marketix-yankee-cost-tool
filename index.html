@@ -2162,6 +2162,20 @@ function renderShipments(){
 }
 
 // ---------------- Column definitions for the SKU Economics table ----------------
+function computeColSum(col, rows){
+  if(col.ratio){
+    const num = rows.reduce((s,r)=>s+(r[col.ratio.num]||0),0);
+    const den = rows.reduce((s,r)=>s+(r[col.ratio.den]||0),0);
+    return den ? (num/den*100) : null;
+  }
+  return rows.reduce((s,r)=> s + (r[col.key]||0), 0);
+}
+function formatColValue(col, value){
+  if(col.ratio) return value!==null ? value.toFixed(1)+'%' : '—';
+  if(value===null || value===undefined) return '—';
+  return col.money ? fmt(value) : value.toLocaleString();
+}
+
 const skuColumnDefs = [
   { key: 'units', label: 'Units Sold', money: false },
   { key: 'revenue', label: 'Revenue (Net Sales)', money: true },
@@ -2169,6 +2183,7 @@ const skuColumnDefs = [
   { key: 'fbaFees', label: 'FBA Fees (combined)', money: true },
   { key: 'storageFees', label: 'Storage Fees (combined)', money: true },
   { key: 'adSpend', label: 'Ad Spend', money: true },
+  { key: 'tacos', label: 'TACOS %', ratio: { num: 'adSpend', den: 'revenue' } },
   { key: 'refunds', label: 'Refunds (admin fee)', money: true },
   { key: 'netProceeds', label: 'Net Proceeds', money: true },
   { key: 'unitsReturned', label: 'Units Returned', money: false },
@@ -2194,7 +2209,7 @@ const skuColumnDefs = [
   { key: 'sponsoredProductsCharge', label: 'Sponsored Products Charge', money: true },
   { key: 'netProceedsPerUnit', label: 'Net Proceeds / Unit (Amazon)', money: true },
 ];
-const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','referralFees','fbaFees','storageFees','adSpend','refunds','netProceeds'];
+const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','referralFees','fbaFees','storageFees','adSpend','tacos','refunds','netProceeds'];
 
 function loadVisibleSkuColumns(){
   try{
@@ -2304,7 +2319,7 @@ function renderSku(){
     let parentItems = Object.keys(byParent).map(parent=>{
       const rows = byParent[parent];
       const summed = {};
-      visibleDataCols.forEach(col=>{ summed[col.key] = rows.reduce((s,r)=> s + (r[col.key]||0), 0); });
+      visibleDataCols.forEach(col=>{ summed[col.key] = computeColSum(col, rows); });
       const netProceeds = rows.reduce((s,r)=>s+(r.netProceeds||0),0);
       return { parent, rows, summed, netProceeds };
     });
@@ -2326,7 +2341,7 @@ function renderSku(){
         renderSku();
       };
       let cells = `<td>${isExpanded ? '&#9662;' : '&#9656;'} ${parent}</td>`;
-      visibleDataCols.forEach(col=>{ cells += `<td>${col.money ? fmt(summed[col.key]) : summed[col.key].toLocaleString()}</td>`; });
+      visibleDataCols.forEach(col=>{ cells += `<td>${formatColValue(col, summed[col.key])}</td>`; });
       cells += `<td colspan="2" style="color:var(--grey); font-size:12px; font-style:italic;">summed</td>`;
       tr.innerHTML = cells;
       tbody.appendChild(tr);
@@ -2337,11 +2352,11 @@ function renderSku(){
         Object.keys(bySku).sort().forEach(sku=>{
           const skuRows = bySku[sku];
           const skuSummed = {};
-          visibleDataCols.forEach(col=>{ skuSummed[col.key] = skuRows.reduce((s,r)=>s+(r[col.key]||0),0); });
+          visibleDataCols.forEach(col=>{ skuSummed[col.key] = computeColSum(col, skuRows); });
           const childTr = document.createElement('tr');
           childTr.style.background = '#FAFBFC';
           let childCells = `<td style="padding-left:28px; color:var(--grey);">${sku}</td>`;
-          visibleDataCols.forEach(col=>{ childCells += `<td>${col.money ? fmt(skuSummed[col.key]) : skuSummed[col.key].toLocaleString()}</td>`; });
+          visibleDataCols.forEach(col=>{ childCells += `<td>${formatColValue(col, skuSummed[col.key])}</td>`; });
           childCells += `<td colspan="2"></td>`;
           childTr.innerHTML = childCells;
           tbody.appendChild(childTr);
@@ -2358,7 +2373,7 @@ function renderSku(){
       const rows = bySku[sku];
       const summed = {};
       visibleDataCols.forEach(col=>{
-        summed[col.key] = rows.reduce((sum,r)=> sum + (r[col.key]||0), 0);
+        summed[col.key] = computeColSum(col, rows);
       });
       return { sku, summed, netProceeds: rows.reduce((s,r)=>s+(r.netProceeds||0),0) };
     });
@@ -2378,7 +2393,7 @@ function renderSku(){
         <td class="locked-readonly">${parentAsin || '—'}</td>
       `;
       visibleDataCols.forEach(col=>{
-        cells += `<td>${col.money ? fmt(summed[col.key]) : summed[col.key].toLocaleString()}</td>`;
+        cells += `<td>${formatColValue(col, summed[col.key])}</td>`;
       });
       cells += `<td colspan="2" style="color:var(--grey); font-size:12px; font-style:italic;">summed — edit in Month view</td>`;
       tr.innerHTML = cells;
@@ -2419,9 +2434,15 @@ function renderSku(){
           <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
         `;
         visibleDataCols.forEach(col=>{
-          const val = row[col.key];
-          const step = col.money ? 'step="0.01"' : '';
-          cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
+          if(col.ratio){
+            const num = row[col.ratio.num], den = row[col.ratio.den];
+            const val = (den) ? (num||0)/den*100 : null;
+            cells += `<td class="computed">${val!==null ? val.toFixed(1)+'%' : '—'}</td>`;
+          } else {
+            const val = row[col.key];
+            const step = col.money ? 'step="0.01"' : '';
+            cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
+          }
         });
         cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
         tr.innerHTML = cells;
