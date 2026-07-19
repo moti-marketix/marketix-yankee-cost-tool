@@ -64,6 +64,7 @@
     text-align:left; padding:8px 10px; background:var(--blue-light); color:var(--navy);
     font-weight:700; font-size:11.5px; text-transform:uppercase; letter-spacing:0.3px;
     border-bottom:2px solid var(--border);
+    position:sticky; top:0; z-index:3;
   }
   tr.filter-row th{
     background:#fff; padding:4px 8px 8px 8px; border-bottom:1px solid var(--border);
@@ -490,6 +491,13 @@
 
       <div class="card">
         <div class="filter-bar">
+          <div class="field">
+            <label>Level</label>
+            <select id="sku-table-level" onchange="renderSku()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN</option>
+            </select>
+          </div>
           <div class="field">
             <label>Period</label>
             <select id="sku-table-period-type" onchange="onSkuTablePeriodTypeChange()">
@@ -1983,6 +1991,7 @@ function populateShipmentsFilterDropdowns(){
 
 const expandedShipments = new Set();
 const expandedShipmentSkuParents = new Set();
+const expandedSkuTableParents = new Set();
 function toggleShipmentExpand(shipmentId){
   if(expandedShipments.has(shipmentId)) expandedShipments.delete(shipmentId);
   else expandedShipments.add(shipmentId);
@@ -2241,11 +2250,12 @@ function renderSku(){
     monthsInScopeForTable = computeMonthsInScope(periodType, periodValue);
   }
   const sortOrder = document.getElementById('sku-table-sort').value;
-  const isAggregatedView = (periodType === 'quarter' || periodType === 'ytd');
+  const level = document.getElementById('sku-table-level').value;
+  const isAggregatedView = (level === 'parent') || (periodType === 'quarter' || periodType === 'ytd');
 
   // Build header dynamically based on visible columns
   const headerRow = document.getElementById('sku-table-header-row');
-  const baseHeaders = isAggregatedView ? ['SKU','ASIN','Parent ASIN'] : ['SKU','ASIN','Parent ASIN','Month'];
+  const baseHeaders = level === 'parent' ? ['Parent ASIN'] : (isAggregatedView ? ['SKU','ASIN','Parent ASIN'] : ['SKU','ASIN','Parent ASIN','Month']);
   const dataHeaders = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key)).map(c=>c.label);
   headerRow.innerHTML = [...baseHeaders, ...dataHeaders, '', ''].map(h=>`<th>${h}</th>`).join('');
 
@@ -2283,7 +2293,63 @@ function renderSku(){
   const visibleDataCols = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key));
   let anyRows = false;
 
-  if(isAggregatedView){
+  if(level === 'parent'){
+    // ---- Parent ASIN rollup: one row per parent, summed across every child SKU in scope, expandable ----
+    const byParent = {};
+    filteredEntries.forEach(({row})=>{
+      const parent = catalogParentAsinForSku(row.sku) || `(no parent — ${row.sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(row);
+    });
+
+    let parentItems = Object.keys(byParent).map(parent=>{
+      const rows = byParent[parent];
+      const summed = {};
+      visibleDataCols.forEach(col=>{ summed[col.key] = rows.reduce((s,r)=> s + (r[col.key]||0), 0); });
+      const netProceeds = rows.reduce((s,r)=>s+(r.netProceeds||0),0);
+      return { parent, rows, summed, netProceeds };
+    });
+
+    if(sortOrder !== 'none'){
+      parentItems.sort((a,b)=> sortOrder === 'asc' ? a.netProceeds - b.netProceeds : b.netProceeds - a.netProceeds);
+    } else {
+      parentItems.sort((a,b)=>a.parent.localeCompare(b.parent));
+    }
+
+    anyRows = parentItems.length > 0;
+    parentItems.forEach(({parent, rows, summed})=>{
+      const isExpanded = expandedSkuTableParents.has(parent);
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>{
+        if(expandedSkuTableParents.has(parent)) expandedSkuTableParents.delete(parent);
+        else expandedSkuTableParents.add(parent);
+        renderSku();
+      };
+      let cells = `<td>${isExpanded ? '&#9662;' : '&#9656;'} ${parent}</td>`;
+      visibleDataCols.forEach(col=>{ cells += `<td>${col.money ? fmt(summed[col.key]) : summed[col.key].toLocaleString()}</td>`; });
+      cells += `<td colspan="2" style="color:var(--grey); font-size:12px; font-style:italic;">summed</td>`;
+      tr.innerHTML = cells;
+      tbody.appendChild(tr);
+
+      if(isExpanded){
+        const bySku = {};
+        rows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
+        Object.keys(bySku).sort().forEach(sku=>{
+          const skuRows = bySku[sku];
+          const skuSummed = {};
+          visibleDataCols.forEach(col=>{ skuSummed[col.key] = skuRows.reduce((s,r)=>s+(r[col.key]||0),0); });
+          const childTr = document.createElement('tr');
+          childTr.style.background = '#FAFBFC';
+          let childCells = `<td style="padding-left:28px; color:var(--grey);">${sku}</td>`;
+          visibleDataCols.forEach(col=>{ childCells += `<td>${col.money ? fmt(skuSummed[col.key]) : skuSummed[col.key].toLocaleString()}</td>`; });
+          childCells += `<td colspan="2"></td>`;
+          childTr.innerHTML = childCells;
+          tbody.appendChild(childTr);
+        });
+      }
+    });
+
+  } else if(isAggregatedView){
     // ---- Aggregated: one row per SKU, summed across every month in scope ----
     const bySku = {};
     filteredEntries.forEach(({row})=>{ (bySku[row.sku] = bySku[row.sku]||[]).push(row); });
