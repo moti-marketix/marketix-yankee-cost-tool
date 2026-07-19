@@ -126,7 +126,8 @@
   .kpi .label{font-size:11.5px; color:var(--grey); font-weight:700; text-transform:uppercase; letter-spacing:0.3px;}
   .kpi .value{font-size:22px; font-weight:700; color:var(--navy); margin-top:4px;}
   .save-status{font-size:11.5px; color:var(--grey); margin-left:auto; align-self:center;}
-  .top-bar{display:flex; align-items:center; margin-bottom:6px;}
+  .top-bar{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
+  .lock-bar{ display:flex; gap:8px; align-items:center; }
   .tag{font-size:10.5px; background:var(--blue-light); color:var(--blue); padding:2px 7px; border-radius:4px; font-weight:700; margin-left:8px;}
 </style>
 </head>
@@ -152,7 +153,7 @@
 
     <!-- ===================== TAB 0: CATALOG ===================== -->
     <section id="tab-catalog">
-      <div class="top-bar"><h1 class="page-title">Catalog</h1></div>
+      <div class="top-bar"><h1 class="page-title">Catalog</h1><div id="catalog-lock-bar" class="lock-bar"></div></div>
       <p class="subtitle">The master list of products. Every other tab references SKUs from here.</p>
 
       <div class="card">
@@ -218,7 +219,7 @@
 
     <!-- ===================== TAB 1: MANUFACTURING ===================== -->
     <section id="tab-mfg" style="display:none;">
-      <div class="top-bar"><h1 class="page-title">Manufacturing Costs</h1></div>
+      <div class="top-bar"><h1 class="page-title">Manufacturing Costs</h1><div id="mfg-lock-bar" class="lock-bar"></div></div>
       <p class="subtitle">Ex-factory cost per unit, by SKU. This feeds directly into Landed Cost (Part 1).</p>
 
       <div class="card">
@@ -273,7 +274,7 @@
 
     <!-- ===================== TAB 2: LOGISTICS ===================== -->
     <section id="tab-logistics" style="display:none;">
-      <div class="top-bar"><h1 class="page-title">Logistics &amp; Freight</h1></div>
+      <div class="top-bar"><h1 class="page-title">Logistics &amp; Freight</h1><div id="logistics-lock-bar" class="lock-bar"></div></div>
       <p class="subtitle">Master carton size, weight, and units per carton — CBM feeds Freight Cost/Unit, which now comes from real shipment data on the Shipment Costs page.</p>
 
       <div class="card">
@@ -417,7 +418,7 @@
 
     <!-- ===================== TAB 3: WAREHOUSE ===================== -->
     <section id="tab-warehouse" style="display:none;">
-      <div class="top-bar"><h1 class="page-title">Warehouse Costs</h1></div>
+      <div class="top-bar"><h1 class="page-title">Warehouse Costs</h1><div id="warehouse-lock-bar" class="lock-bar"></div></div>
       <p class="subtitle">A flat Warehouse Cost/Unit estimated from a few representative months, plus a buffer for the unexpected — checked against your actual total spend.</p>
 
       <div class="kpi-grid" id="warehouse-kpis"></div>
@@ -474,7 +475,7 @@
 
     <!-- ===================== TAB 4: SKU ECONOMICS ===================== -->
     <section id="tab-sku" style="display:none;">
-      <div class="top-bar"><h1 class="page-title">SKU Economics (Monthly)</h1></div>
+      <div class="top-bar"><h1 class="page-title">SKU Economics (Monthly)</h1><div id="sku-lock-bar" class="lock-bar"></div></div>
       <p class="subtitle">Enter figures from Amazon's SKU Economics report — one row per SKU, per month.</p>
 
       <div class="kpi-grid" id="sku-table-kpis"></div>
@@ -657,6 +658,68 @@ let state = {
   shipmentContents: [],
   warehouseBufferPct: 10,
 };
+
+// ---------------- Lock / Edit / Submit workflow (applies to all data-entry tables) ----------------
+const editModeState = { catalog:false, mfg:false, logistics:false, warehouse:false, sku:false };
+const PAGE_TITLES = { catalog:'Catalog', mfg:'Manufacturing Costs', logistics:'Logistics & Freight', warehouse:'Warehouse Costs', sku:'SKU Economics' };
+const RENDER_FNS = { catalog: ()=>renderCatalog(), mfg: ()=>renderMfg(), logistics: ()=>renderLogistics(), warehouse: ()=>renderWarehouse(), sku: ()=>renderSku() };
+
+function enterEditMode(tableKey){
+  editModeState[tableKey] = true;
+  renderLockBar(tableKey);
+  RENDER_FNS[tableKey]();
+}
+
+function renderLockBar(tableKey){
+  const el = document.getElementById(`${tableKey}-lock-bar`);
+  if(!el) return;
+  if(editModeState[tableKey]){
+    el.innerHTML = `
+      <button class="btn btn-primary" onclick="submitChanges('${tableKey}')">&#10003; Submit Changes</button>
+      <button class="btn btn-ghost" onclick="cancelEdit('${tableKey}')">Cancel</button>
+    `;
+  } else {
+    el.innerHTML = `<button class="btn btn-ghost" onclick="enterEditMode('${tableKey}')">&#128274; Locked — Click to Edit</button>`;
+  }
+}
+
+async function submitChanges(tableKey){
+  if(!confirm('Are you sure you want to submit these changes?')) return;
+
+  const statusEl = document.getElementById(`${tableKey}-lock-bar`);
+  statusEl.innerHTML = `<span style="color:var(--grey); font-size:13px;">Saving...</span>`;
+
+  try{
+    if(tableKey === 'catalog'){
+      await Promise.all(state.catalog.filter(r=>r.sku).map(r=>saveCatalogRow(r)));
+    } else if(tableKey === 'mfg'){
+      await Promise.all(state.mfg.filter(r=>r.sku).map(r=>saveMfgRow(r)));
+    } else if(tableKey === 'logistics'){
+      await Promise.all(state.logistics.items.filter(r=>r.sku).map(r=>saveLogisticsRow(r)));
+    } else if(tableKey === 'warehouse'){
+      await Promise.all(state.warehouse.filter(r=>r.month).map(r=>saveWarehouseRow(r)));
+      await saveWarehouseBufferPct(state.warehouseBufferPct);
+    } else if(tableKey === 'sku'){
+      await Promise.all(state.sku.filter(r=>r.sku && r.month).map(r=>saveSkuRow(r)));
+    }
+    editModeState[tableKey] = false;
+    renderLockBar(tableKey);
+    RENDER_FNS[tableKey]();
+    showSyncStatus('Changes saved.');
+  }catch(err){
+    console.error(err);
+    alert('Could not save changes: ' + (err.message||err));
+    renderLockBar(tableKey);
+  }
+}
+
+async function cancelEdit(tableKey){
+  if(!confirm('Discard unsaved changes on this page?')) return;
+  await loadAllFromSupabase(); // reload everything fresh, discarding any local edits
+  editModeState[tableKey] = false;
+  renderLockBar(tableKey);
+  RENDER_FNS[tableKey]();
+}
 
 function showSyncStatus(msg, isError){
   const el = document.getElementById('sync-status');
@@ -907,6 +970,7 @@ function skuSelectOptions(selectedValue){
 const catalogFilters = { asin: '', parentAsin: '', family: '' };
 
 function renderCatalog(){
+  const editing = editModeState.catalog;
   const tbody = document.querySelector('#catalog-table tbody');
   tbody.innerHTML = '';
   let anyVisible = false;
@@ -914,22 +978,35 @@ function renderCatalog(){
     if(!matchesFilter(row.asin, catalogFilters.asin) || !matchesFilter(row.parentAsin, catalogFilters.parentAsin) || !matchesFilter(row.family, catalogFilters.family)) return;
     anyVisible = true;
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
-      <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
-      <td><input value="${row.parentAsin||''}" oninput="updateCatalog(${idx},'parentAsin',this.value)" placeholder="B0..."></td>
-      <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
-      <td><input value="${row.brand||''}" oninput="updateCatalog(${idx},'brand',this.value)" placeholder="Yankee"></td>
-      <td><input value="${row.family||''}" oninput="updateCatalog(${idx},'family',this.value)" placeholder="Pool Covers"></td>
-      <td>
-        <select onchange="updateCatalog(${idx},'status',this.value)">
-          <option value="Active" ${row.status==='Active'?'selected':''}>Active</option>
-          <option value="Upcoming" ${row.status==='Upcoming'?'selected':''}>Upcoming</option>
-          <option value="Discontinued" ${row.status==='Discontinued'?'selected':''}>Discontinued</option>
-        </select>
-      </td>
-      <td><button class="btn-del" onclick="deleteCatalog(${idx})">&times;</button></td>
-    `;
+    if(editing){
+      tr.innerHTML = `
+        <td><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
+        <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
+        <td><input value="${row.parentAsin||''}" oninput="updateCatalog(${idx},'parentAsin',this.value)" placeholder="B0..."></td>
+        <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
+        <td><input value="${row.brand||''}" oninput="updateCatalog(${idx},'brand',this.value)" placeholder="Yankee"></td>
+        <td><input value="${row.family||''}" oninput="updateCatalog(${idx},'family',this.value)" placeholder="Pool Covers"></td>
+        <td>
+          <select onchange="updateCatalog(${idx},'status',this.value)">
+            <option value="Active" ${row.status==='Active'?'selected':''}>Active</option>
+            <option value="Upcoming" ${row.status==='Upcoming'?'selected':''}>Upcoming</option>
+            <option value="Discontinued" ${row.status==='Discontinued'?'selected':''}>Discontinued</option>
+          </select>
+        </td>
+        <td><button class="btn-del" onclick="deleteCatalog(${idx})">&times;</button></td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td>${row.sku||'—'}</td>
+        <td>${row.asin||'—'}</td>
+        <td>${row.parentAsin||'—'}</td>
+        <td>${row.name||'—'}</td>
+        <td>${row.brand||'—'}</td>
+        <td>${row.family||'—'}</td>
+        <td>${row.status||'—'}</td>
+        <td></td>
+      `;
+    }
     tbody.appendChild(tr);
   });
   document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
@@ -937,20 +1014,22 @@ function renderCatalog(){
   populateSummaryFilterDropdowns();
 }
 function addCatalogRow(){
+  if(!editModeState.catalog){ enterEditMode('catalog'); }
   state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
   renderCatalog();
 }
 function updateCatalog(idx, field, value){
   const row = state.catalog[idx];
   row[field] = value;
-  if(!row.sku) return; // don't save rows with no SKU yet
-  debounceSave('catalog-'+idx, ()=>saveCatalogRow(row));
+  // Held locally — no auto-save. Changes only persist when "Submit Changes" is confirmed.
 }
 function deleteCatalog(idx){
+  if(!editModeState.catalog){ return; }
+  if(!confirm('Delete this row? This cannot be undone.')) return;
   const row = state.catalog[idx];
   state.catalog.splice(idx,1);
   renderCatalog();
-  deleteRow('catalog', row.id);
+  if(row.id) deleteRow('catalog', row.id);
 }
 
 async function uploadRawFile(file, screen){
@@ -1175,6 +1254,7 @@ const logisticsFilters = { asin: '', parentAsin: '', family: '' };
 const skuFilters = { asin: '', parentAsin: '', family: '' };
 
 function renderMfg(){
+  const editing = editModeState.mfg;
   const tbody = document.querySelector('#mfg-table tbody');
   tbody.innerHTML = '';
   let anyVisible = false;
@@ -1186,33 +1266,42 @@ function renderMfg(){
     anyVisible = true;
     const tr = document.createElement('tr');
     const displayName = catalogNameForSku(row.sku);
+    const costCell = editing
+      ? `<input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00">`
+      : `${row.mfgCost!==null && row.mfgCost!==undefined ? fmt(row.mfgCost) : '—'}`;
+    const skuCell = editing ? skuCellHtml('mfg', idx, row.sku, 'updateMfg') : (row.sku || '—');
     tr.innerHTML = `
-      <td>${skuCellHtml('mfg', idx, row.sku, 'updateMfg')}</td>
+      <td>${skuCell}</td>
       <td class="locked-readonly">${asin || '—'}</td>
       <td class="locked-readonly">${parentAsin || '—'}</td>
       <td class="computed">${displayName || '<span style="color:var(--grey); font-style:italic;">(from Catalog)</span>'}</td>
-      <td><input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00"></td>
+      <td>${costCell}</td>
       <td></td>
-      <td><button class="btn-del" onclick="deleteMfg(${idx})">&times;</button></td>
+      <td>${editing ? `<button class="btn-del" onclick="deleteMfg(${idx})">&times;</button>` : ''}</td>
     `;
     tbody.appendChild(tr);
   });
   document.getElementById('mfg-empty').style.display = anyVisible ? 'none' : 'block';
 }
-function addMfgRow(){ state.mfg.push({sku:'', mfgCost:null}); renderMfg(); }
+function addMfgRow(){
+  if(!editModeState.mfg){ enterEditMode('mfg'); }
+  state.mfg.push({sku:'', mfgCost:null});
+  renderMfg();
+}
 function updateMfg(idx, field, value){
   const row = state.mfg[idx];
   row[field] = field==='mfgCost' ? (value===''?null:parseFloat(value)) : value;
-  if(field==='sku') editingRows.mfg.delete(idx); // lock again after a deliberate reassignment
-  if(!row.sku) return;
-  debounceSave('mfg-'+idx, ()=>saveMfgRow(row));
+  if(field==='sku') editingRows.mfg.delete(idx);
   if(field==='sku') renderMfg();
+  // Held locally — no auto-save. Changes only persist when "Submit Changes" is confirmed.
 }
 function deleteMfg(idx){
+  if(!editModeState.mfg){ return; }
+  if(!confirm('Delete this row? This cannot be undone.')) return;
   const row = state.mfg[idx];
   state.mfg.splice(idx,1);
   renderMfg();
-  deleteRow('manufacturing_costs', row.id);
+  if(row.id) deleteRow('manufacturing_costs', row.id);
 }
 
 // --- Bulk import: download empty template ---
@@ -1445,25 +1534,43 @@ function renderLogistics(){
   tbody.innerHTML = '';
 
   function childRowHtml(row, idx, indent){
+    const editing = editModeState.logistics;
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const cbm = computeCbm(row.l, row.w, row.h);
     const shipmentData = shipmentFreightDataForSku(row.sku);
     const freight = shipmentData ? shipmentData.freightPerUnit : null;
     const indentStyle = indent ? `style="padding-left:${indent}px;"` : '';
+    const skuCell = editing ? skuCellHtml('logistics', idx, row.sku, 'updateLogistics') : (row.sku || '—');
+    if(editing){
+      return `
+        <td ${indentStyle}>${skuCell}</td>
+        <td class="locked-readonly">${asin || '—'}</td>
+        <td class="locked-readonly">${parentAsin || '—'}</td>
+        <td><input type="number" class="narrow" value="${row.l??''}" oninput="updateLogistics(${idx},'l',this.value)"></td>
+        <td><input type="number" class="narrow" value="${row.w??''}" oninput="updateLogistics(${idx},'w',this.value)"></td>
+        <td><input type="number" class="narrow" value="${row.h??''}" oninput="updateLogistics(${idx},'h',this.value)"></td>
+        <td><input type="number" class="narrow" value="${row.weight??''}" oninput="updateLogistics(${idx},'weight',this.value)"></td>
+        <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
+        <td><input type="number" class="narrow" value="${row.unitsPerCarton??''}" oninput="updateLogistics(${idx},'unitsPerCarton',this.value)"></td>
+        <td class="computed">${freight!==null ? fmt(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
+        <td></td>
+        <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
+      `;
+    }
     return `
-      <td ${indentStyle}>${skuCellHtml('logistics', idx, row.sku, 'updateLogistics')}</td>
+      <td ${indentStyle}>${skuCell}</td>
       <td class="locked-readonly">${asin || '—'}</td>
       <td class="locked-readonly">${parentAsin || '—'}</td>
-      <td><input type="number" class="narrow" value="${row.l??''}" oninput="updateLogistics(${idx},'l',this.value)"></td>
-      <td><input type="number" class="narrow" value="${row.w??''}" oninput="updateLogistics(${idx},'w',this.value)"></td>
-      <td><input type="number" class="narrow" value="${row.h??''}" oninput="updateLogistics(${idx},'h',this.value)"></td>
-      <td><input type="number" class="narrow" value="${row.weight??''}" oninput="updateLogistics(${idx},'weight',this.value)"></td>
+      <td>${row.l??'—'}</td>
+      <td>${row.w??'—'}</td>
+      <td>${row.h??'—'}</td>
+      <td>${row.weight??'—'}</td>
       <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
-      <td><input type="number" class="narrow" value="${row.unitsPerCarton??''}" oninput="updateLogistics(${idx},'unitsPerCarton',this.value)"></td>
+      <td>${row.unitsPerCarton??'—'}</td>
       <td class="computed">${freight!==null ? fmt(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
       <td></td>
-      <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
+      <td></td>
     `;
   }
 
@@ -1571,16 +1678,21 @@ function renderLogistics(){
     });
   }
 }
-function addLogisticsRow(){ state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null}); renderLogistics(); }
+function addLogisticsRow(){
+  if(!editModeState.logistics){ enterEditMode('logistics'); }
+  state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null});
+  renderLogistics();
+}
 function updateLogistics(idx, field, value){
   const row = state.logistics.items[idx];
   row[field] = (field==='sku') ? value : (value===''?null:parseFloat(value));
   if(field==='sku') editingRows.logistics.delete(idx);
   renderLogistics();
-  if(!row.sku) return;
-  debounceSave('logistics-'+idx, ()=>saveLogisticsRow(row));
+  // Held locally — no auto-save. Changes only persist when "Submit Changes" is confirmed.
 }
 function deleteLogistics(idx){
+  if(!editModeState.logistics){ return; }
+  if(!confirm('Delete this row? This cannot be undone.')) return;
   const row = state.logistics.items[idx];
   state.logistics.items.splice(idx,1);
   renderLogistics();
@@ -1738,6 +1850,7 @@ function allYears(){
 function renderWarehouse(){
   const bufferInput = document.getElementById('warehouse-buffer-pct');
   if(document.activeElement !== bufferInput) bufferInput.value = state.warehouseBufferPct ?? '';
+  bufferInput.disabled = !editModeState.warehouse;
 
   const years = allYears();
   const annualBody = document.querySelector('#warehouse-annual-table tbody');
@@ -1783,38 +1896,53 @@ function renderWarehouse(){
   const tbody = document.querySelector('#warehouse-table tbody');
   tbody.innerHTML = '';
   document.getElementById('warehouse-empty').style.display = state.warehouse.length ? 'none' : 'block';
+  const editingWarehouse = editModeState.warehouse;
   state.warehouse.forEach((row, idx)=>{
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td style="text-align:center;"><input type="checkbox" ${row.includeInEstimate?'checked':''} onchange="updateWarehouse(${idx},'includeInEstimate',this.checked)"></td>
-      <td><input type="month" value="${row.month||''}" oninput="updateWarehouse(${idx},'month',this.value)"></td>
-      <td><input type="number" step="0.01" value="${row.invoiceAmount??''}" oninput="updateWarehouse(${idx},'invoiceAmount',this.value)" placeholder="0.00"></td>
-      <td><button class="btn-del" onclick="deleteWarehouse(${idx})">&times;</button></td>
-    `;
+    if(editingWarehouse){
+      tr.innerHTML = `
+        <td style="text-align:center;"><input type="checkbox" ${row.includeInEstimate?'checked':''} onchange="updateWarehouse(${idx},'includeInEstimate',this.checked)"></td>
+        <td><input type="month" value="${row.month||''}" oninput="updateWarehouse(${idx},'month',this.value)"></td>
+        <td><input type="number" step="0.01" value="${row.invoiceAmount??''}" oninput="updateWarehouse(${idx},'invoiceAmount',this.value)" placeholder="0.00"></td>
+        <td><button class="btn-del" onclick="deleteWarehouse(${idx})">&times;</button></td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td style="text-align:center;">${row.includeInEstimate ? '✓' : '—'}</td>
+        <td>${row.month || '—'}</td>
+        <td>${row.invoiceAmount!==null && row.invoiceAmount!==undefined ? fmt(row.invoiceAmount) : '—'}</td>
+        <td></td>
+      `;
+    }
     tbody.appendChild(tr);
   });
 }
-function addWarehouseRow(){ state.warehouse.push({month:'', invoiceAmount:null, includeInEstimate:true}); renderWarehouse(); }
+function addWarehouseRow(){
+  if(!editModeState.warehouse){ enterEditMode('warehouse'); }
+  state.warehouse.push({month:'', invoiceAmount:null, includeInEstimate:true});
+  renderWarehouse();
+}
 function updateWarehouse(idx, field, value){
   const row = state.warehouse[idx];
   if(field==='month') row.month = value;
   else if(field==='includeInEstimate') row.includeInEstimate = value;
   else row[field] = (value===''?null:parseFloat(value));
   renderWarehouse();
-  if(!row.month) return;
-  debounceSave('warehouse-'+idx, ()=>saveWarehouseRow(row));
+  // Held locally — no auto-save. Changes only persist when "Submit Changes" is confirmed.
 }
 function onWarehouseBufferChange(value){
   const num = value===''? null : parseFloat(value);
   state.warehouseBufferPct = num;
   renderWarehouse();
-  debounceSave('warehouseBufferPct', ()=>saveWarehouseBufferPct(num));
+  // Held locally — saved along with the rest of the page when "Submit Changes" is confirmed.
 }
 function deleteWarehouse(idx){
+  if(!editModeState.warehouse){ return; }
+  if(!confirm('Delete this row? This cannot be undone.')) return;
   const row = state.warehouse[idx];
   state.warehouse.splice(idx,1);
   renderWarehouse();
-  deleteRow('warehouse_invoices', row.id);
+  if(row.id) deleteRow('warehouse_invoices', row.id);
 }
 
 // ---------------- TAB 4: SKU Economics ----------------
@@ -2427,27 +2555,49 @@ function renderSku(){
       tbody.appendChild(dividerTr);
 
       byMonth[month].forEach(({row, idx})=>{
+        const editing = editModeState.sku;
         const asin = catalogAsinForSku(row.sku);
         const parentAsin = catalogParentAsinForSku(row.sku);
         const tr = document.createElement('tr');
-        let cells = `
-          <td>${skuCellHtml('sku', idx, row.sku, 'updateSku')}</td>
-          <td class="locked-readonly">${asin || '—'}</td>
-          <td class="locked-readonly">${parentAsin || '—'}</td>
-          <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
-        `;
-        visibleDataCols.forEach(col=>{
-          if(col.ratio){
-            const num = row[col.ratio.num], den = row[col.ratio.den];
-            const val = (den) ? (num||0)/den*100 : null;
-            cells += `<td class="computed">${val!==null ? val.toFixed(1)+'%' : '—'}</td>`;
-          } else {
-            const val = row[col.key];
-            const step = col.money ? 'step="0.01"' : '';
-            cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
-          }
-        });
-        cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
+        const skuCell = editing ? skuCellHtml('sku', idx, row.sku, 'updateSku') : (row.sku || '—');
+        let cells;
+        if(editing){
+          cells = `
+            <td>${skuCell}</td>
+            <td class="locked-readonly">${asin || '—'}</td>
+            <td class="locked-readonly">${parentAsin || '—'}</td>
+            <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
+          `;
+          visibleDataCols.forEach(col=>{
+            if(col.ratio){
+              const num = row[col.ratio.num], den = row[col.ratio.den];
+              const val = (den) ? (num||0)/den*100 : null;
+              cells += `<td class="computed">${val!==null ? val.toFixed(1)+'%' : '—'}</td>`;
+            } else {
+              const val = row[col.key];
+              const step = col.money ? 'step="0.01"' : '';
+              cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
+            }
+          });
+          cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
+        } else {
+          cells = `
+            <td>${skuCell}</td>
+            <td class="locked-readonly">${asin || '—'}</td>
+            <td class="locked-readonly">${parentAsin || '—'}</td>
+            <td>${row.month || '—'}</td>
+          `;
+          visibleDataCols.forEach(col=>{
+            if(col.ratio){
+              const num = row[col.ratio.num], den = row[col.ratio.den];
+              const val = (den) ? (num||0)/den*100 : null;
+              cells += `<td>${val!==null ? val.toFixed(1)+'%' : '—'}</td>`;
+            } else {
+              cells += `<td>${formatColValue(col, row[col.key])}</td>`;
+            }
+          });
+          cells += `<td></td><td></td>`;
+        }
         tr.innerHTML = cells;
         tbody.appendChild(tr);
       });
@@ -2471,6 +2621,7 @@ function renderSku(){
   document.getElementById('sku-empty').style.display = anyRows ? 'none' : 'block';
 }
 function addSkuRow(){
+  if(!editModeState.sku){ enterEditMode('sku'); }
   state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
   renderSku();
 }
@@ -2479,14 +2630,15 @@ function updateSku(idx, field, value){
   row[field] = (field==='sku'||field==='month') ? value : (value===''?null:parseFloat(value));
   if(field==='sku') editingRows.sku.delete(idx);
   if(field==='sku' || field==='month') renderSku();
-  if(!row.sku || !row.month) return;
-  debounceSave('sku-'+idx, ()=>saveSkuRow(row));
+  // Held locally — no auto-save. Changes only persist when "Submit Changes" is confirmed.
 }
 function deleteSku(idx){
+  if(!editModeState.sku){ return; }
+  if(!confirm('Delete this row? This cannot be undone.')) return;
   const row = state.sku[idx];
   state.sku.splice(idx,1);
   renderSku();
-  deleteRow('sku_economics', row.id);
+  if(row.id) deleteRow('sku_economics', row.id);
 }
 
 // ---------------- Amazon SKU Economics report upload ----------------
@@ -3444,6 +3596,7 @@ async function initApp(){
   renderShipments();
   renderWarehouse();
   renderSku();
+  ['catalog','mfg','logistics','warehouse','sku'].forEach(k=>renderLockBar(k));
 }
 initApp();
 </script>
