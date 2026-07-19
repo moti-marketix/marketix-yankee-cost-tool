@@ -2454,6 +2454,20 @@ function renderSku(){
     });
   }
 
+  if(anyRows){
+    const allRows = filteredEntries.map(e=>e.row);
+    const grandTotals = {};
+    visibleDataCols.forEach(col=>{ grandTotals[col.key] = computeColSum(col, allRows); });
+    const totalsTr = document.createElement('tr');
+    totalsTr.style.cssText = 'border-top:2px solid var(--navy); background:var(--blue-light); font-weight:700;';
+    let totalsCells = `<td><strong>TOTAL</strong></td>`;
+    for(let i=1; i<baseHeaders.length; i++) totalsCells += `<td></td>`; // blank out remaining key columns (ASIN/Parent ASIN/Month)
+    visibleDataCols.forEach(col=>{ totalsCells += `<td>${formatColValue(col, grandTotals[col.key])}</td>`; });
+    totalsCells += `<td></td><td></td>`;
+    totalsTr.innerHTML = totalsCells;
+    tbody.appendChild(totalsTr);
+  }
+
   document.getElementById('sku-empty').style.display = anyRows ? 'none' : 'block';
 }
 function addSkuRow(){
@@ -3091,6 +3105,14 @@ function renderSummary(){
   }
 
   const overall = aggregateRows(scopedRows);
+
+  if(scopedRows.length){
+    const totalsTr = document.createElement('tr');
+    totalsTr.style.cssText = 'border-top:2px solid var(--navy); background:var(--blue-light); font-weight:700;';
+    totalsTr.innerHTML = summaryRowHtml('TOTAL', overall);
+    tbody.appendChild(totalsTr);
+  }
+
   const unitsShippedToFba = scopedRows.reduce((sum,r)=> sum + (r.inboundTransportationFeeQty||0), 0);
   const unitsInStock = unitsShippedToFba - overall.units; // net units added to stock this period — not a cumulative total on hand
   const kpis = document.getElementById('summary-kpis');
