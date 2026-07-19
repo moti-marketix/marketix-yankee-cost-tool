@@ -2289,10 +2289,12 @@ function renderSku(){
   const kpiTotals = filteredEntries.reduce((acc, {row})=>{
     acc.units += (row.units||0);
     acc.revenue += (row.revenue||0);
+    acc.adSpend += (row.adSpend||0);
     if(row.netProceeds!==null && row.netProceeds!==undefined) acc.netProceeds += row.netProceeds;
     return acc;
-  }, {units:0, revenue:0, netProceeds:0});
+  }, {units:0, revenue:0, adSpend:0, netProceeds:0});
   const kpiNetProceedsPct = kpiTotals.revenue ? (kpiTotals.netProceeds/kpiTotals.revenue*100) : null;
+  const kpiTacosPct = kpiTotals.revenue ? (kpiTotals.adSpend/kpiTotals.revenue*100) : null;
 
   document.getElementById('sku-table-kpis').innerHTML = `
     <div class="kpi"><div class="label">Rows in Scope</div><div class="value">${filteredEntries.length}</div></div>
@@ -2301,6 +2303,7 @@ function renderSku(){
     <div class="kpi"><div class="label">Total Revenue</div><div class="value">${fmtWhole(kpiTotals.revenue)}</div></div>
     <div class="kpi"><div class="label">Total Net Proceeds</div><div class="value">${fmtWhole(kpiTotals.netProceeds)}</div></div>
     <div class="kpi"><div class="label">Net Proceeds %</div><div class="value">${kpiNetProceedsPct!==null ? Math.round(kpiNetProceedsPct)+'%' : '—'}</div></div>
+    <div class="kpi"><div class="label">TACOS %</div><div class="value">${kpiTacosPct!==null ? Math.round(kpiTacosPct)+'%' : '—'}</div></div>
   `;
 
   const tbody = document.querySelector('#sku-table tbody');
