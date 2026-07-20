@@ -433,15 +433,17 @@
         <table id="warehouse-table">
           <thead>
             <tr>
-              <th style="width:10%">Use for Estimate</th>
-              <th style="width:30%">Month</th>
-              <th style="width:40%">Total Invoice Amount (USD)</th>
-              <th style="width:20%"></th>
+              <th style="width:9%">Use for Estimate</th>
+              <th style="width:22%">Month</th>
+              <th style="width:29%">Total Invoice Amount (USD)</th>
+              <th style="width:24%">Invoice File</th>
+              <th style="width:16%"></th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
         <div id="warehouse-empty" class="empty" style="display:none;">No warehouse invoices logged yet.</div>
+        <input type="file" id="warehouse-invoice-file-input" accept=".pdf,.jpg,.jpeg,.png" style="display:none;" onchange="handleWarehouseInvoiceFileUpload(event)">
         <div class="btn-row">
           <button class="btn btn-primary" onclick="addWarehouseRow()">+ Add Month</button>
         </div>
@@ -727,7 +729,7 @@ async function loadAllFromSupabase(){
         weight: r.weight_kg, unitsPerCarton: r.units_per_carton,
       })),
     };
-    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, includeInEstimate: r.include_in_estimate ?? true }));
+    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, includeInEstimate: r.include_in_estimate ?? true, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name }));
     state.warehouseBufferPct = settingsRes.data && settingsRes.data.warehouse_buffer_pct!==null && settingsRes.data.warehouse_buffer_pct!==undefined ? settingsRes.data.warehouse_buffer_pct : 10;
     state.sku = (skuRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
@@ -845,7 +847,11 @@ async function saveWarehouseBufferPct(value){
   }
 }
 async function saveWarehouseRow(row){
-  const payload = { client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount, include_in_estimate: row.includeInEstimate, updated_at: new Date().toISOString() };
+  const payload = {
+    client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount, include_in_estimate: row.includeInEstimate,
+    invoice_file_path: row.invoiceFilePath || null, invoice_file_name: row.invoiceFileName || null,
+    updated_at: new Date().toISOString(),
+  };
   const result = await upsertRow('warehouse_invoices', row, payload);
   row.id = result.id;
   return result;
@@ -1918,11 +1924,16 @@ function renderWarehouse(){
   const editingWarehouse = editModeState.warehouse;
   state.warehouse.forEach((row, idx)=>{
     const tr = document.createElement('tr');
+    const fileCell = row.invoiceFilePath
+      ? `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;" onclick="viewWarehouseInvoiceFile(${idx})">&#128196; ${row.invoiceFileName || 'View file'}</button>
+         <button class="btn btn-ghost" style="padding:4px 8px; font-size:12px;" onclick="startWarehouseInvoiceUpload(${idx})" title="Replace file">&#8635;</button>`
+      : `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;" onclick="startWarehouseInvoiceUpload(${idx})">&#8679; Upload</button>`;
     if(editingWarehouse){
       tr.innerHTML = `
         <td style="text-align:center;"><input type="checkbox" ${row.includeInEstimate?'checked':''} onchange="updateWarehouse(${idx},'includeInEstimate',this.checked)"></td>
         <td><input type="month" value="${row.month||''}" oninput="updateWarehouse(${idx},'month',this.value)"></td>
         <td><input type="number" step="0.01" value="${row.invoiceAmount??''}" oninput="updateWarehouse(${idx},'invoiceAmount',this.value)" placeholder="0.00"></td>
+        <td>${fileCell}</td>
         <td><button class="btn-del" onclick="deleteWarehouse(${idx})">&times;</button></td>
       `;
     } else {
@@ -1930,6 +1941,7 @@ function renderWarehouse(){
         <td style="text-align:center;">${row.includeInEstimate ? '✓' : '—'}</td>
         <td>${row.month || '—'}</td>
         <td>${row.invoiceAmount!==null && row.invoiceAmount!==undefined ? fmt(row.invoiceAmount) : '—'}</td>
+        <td>${fileCell}</td>
         <td></td>
       `;
     }
@@ -3585,6 +3597,58 @@ async function bulkReparseGroup(screen){
   progressEl.innerHTML = `&#10003; Done — re-parsed ${ids.length} file(s).`;
   await loadRawFiles();
   renderRawFiles();
+}
+
+let pendingWarehouseInvoiceUploadIdx = null;
+function startWarehouseInvoiceUpload(idx){
+  pendingWarehouseInvoiceUploadIdx = idx;
+  document.getElementById('warehouse-invoice-file-input').click();
+}
+async function handleWarehouseInvoiceFileUpload(event){
+  const file = event.target.files[0];
+  const idx = pendingWarehouseInvoiceUploadIdx;
+  if(!file || idx===null){ event.target.value=''; return; }
+  const row = state.warehouse[idx];
+  if(!row.month){
+    alert('Set the month for this row before uploading an invoice file.');
+    event.target.value = '';
+    return;
+  }
+  try{
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const path = `${CLIENT_ID}/warehouse_invoice_docs/${row.month}_${timestamp}_${file.name}`;
+    const { error } = await sb.storage.from('raw-uploads').upload(path, file);
+    if(error) throw error;
+    row.invoiceFilePath = path;
+    row.invoiceFileName = file.name;
+    await saveWarehouseRow(row); // saved immediately — attaching a source document isn't a "data edit" gated by the lock/submit workflow
+    renderWarehouse();
+    showSyncStatus('Invoice file uploaded.');
+  }catch(err){
+    console.error(err);
+    alert('Could not upload file: ' + (err.message||err));
+  }
+  event.target.value = '';
+  pendingWarehouseInvoiceUploadIdx = null;
+}
+async function viewWarehouseInvoiceFile(idx){
+  const row = state.warehouse[idx];
+  if(!row.invoiceFilePath) return;
+  try{
+    const { data, error } = await sb.storage.from('raw-uploads').download(row.invoiceFilePath);
+    if(error) throw error;
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = row.invoiceFileName || 'invoice';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+  }catch(err){
+    console.error(err);
+    alert('Could not open file: ' + (err.message||err));
+  }
 }
 
 async function downloadRawFile(id){
