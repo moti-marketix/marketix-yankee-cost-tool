@@ -86,19 +86,17 @@
   }
   .locked-value{ font-weight:600; }
   .locked-readonly{ color:var(--grey); }
-  .fee-breakdown-cell{ position:relative; cursor:help; border-bottom:1px dotted var(--grey); display:inline-block; }
-  .fee-breakdown-cell .breakdown-popup{
-    visibility:hidden; opacity:0; pointer-events:none;
-    position:absolute; z-index:60; bottom:100%; left:50%; transform:translateX(-50%);
+  .fee-breakdown-cell{ cursor:help; border-bottom:1px dotted var(--grey); display:inline-block; }
+  #shared-breakdown-tooltip{
+    display:none; position:fixed; z-index:200;
     background:var(--navy); color:#fff; padding:10px 14px; border-radius:8px;
-    font-size:12px; white-space:nowrap; box-shadow:0 4px 16px rgba(0,0,0,0.25);
-    transition:opacity 0.12s; margin-bottom:8px;
+    font-size:12px; white-space:nowrap; box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    pointer-events:none;
   }
-  .fee-breakdown-cell:hover .breakdown-popup{ visibility:visible; opacity:1; }
-  .breakdown-popup table{ border-collapse:collapse; }
-  .breakdown-popup td{ padding:2px 6px 2px 0; text-align:left; font-weight:400; }
-  .breakdown-popup td.val{ text-align:right; padding-left:14px; font-family:inherit; }
-  .breakdown-popup tr.total-row td{ border-top:1px solid rgba(255,255,255,0.3); padding-top:5px; font-weight:700; }
+  #shared-breakdown-tooltip table{ border-collapse:collapse; }
+  #shared-breakdown-tooltip td{ padding:2px 6px 2px 0; text-align:left; font-weight:400; }
+  #shared-breakdown-tooltip td.val{ text-align:right; padding-left:14px; }
+  #shared-breakdown-tooltip tr.total-row td{ border-top:1px solid rgba(255,255,255,0.3); padding-top:5px; font-weight:700; }
   tr.row-highlighted{ background:#FFF6D9 !important; }
   tr.row-highlighted td{ background:#FFF6D9; }
   .highlight-toggle{ cursor:pointer; user-select:none; opacity:0.35; font-size:14px; }
@@ -151,6 +149,7 @@
 </style>
 </head>
 <body>
+<div id="shared-breakdown-tooltip"></div>
 <div class="app">
   <div class="sidebar">
     <div class="brand">
@@ -2721,6 +2720,8 @@ const FEE_BREAKDOWN_COMPONENTS = {
   ],
 };
 
+let breakdownTooltipRegistry = {};
+let breakdownTooltipCounter = 0;
 function renderDataCell(col, value, rows){
   const baseHtml = formatColValue(col, value);
   const components = FEE_BREAKDOWN_COMPONENTS[col.key];
@@ -2729,7 +2730,29 @@ function renderDataCell(col, value, rows){
     const sum = rows.reduce((s,r)=>s+(r[c.key]||0), 0);
     return `<tr><td>${c.label}</td><td class="val">${fmt(sum)}</td></tr>`;
   }).join('');
-  return `<span class="fee-breakdown-cell">${baseHtml}<span class="breakdown-popup"><table>${rowsHtml}<tr class="total-row"><td>Total</td><td class="val">${fmt(value)}</td></tr></table></span></span>`;
+  const tooltipHtml = `<table>${rowsHtml}<tr class="total-row"><td>Total</td><td class="val">${fmt(value)}</td></tr></table>`;
+  const id = 'bd' + (breakdownTooltipCounter++);
+  breakdownTooltipRegistry[id] = tooltipHtml;
+  return `<span class="fee-breakdown-cell" data-tooltip-id="${id}" onmouseenter="showBreakdownTooltip(event)" onmouseleave="hideBreakdownTooltip()">${baseHtml}</span>`;
+}
+function showBreakdownTooltip(evt){
+  const id = evt.currentTarget.getAttribute('data-tooltip-id');
+  const html = breakdownTooltipRegistry[id];
+  if(!html) return;
+  const tip = document.getElementById('shared-breakdown-tooltip');
+  tip.innerHTML = html;
+  tip.style.display = 'block';
+  const rect = evt.currentTarget.getBoundingClientRect();
+  const tipRect = tip.getBoundingClientRect();
+  let left = rect.left + rect.width/2 - tipRect.width/2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+  let top = rect.top - tipRect.height - 8;
+  if(top < 8) top = rect.bottom + 8; // flip below if not enough room above
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+function hideBreakdownTooltip(){
+  document.getElementById('shared-breakdown-tooltip').style.display = 'none';
 }
 
 const highlightedSkuRows = new Set();
@@ -2824,6 +2847,8 @@ function onSkuTablePeriodTypeChange(){
 }
 
 function renderSku(){
+  breakdownTooltipRegistry = {};
+  breakdownTooltipCounter = 0;
   const periodType = document.getElementById('sku-table-period-type').value;
   let monthsInScopeForTable = null; // null = no restriction (All Time)
   if(periodType !== 'all'){
