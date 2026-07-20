@@ -86,6 +86,24 @@
   }
   .locked-value{ font-weight:600; }
   .locked-readonly{ color:var(--grey); }
+  .fee-breakdown-cell{ position:relative; cursor:help; border-bottom:1px dotted var(--grey); display:inline-block; }
+  .fee-breakdown-cell .breakdown-popup{
+    visibility:hidden; opacity:0; pointer-events:none;
+    position:absolute; z-index:60; bottom:100%; left:50%; transform:translateX(-50%);
+    background:var(--navy); color:#fff; padding:10px 14px; border-radius:8px;
+    font-size:12px; white-space:nowrap; box-shadow:0 4px 16px rgba(0,0,0,0.25);
+    transition:opacity 0.12s; margin-bottom:8px;
+  }
+  .fee-breakdown-cell:hover .breakdown-popup{ visibility:visible; opacity:1; }
+  .breakdown-popup table{ border-collapse:collapse; }
+  .breakdown-popup td{ padding:2px 6px 2px 0; text-align:left; font-weight:400; }
+  .breakdown-popup td.val{ text-align:right; padding-left:14px; font-family:inherit; }
+  .breakdown-popup tr.total-row td{ border-top:1px solid rgba(255,255,255,0.3); padding-top:5px; font-weight:700; }
+  tr.row-highlighted{ background:#FFF6D9 !important; }
+  tr.row-highlighted td{ background:#FFF6D9; }
+  .highlight-toggle{ cursor:pointer; user-select:none; opacity:0.35; font-size:14px; }
+  .highlight-toggle.active{ opacity:1; }
+  .highlight-toggle:hover{ opacity:0.8; }
   .btn-edit{
     background:none; border:none; color:var(--blue); cursor:pointer; font-size:13px; padding:2px 4px;
   }
@@ -2687,6 +2705,42 @@ function formatColValue(col, value){
   return col.money ? fmt(value) : value.toLocaleString();
 }
 
+const FEE_BREAKDOWN_COMPONENTS = {
+  fbaFees: [
+    { label: 'FBA Fulfillment Fees', key: 'fbaFulfillmentFeeRaw' },
+    { label: 'FBA Inbound Placement Fee', key: 'fbaInboundPlacementFee' },
+    { label: 'Inbound Transportation Fee', key: 'inboundTransportationFee' },
+    { label: 'FBA Removal Order Fee', key: 'fbaRemovalOrderFee' },
+    { label: 'FBA Disposal Order Fee', key: 'fbaDisposalOrderFee' },
+  ],
+  storageFees: [
+    { label: 'Base Monthly Storage Fee', key: 'baseMonthlyStorageFee' },
+    { label: 'Monthly Inventory Storage Fee', key: 'monthlyInventoryStorageFee' },
+    { label: 'Storage Utilization Surcharge', key: 'storageUtilizationSurcharge' },
+    { label: 'Aged Inventory Surcharge', key: 'agedInventorySurcharge' },
+  ],
+};
+
+function renderDataCell(col, value, rows){
+  const baseHtml = formatColValue(col, value);
+  const components = FEE_BREAKDOWN_COMPONENTS[col.key];
+  if(!components || value===null || value===undefined) return baseHtml;
+  const rowsHtml = components.map(c=>{
+    const sum = rows.reduce((s,r)=>s+(r[c.key]||0), 0);
+    return `<tr><td>${c.label}</td><td class="val">${fmt(sum)}</td></tr>`;
+  }).join('');
+  return `<span class="fee-breakdown-cell">${baseHtml}<span class="breakdown-popup"><table>${rowsHtml}<tr class="total-row"><td>Total</td><td class="val">${fmt(value)}</td></tr></table></span></span>`;
+}
+
+const highlightedSkuRows = new Set();
+function skuRowHighlightKey(row){ return `${row.sku}|${row.month}`; }
+function toggleSkuRowHighlight(sku, month){
+  const key = `${sku}|${month}`;
+  if(highlightedSkuRows.has(key)) highlightedSkuRows.delete(key);
+  else highlightedSkuRows.add(key);
+  renderSku();
+}
+
 const skuColumnDefs = [
   { key: 'units', label: 'Units Sold', money: false },
   { key: 'revenue', label: 'Revenue (Net Sales)', money: true },
@@ -2793,7 +2847,7 @@ function renderSku(){
   visibleDataColsForHeader.forEach(col=>{
     headerCells.push(sortableTh(col.label, col.key, '', s2, 'toggleSkuSort'));
   });
-  headerCells.push('<th></th>', '<th></th>');
+  headerCells.push('<th style="text-align:center;">Mark</th>', '<th></th>');
   headerRow.innerHTML = headerCells.join('');
 
   // Filter first (same rules regardless of view mode)
@@ -2871,7 +2925,7 @@ function renderSku(){
         renderSku();
       };
       let cells = `<td>${isExpanded ? '&#9662;' : '&#9656;'} ${parent}</td>`;
-      visibleDataCols.forEach(col=>{ cells += `<td>${formatColValue(col, summed[col.key])}</td>`; });
+      visibleDataCols.forEach(col=>{ cells += `<td>${renderDataCell(col, summed[col.key], rows)}</td>`; });
       cells += `<td colspan="2" style="color:var(--grey); font-size:12px; font-style:italic;">summed</td>`;
       tr.innerHTML = cells;
       tbody.appendChild(tr);
@@ -2886,7 +2940,7 @@ function renderSku(){
           const childTr = document.createElement('tr');
           childTr.style.background = '#FAFBFC';
           let childCells = `<td style="padding-left:28px; color:var(--grey);">${sku}</td>`;
-          visibleDataCols.forEach(col=>{ childCells += `<td>${formatColValue(col, skuSummed[col.key])}</td>`; });
+          visibleDataCols.forEach(col=>{ childCells += `<td>${renderDataCell(col, skuSummed[col.key], skuRows)}</td>`; });
           childCells += `<td colspan="2"></td>`;
           childTr.innerHTML = childCells;
           tbody.appendChild(childTr);
@@ -2905,7 +2959,7 @@ function renderSku(){
       visibleDataCols.forEach(col=>{
         summed[col.key] = computeColSum(col, rows);
       });
-      return { sku, summed, netProceeds: rows.reduce((s,r)=>s+(r.netProceeds||0),0) };
+      return { sku, summed, rows, netProceeds: rows.reduce((s,r)=>s+(r.netProceeds||0),0) };
     });
 
     if(skuSortState.column === 'key'){
@@ -2920,7 +2974,7 @@ function renderSku(){
     }
 
     anyRows = items.length > 0;
-    items.forEach(({sku, summed})=>{
+    items.forEach(({sku, summed, rows})=>{
       const asin = catalogAsinForSku(sku);
       const parentAsin = catalogParentAsinForSku(sku);
       const tr = document.createElement('tr');
@@ -2930,7 +2984,7 @@ function renderSku(){
         <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
       `;
       visibleDataCols.forEach(col=>{
-        cells += `<td>${formatColValue(col, summed[col.key])}</td>`;
+        cells += `<td>${renderDataCell(col, summed[col.key], rows)}</td>`;
       });
       cells += `<td colspan="2" style="color:var(--grey); font-size:12px; font-style:italic;">summed — edit in Month view</td>`;
       tr.innerHTML = cells;
@@ -2968,6 +3022,9 @@ function renderSku(){
         const asin = catalogAsinForSku(row.sku);
         const parentAsin = catalogParentAsinForSku(row.sku);
         const tr = document.createElement('tr');
+        const isHighlighted = highlightedSkuRows.has(skuRowHighlightKey(row));
+        if(isHighlighted) tr.className = 'row-highlighted';
+        const highlightToggle = `<span class="highlight-toggle ${isHighlighted?'active':''}" onclick="toggleSkuRowHighlight('${row.sku.replace(/'/g,"\\'")}','${row.month}')" title="Mark this row to highlight it">&#9733;</span>`;
         const skuCell = editing ? skuCellHtml('sku', idx, row.sku, 'updateSku') : (row.sku || '—');
         let cells;
         if(editing){
@@ -2988,7 +3045,7 @@ function renderSku(){
               cells += `<td><input type="number" ${step} value="${val??''}" oninput="updateSku(${idx},'${col.key}',this.value)"></td>`;
             }
           });
-          cells += `<td></td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
+          cells += `<td style="text-align:center;">${highlightToggle}</td><td><button class="btn-del" onclick="deleteSku(${idx})">&times;</button></td>`;
         } else {
           cells = `
             <td>${skuCell}</td>
@@ -3002,10 +3059,10 @@ function renderSku(){
               const val = (den) ? (num||0)/den*100 : null;
               cells += `<td>${val!==null ? val.toFixed(1)+'%' : '—'}</td>`;
             } else {
-              cells += `<td>${formatColValue(col, row[col.key])}</td>`;
+              cells += `<td>${renderDataCell(col, row[col.key], [row])}</td>`;
             }
           });
-          cells += `<td></td><td></td>`;
+          cells += `<td style="text-align:center;">${highlightToggle}</td><td></td>`;
         }
         tr.innerHTML = cells;
         tbody.appendChild(tr);
