@@ -524,15 +524,8 @@
             <label>Product Family</label>
             <input type="text" id="sku-filter-family" list="sku-filter-family-list" placeholder="Search Product Family..." oninput="skuFilters.family=this.value; renderSku();"><datalist id="sku-filter-family-list"></datalist>
           </div>
-          <div class="field">
-            <label>Sort by Net Proceeds</label>
-            <select id="sku-table-sort" onchange="renderSku()">
-              <option value="none">Default (no sort)</option>
-              <option value="desc">Highest to Lowest</option>
-              <option value="asc">Lowest to Highest</option>
-            </select>
-          </div>
         </div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="btn-row" style="margin-top:0; margin-bottom:12px; position:relative;">
           <button class="btn btn-ghost" onclick="toggleColumnCustomizer()">&#9881; Customize Columns</button>
           <div id="sku-column-customizer" style="display:none; position:absolute; top:36px; left:0; z-index:20; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.12); padding:14px; width:340px; max-height:340px; overflow-y:auto;"></div>
@@ -590,15 +583,8 @@
             <label>Product Family</label>
             <input type="text" id="summary-filter-family" list="summary-filter-family-list" placeholder="Search Product Family..." oninput="renderSummary()"><datalist id="summary-filter-family-list"></datalist>
           </div>
-          <div class="field">
-            <label>Sort by Net Profit</label>
-            <select id="summary-sort" onchange="renderSummary()">
-              <option value="none">Default (no sort)</option>
-              <option value="desc" selected>Highest to Lowest</option>
-              <option value="asc">Lowest to Highest</option>
-            </select>
-          </div>
         </div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
       </div>
 
       <div class="kpi-grid" id="summary-kpis"></div>
@@ -1196,6 +1182,26 @@ function catalogFamilyForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
   return cat ? (cat.family||'') : '';
 }
+function nameForAsin(asin){
+  if(!asin) return '';
+  const cat = state.catalog.find(r=>r.asin===asin);
+  return cat ? (cat.name||'') : '';
+}
+function familyForParentAsin(parentAsin){
+  if(!parentAsin) return '';
+  const cat = state.catalog.find(r=>r.parentAsin===parentAsin);
+  return cat ? (cat.family||'') : '';
+}
+function asinCellHtml(asin){
+  if(!asin) return '—';
+  const name = nameForAsin(asin);
+  return name ? `<span title="${name.replace(/"/g,'&quot;')}">${asin}</span>` : asin;
+}
+function parentAsinCellHtml(parentAsin){
+  if(!parentAsin) return '—';
+  const family = familyForParentAsin(parentAsin);
+  return family ? `<span title="${family.replace(/"/g,'&quot;')}">${parentAsin}</span>` : parentAsin;
+}
 // ---------------- Locked-field / Edit-toggle pattern ----------------
 // SKU is set once (from Catalog, via upload or dropdown) and then displayed
 // as locked text — an explicit Edit click is needed to reassign it, so it
@@ -1272,8 +1278,8 @@ function renderMfg(){
     const skuCell = editing ? skuCellHtml('mfg', idx, row.sku, 'updateMfg') : (row.sku || '—');
     tr.innerHTML = `
       <td>${skuCell}</td>
-      <td class="locked-readonly">${asin || '—'}</td>
-      <td class="locked-readonly">${parentAsin || '—'}</td>
+      <td class="locked-readonly">${asinCellHtml(asin)}</td>
+      <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
       <td class="computed">${displayName || '<span style="color:var(--grey); font-style:italic;">(from Catalog)</span>'}</td>
       <td>${costCell}</td>
       <td></td>
@@ -1545,8 +1551,8 @@ function renderLogistics(){
     if(editing){
       return `
         <td ${indentStyle}>${skuCell}</td>
-        <td class="locked-readonly">${asin || '—'}</td>
-        <td class="locked-readonly">${parentAsin || '—'}</td>
+        <td class="locked-readonly">${asinCellHtml(asin)}</td>
+        <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
         <td><input type="number" class="narrow" value="${row.l??''}" oninput="updateLogistics(${idx},'l',this.value)"></td>
         <td><input type="number" class="narrow" value="${row.w??''}" oninput="updateLogistics(${idx},'w',this.value)"></td>
         <td><input type="number" class="narrow" value="${row.h??''}" oninput="updateLogistics(${idx},'h',this.value)"></td>
@@ -1560,8 +1566,8 @@ function renderLogistics(){
     }
     return `
       <td ${indentStyle}>${skuCell}</td>
-      <td class="locked-readonly">${asin || '—'}</td>
-      <td class="locked-readonly">${parentAsin || '—'}</td>
+      <td class="locked-readonly">${asinCellHtml(asin)}</td>
+      <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
       <td>${row.l??'—'}</td>
       <td>${row.w??'—'}</td>
       <td>${row.h??'—'}</td>
@@ -2244,8 +2250,8 @@ function renderShipments(){
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${sku}</td>
-        <td class="locked-readonly">${catalogAsinForSku(sku) || '—'}</td>
-        <td class="locked-readonly">${catalogParentAsinForSku(sku) || '—'}</td>
+        <td class="locked-readonly">${asinCellHtml(catalogAsinForSku(sku))}</td>
+        <td class="locked-readonly">${parentAsinCellHtml(catalogParentAsinForSku(sku))}</td>
         <td>${data.totalUnits.toLocaleString()}</td>
         <td>${fmt(data.weightedAvgCostPerCbm)}</td>
         <td>${data.cbmPerUnit!==null ? fmtNum(data.cbmPerUnit,4) : '<span style="color:var(--red)">no Logistics data</span>'}</td>
@@ -2392,15 +2398,25 @@ function renderSku(){
     const periodValue = document.getElementById('sku-table-period-value').value;
     monthsInScopeForTable = computeMonthsInScope(periodType, periodValue);
   }
-  const sortOrder = document.getElementById('sku-table-sort').value;
   const level = document.getElementById('sku-table-level').value;
   const isAggregatedView = (level === 'parent') || (periodType === 'quarter' || periodType === 'ytd');
 
-  // Build header dynamically based on visible columns
+  // Build header dynamically based on visible columns — each header click-to-sorts
   const headerRow = document.getElementById('sku-table-header-row');
   const baseHeaders = level === 'parent' ? ['Parent ASIN'] : (isAggregatedView ? ['SKU','ASIN','Parent ASIN'] : ['SKU','ASIN','Parent ASIN','Month']);
-  const dataHeaders = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key)).map(c=>c.label);
-  headerRow.innerHTML = [...baseHeaders, ...dataHeaders, '', ''].map(h=>`<th>${h}</th>`).join('');
+  const visibleDataColsForHeader = skuColumnDefs.filter(c=>visibleSkuColumns.has(c.key));
+  const s2 = skuSortState;
+  const keyLabel = level==='parent' ? 'Parent ASIN' : 'SKU';
+  let headerCells = [sortableTh(keyLabel, 'key', '', s2, 'toggleSkuSort')];
+  if(level !== 'parent'){
+    headerCells.push('<th>ASIN</th>', '<th>Parent ASIN</th>');
+    if(!isAggregatedView) headerCells.push('<th>Month</th>');
+  }
+  visibleDataColsForHeader.forEach(col=>{
+    headerCells.push(sortableTh(col.label, col.key, '', s2, 'toggleSkuSort'));
+  });
+  headerCells.push('<th></th>', '<th></th>');
+  headerRow.innerHTML = headerCells.join('');
 
   // Filter first (same rules regardless of view mode)
   let filteredEntries = state.sku.map((row, idx)=>({row, idx})).filter(({row})=>{
@@ -2455,10 +2471,15 @@ function renderSku(){
       return { parent, rows, summed, netProceeds };
     });
 
-    if(sortOrder !== 'none'){
-      parentItems.sort((a,b)=> sortOrder === 'asc' ? a.netProceeds - b.netProceeds : b.netProceeds - a.netProceeds);
+    if(skuSortState.column === 'key'){
+      parentItems.sort((a,b)=> skuSortState.direction==='asc' ? a.parent.localeCompare(b.parent) : b.parent.localeCompare(a.parent));
     } else {
-      parentItems.sort((a,b)=>a.parent.localeCompare(b.parent));
+      parentItems.sort((a,b)=>{
+        const av = a.summed[skuSortState.column], bv = b.summed[skuSortState.column];
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return skuSortState.direction==='asc' ? av-bv : bv-av;
+      });
     }
 
     anyRows = parentItems.length > 0;
@@ -2509,8 +2530,15 @@ function renderSku(){
       return { sku, summed, netProceeds: rows.reduce((s,r)=>s+(r.netProceeds||0),0) };
     });
 
-    if(sortOrder !== 'none'){
-      items.sort((a,b)=> sortOrder === 'asc' ? a.netProceeds - b.netProceeds : b.netProceeds - a.netProceeds);
+    if(skuSortState.column === 'key'){
+      items.sort((a,b)=> skuSortState.direction==='asc' ? a.sku.localeCompare(b.sku) : b.sku.localeCompare(a.sku));
+    } else {
+      items.sort((a,b)=>{
+        const av = a.summed[skuSortState.column], bv = b.summed[skuSortState.column];
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return skuSortState.direction==='asc' ? av-bv : bv-av;
+      });
     }
 
     anyRows = items.length > 0;
@@ -2520,8 +2548,8 @@ function renderSku(){
       const tr = document.createElement('tr');
       let cells = `
         <td>${sku}</td>
-        <td class="locked-readonly">${asin || '—'}</td>
-        <td class="locked-readonly">${parentAsin || '—'}</td>
+        <td class="locked-readonly">${asinCellHtml(asin)}</td>
+        <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
       `;
       visibleDataCols.forEach(col=>{
         cells += `<td>${formatColValue(col, summed[col.key])}</td>`;
@@ -2533,12 +2561,15 @@ function renderSku(){
 
   } else {
     // ---- Granular: grouped by month, individually editable ----
-    if(sortOrder !== 'none'){
+    if(skuSortState.column === 'key'){
+      filteredEntries.sort((a,b)=> skuSortState.direction==='asc' ? a.row.sku.localeCompare(b.row.sku) : b.row.sku.localeCompare(a.row.sku));
+    } else {
       filteredEntries.sort((a,b)=>{
-        const av = a.row.netProceeds, bv = b.row.netProceeds;
+        const av = getSortValue(a.row, skuSortState.column, skuColumnDefs);
+        const bv = getSortValue(b.row, skuSortState.column, skuColumnDefs);
         if(av===null || av===undefined) return 1;
         if(bv===null || bv===undefined) return -1;
-        return sortOrder === 'asc' ? av - bv : bv - av;
+        return skuSortState.direction === 'asc' ? av - bv : bv - av;
       });
     }
 
@@ -2564,8 +2595,8 @@ function renderSku(){
         if(editing){
           cells = `
             <td>${skuCell}</td>
-            <td class="locked-readonly">${asin || '—'}</td>
-            <td class="locked-readonly">${parentAsin || '—'}</td>
+            <td class="locked-readonly">${asinCellHtml(asin)}</td>
+            <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
             <td><input type="month" value="${row.month||''}" oninput="updateSku(${idx},'month',this.value)"></td>
           `;
           visibleDataCols.forEach(col=>{
@@ -2583,8 +2614,8 @@ function renderSku(){
         } else {
           cells = `
             <td>${skuCell}</td>
-            <td class="locked-readonly">${asin || '—'}</td>
-            <td class="locked-readonly">${parentAsin || '—'}</td>
+            <td class="locked-readonly">${asinCellHtml(asin)}</td>
+            <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
             <td>${row.month || '—'}</td>
           `;
           visibleDataCols.forEach(col=>{
@@ -3169,6 +3200,42 @@ function populateSummaryFilterDropdowns(){
   if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
 }
 
+let summarySortState = { column: 'netProfit', direction: 'desc' };
+function toggleSummarySort(column){
+  if(summarySortState.column === column){
+    summarySortState.direction = summarySortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    summarySortState.column = column;
+    summarySortState.direction = (column === 'key') ? 'asc' : 'desc';
+  }
+  renderSummary();
+}
+function sortArrow(column, state){
+  if(state.column !== column) return '';
+  return state.direction === 'desc' ? ' &#9660;' : ' &#9650;';
+}
+function sortableTh(label, column, width, state, toggleFnName){
+  return `<th style="width:${width}; cursor:pointer; user-select:none;" onclick="${toggleFnName}('${column}')">${label}${sortArrow(column, state)}</th>`;
+}
+let skuSortState = { column: 'netProceeds', direction: 'desc' };
+function toggleSkuSort(column){
+  if(skuSortState.column === column){
+    skuSortState.direction = skuSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    skuSortState.column = column;
+    skuSortState.direction = (column === 'key') ? 'asc' : 'desc';
+  }
+  renderSku();
+}
+function getSortValue(obj, columnKey, colDefs){
+  const colDef = colDefs.find(c=>c.key===columnKey);
+  if(colDef && colDef.ratio){
+    const num = obj[colDef.ratio.num], den = obj[colDef.ratio.den];
+    return den ? (num||0)/den : null;
+  }
+  return obj[columnKey];
+}
+
 function renderSummary(){
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
@@ -3179,7 +3246,6 @@ function renderSummary(){
   const asinFilter = document.getElementById('summary-filter-asin').value;
   const parentFilter = document.getElementById('summary-filter-parent').value;
   const familyFilter = document.getElementById('summary-filter-family').value;
-  const sortOrder = document.getElementById('summary-sort').value;
 
   const months = monthsInScope();
   const scopedRows = state.sku.filter(r => {
@@ -3196,27 +3262,41 @@ function renderSummary(){
   tbody.innerHTML = '';
   document.getElementById('summary-empty').style.display = scopedRows.length ? 'none' : 'block';
 
+  const s = summarySortState;
   thead.innerHTML = `
     <tr>
-      <th style="width:18%">${level==='parent' ? 'Parent ASIN' : 'SKU'}</th>
-      <th style="width:9%">Units</th>
-      <th style="width:12%">Revenue</th>
-      <th style="width:12%">Net Proceeds</th>
-      <th style="width:11%">Net Proceeds %</th>
-      <th style="width:12%">COGS</th>
-      <th style="width:9%">WH</th>
-      <th style="width:14%">Net Profit</th>
-      <th style="width:11%">Margin %</th>
-      <th style="width:10%">ROI %</th>
+      ${sortableTh(level==='parent' ? 'Parent ASIN' : 'SKU', 'key', '18%', s, 'toggleSummarySort')}
+      ${sortableTh('Units', 'units', '9%', s, 'toggleSummarySort')}
+      ${sortableTh('Revenue', 'revenue', '12%', s, 'toggleSummarySort')}
+      ${sortableTh('Net Proceeds', 'netProceedsTotal', '12%', s, 'toggleSummarySort')}
+      ${sortableTh('Net Proceeds %', 'netProceedsPct', '11%', s, 'toggleSummarySort')}
+      ${sortableTh('COGS', 'cogs', '12%', s, 'toggleSummarySort')}
+      ${sortableTh('WH', 'wh', '9%', s, 'toggleSummarySort')}
+      ${sortableTh('Net Profit', 'netProfit', '14%', s, 'toggleSummarySort')}
+      ${sortableTh('Margin %', 'margin', '11%', s, 'toggleSummarySort')}
+      ${sortableTh('ROI %', 'roi', '10%', s, 'toggleSummarySort')}
     </tr>
   `;
+
+  function sortItems(items){
+    if(s.column === 'key'){
+      items.sort((a,b)=> s.direction === 'asc' ? a.key.localeCompare(b.key) : b.key.localeCompare(a.key));
+    } else {
+      items.sort((a,b)=>{
+        const av = a.agg[s.column], bv = b.agg[s.column];
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return s.direction === 'asc' ? av - bv : bv - av;
+      });
+    }
+    return items;
+  }
 
   if(level === 'child'){
     const bySku = {};
     scopedRows.forEach(r=>{ (bySku[r.sku] = bySku[r.sku]||[]).push(r); });
     let items = Object.keys(bySku).map(sku=>({ key: sku, agg: aggregateRows(bySku[sku]) }));
-    if(sortOrder !== 'none') items.sort((a,b)=> sortOrder==='asc' ? a.agg.netProfit-b.agg.netProfit : b.agg.netProfit-a.agg.netProfit);
-    else items.sort((a,b)=> a.key.localeCompare(b.key));
+    sortItems(items);
 
     items.forEach(({key, agg})=>{
       const tr = document.createElement('tr');
@@ -3230,8 +3310,7 @@ function renderSummary(){
       (byParent[parent] = byParent[parent]||[]).push(r);
     });
     let parentItems = Object.keys(byParent).map(parent=>({ key: parent, agg: aggregateRows(byParent[parent]) }));
-    if(sortOrder !== 'none') parentItems.sort((a,b)=> sortOrder==='asc' ? a.agg.netProfit-b.agg.netProfit : b.agg.netProfit-a.agg.netProfit);
-    else parentItems.sort((a,b)=> a.key.localeCompare(b.key));
+    sortItems(parentItems);
 
     parentItems.forEach(({key: parent, agg})=>{
       const childRows = byParent[parent];
