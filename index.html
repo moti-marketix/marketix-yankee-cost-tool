@@ -216,6 +216,10 @@
             <label>Product Family</label>
             <input type="text" id="catalog-filter-family" list="catalog-filter-family-list" placeholder="Search Product Family..." oninput="catalogFilters.family=this.value; renderCatalog();"><datalist id="catalog-filter-family-list"></datalist>
           </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="catalog-filter-brand" list="catalog-filter-brand-list" placeholder="Search Brand..." oninput="catalogFilters.brand=this.value; renderCatalog();"><datalist id="catalog-filter-brand-list"></datalist>
+          </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('catalog-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('catalog-scroll',300)">&#9654;</button></div>
@@ -268,6 +272,10 @@
           <div class="field">
             <label>Product Family</label>
             <input type="text" id="mfg-filter-family" list="mfg-filter-family-list" placeholder="Search Product Family..." oninput="mfgFilters.family=this.value; renderMfg();"><datalist id="mfg-filter-family-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="mfg-filter-brand" list="mfg-filter-brand-list" placeholder="Search Brand..." oninput="mfgFilters.brand=this.value; renderMfg();"><datalist id="mfg-filter-brand-list"></datalist>
           </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
@@ -323,6 +331,10 @@
             <label>Product Family</label>
             <input type="text" id="logistics-filter-family" list="logistics-filter-family-list" placeholder="Search Product Family..." oninput="logisticsFilters.family=this.value; renderLogistics();"><datalist id="logistics-filter-family-list"></datalist>
           </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="logistics-filter-brand" list="logistics-filter-brand-list" placeholder="Search Brand..." oninput="logisticsFilters.brand=this.value; renderLogistics();"><datalist id="logistics-filter-brand-list"></datalist>
+          </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('logistics-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('logistics-scroll',300)">&#9654;</button></div>
@@ -377,6 +389,10 @@
           <div class="field">
             <label>Product Family</label>
             <input type="text" id="shipments-filter-family" list="shipments-filter-family-list" placeholder="Search Product Family..." oninput="renderShipments()"><datalist id="shipments-filter-family-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="shipments-filter-brand" list="shipments-filter-brand-list" placeholder="Search Brand..." oninput="renderShipments()"><datalist id="shipments-filter-brand-list"></datalist>
           </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
@@ -443,6 +459,10 @@
           <div class="field">
             <label>Product Family</label>
             <input type="text" id="warehouse-filter-family" list="warehouse-filter-family-list" placeholder="Search Product Family..." oninput="renderWarehouse()"><datalist id="warehouse-filter-family-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="warehouse-filter-brand" list="warehouse-filter-brand-list" placeholder="Search Brand..." oninput="renderWarehouse()"><datalist id="warehouse-filter-brand-list"></datalist>
           </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
@@ -528,6 +548,10 @@
             <label>Product Family</label>
             <input type="text" id="sku-filter-family" list="sku-filter-family-list" placeholder="Search Product Family..." oninput="skuFilters.family=this.value; renderSku();"><datalist id="sku-filter-family-list"></datalist>
           </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="sku-filter-brand" list="sku-filter-brand-list" placeholder="Search Brand..." oninput="skuFilters.brand=this.value; renderSku();"><datalist id="sku-filter-brand-list"></datalist>
+          </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="btn-row" style="margin-top:0; margin-bottom:12px; position:relative;">
@@ -586,6 +610,10 @@
           <div class="field">
             <label>Product Family</label>
             <input type="text" id="summary-filter-family" list="summary-filter-family-list" placeholder="Search Product Family..." oninput="renderSummary()"><datalist id="summary-filter-family-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="summary-filter-brand" list="summary-filter-brand-list" placeholder="Search Brand..." oninput="renderSummary()"><datalist id="summary-filter-brand-list"></datalist>
           </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
@@ -953,7 +981,7 @@ function skuSelectOptions(selectedValue){
 }
 
 // ---------------- TAB 0: Catalog ----------------
-const catalogFilters = { asin: '', parentAsin: '', family: '' };
+const catalogFilters = { asin: '', parentAsin: '', family: '', brand: '' };
 
 let catalogSortState = { column: 'key', direction: 'asc' };
 function toggleCatalogSort(column){
@@ -1007,7 +1035,7 @@ function renderCatalog(){
   }
 
   const visibleEntries = state.catalog.map((row, idx)=>({row, idx})).filter(({row})=>
-    matchesFilter(row.asin, catalogFilters.asin) && matchesFilter(row.parentAsin, catalogFilters.parentAsin) && matchesFilter(row.family, catalogFilters.family)
+    matchesFilter(row.asin, catalogFilters.asin) && matchesFilter(row.parentAsin, catalogFilters.parentAsin) && matchesFilter(row.family, catalogFilters.family) && matchesFilter(row.brand, catalogFilters.brand)
   );
 
   function sortValue(row){
@@ -1262,6 +1290,10 @@ function catalogFamilyForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
   return cat ? (cat.family||'') : '';
 }
+function catalogBrandForSku(sku){
+  const cat = state.catalog.find(r=>r.sku===sku);
+  return cat ? (cat.brand||'') : '';
+}
 function nameForAsin(asin){
   if(!asin) return '';
   const cat = state.catalog.find(r=>r.asin===asin);
@@ -1313,10 +1345,12 @@ function populateAsinFilterDropdowns(){
   const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
   const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
 
   const asinListIds = ['catalog-filter-asin-list', 'mfg-filter-asin-list', 'logistics-filter-asin-list', 'sku-filter-asin-list'];
   const parentListIds = ['catalog-filter-parent-list', 'mfg-filter-parent-list', 'logistics-filter-parent-list', 'sku-filter-parent-list'];
   const familyListIds = ['catalog-filter-family-list', 'mfg-filter-family-list', 'logistics-filter-family-list', 'sku-filter-family-list'];
+  const brandListIds = ['catalog-filter-brand-list', 'mfg-filter-brand-list', 'logistics-filter-brand-list', 'sku-filter-brand-list'];
 
   asinListIds.forEach(id=>{
     const el = document.getElementById(id);
@@ -1333,11 +1367,16 @@ function populateAsinFilterDropdowns(){
     if(!el) return;
     el.innerHTML = families.map(fam=>`<option value="${fam}">`).join('');
   });
+  brandListIds.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = brands.map(b=>`<option value="${b}">`).join('');
+  });
 }
 
-const mfgFilters = { asin: '', parentAsin: '', family: '' };
-const logisticsFilters = { asin: '', parentAsin: '', family: '' };
-const skuFilters = { asin: '', parentAsin: '', family: '' };
+const mfgFilters = { asin: '', parentAsin: '', family: '', brand: '' };
+const logisticsFilters = { asin: '', parentAsin: '', family: '', brand: '' };
+const skuFilters = { asin: '', parentAsin: '', family: '', brand: '' };
 
 let mfgSortState = { column: 'key', direction: 'asc' };
 function toggleMfgSort(column){
@@ -1380,7 +1419,7 @@ function renderMfg(){
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const family = catalogFamilyForSku(row.sku);
-    return matchesFilter(asin, mfgFilters.asin) && matchesFilter(parentAsin, mfgFilters.parentAsin) && matchesFilter(family, mfgFilters.family);
+    return matchesFilter(asin, mfgFilters.asin) && matchesFilter(parentAsin, mfgFilters.parentAsin) && matchesFilter(family, mfgFilters.family) && matchesFilter(catalogBrandForSku(row.sku), mfgFilters.brand);
   });
 
   function sortValue(entry){
@@ -1770,7 +1809,7 @@ function renderLogistics(){
       const asin = catalogAsinForSku(row.sku);
       const parentAsin = catalogParentAsinForSku(row.sku);
       const family = catalogFamilyForSku(row.sku);
-      return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family);
+      return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family) && matchesFilter(catalogBrandForSku(row.sku), logisticsFilters.brand);
     });
 
     const byParent = {};
@@ -1861,7 +1900,7 @@ function renderLogistics(){
       const asin = catalogAsinForSku(row.sku);
       const parentAsin = catalogParentAsinForSku(row.sku);
       const family = catalogFamilyForSku(row.sku);
-      return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family);
+      return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family) && matchesFilter(catalogBrandForSku(row.sku), logisticsFilters.brand);
     });
 
     function logisticsSortValue(row){
@@ -2064,12 +2103,15 @@ function populateWarehouseFilterDropdowns(){
   const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
   const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
   const asinListEl = document.getElementById('warehouse-filter-asin-list');
   if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
   const parentListEl = document.getElementById('warehouse-filter-parent-list');
   if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
   const familyListEl = document.getElementById('warehouse-filter-family-list');
   if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
+  const brandListEl = document.getElementById('warehouse-filter-brand-list');
+  if(brandListEl) brandListEl.innerHTML = brands.map(b=>`<option value="${b}">`).join('');
 }
 
 function renderWarehouse(){
@@ -2093,6 +2135,7 @@ function renderWarehouse(){
   const asinFilter = document.getElementById('warehouse-filter-asin').value;
   const parentFilter = document.getElementById('warehouse-filter-parent').value;
   const familyFilter = document.getElementById('warehouse-filter-family').value;
+  const brandFilter = document.getElementById('warehouse-filter-brand').value;
   const ws = warehouseSkuSortState;
 
   const headerRow = document.getElementById('warehouse-sku-header-row');
@@ -2100,7 +2143,7 @@ function renderWarehouse(){
   skuTbody.innerHTML = '';
 
   const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
-    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter));
+    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter) && matchesFilter(catalogBrandForSku(sku), brandFilter));
 
   if(whLevel === 'parent'){
     headerRow.innerHTML = [
@@ -2436,12 +2479,15 @@ function populateShipmentsFilterDropdowns(){
   const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
   const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
   const asinListEl = document.getElementById('shipments-filter-asin-list');
   if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
   const parentListEl = document.getElementById('shipments-filter-parent-list');
   if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
   const familyListEl = document.getElementById('shipments-filter-family-list');
   if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
+  const brandListEl = document.getElementById('shipments-filter-brand-list');
+  if(brandListEl) brandListEl.innerHTML = brands.map(b=>`<option value="${b}">`).join('');
 }
 
 const expandedShipments = new Set();
@@ -2481,6 +2527,7 @@ function renderShipments(){
   const asinFilter = document.getElementById('shipments-filter-asin').value;
   const parentFilter = document.getElementById('shipments-filter-parent').value;
   const familyFilter = document.getElementById('shipments-filter-family').value;
+  const brandFilter = document.getElementById('shipments-filter-brand').value;
 
   // KPIs
   const totalShipments = state.shipments.length;
@@ -2503,7 +2550,7 @@ function renderShipments(){
   const ss = shipmentsSkuSortState;
 
   const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
-    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter));
+    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter) && matchesFilter(catalogBrandForSku(sku), brandFilter));
 
   if(level === 'parent'){
     headerRow.innerHTML = [
@@ -2880,7 +2927,7 @@ function renderSku(){
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const family = catalogFamilyForSku(row.sku);
-    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin) || !matchesFilter(family, skuFilters.family)) return false;
+    if(!matchesFilter(asin, skuFilters.asin) || !matchesFilter(parentAsin, skuFilters.parentAsin) || !matchesFilter(family, skuFilters.family) || !matchesFilter(catalogBrandForSku(row.sku), skuFilters.brand)) return false;
     if(monthsInScopeForTable !== null && !monthsInScopeForTable.includes(row.month)) return false;
     return true;
   });
@@ -3679,6 +3726,7 @@ function populateSummaryFilterDropdowns(){
   const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
   const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
   const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
 
   const asinListEl = document.getElementById('summary-filter-asin-list');
   if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
@@ -3686,6 +3734,8 @@ function populateSummaryFilterDropdowns(){
   if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
   const familyListEl = document.getElementById('summary-filter-family-list');
   if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
+  const brandListEl = document.getElementById('summary-filter-brand-list');
+  if(brandListEl) brandListEl.innerHTML = brands.map(b=>`<option value="${b}">`).join('');
 }
 
 let normalizedProfitabilityExpanded = false;
@@ -3741,6 +3791,7 @@ function renderSummary(){
   const asinFilter = document.getElementById('summary-filter-asin').value;
   const parentFilter = document.getElementById('summary-filter-parent').value;
   const familyFilter = document.getElementById('summary-filter-family').value;
+  const brandFilter = document.getElementById('summary-filter-brand').value;
 
   const months = monthsInScope();
   const scopedRows = state.sku.filter(r => {
@@ -3748,6 +3799,7 @@ function renderSummary(){
     if(!matchesFilter(catalogAsinForSku(r.sku), asinFilter)) return false;
     if(!matchesFilter(catalogParentAsinForSku(r.sku), parentFilter)) return false;
     if(!matchesFilter(catalogFamilyForSku(r.sku), familyFilter)) return false;
+    if(!matchesFilter(catalogBrandForSku(r.sku), brandFilter)) return false;
     return true;
   });
   lastSummaryScopedRows = scopedRows; // for the COGS breakdown modal
