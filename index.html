@@ -181,6 +181,13 @@
       <div class="card">
         <div class="filter-bar">
           <div class="field">
+            <label>Level</label>
+            <select id="catalog-level" onchange="renderCatalog()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN (grouped)</option>
+            </select>
+          </div>
+          <div class="field">
             <label>ASIN</label>
             <input type="text" id="catalog-filter-asin" list="catalog-filter-asin-list" placeholder="Search ASIN..." oninput="catalogFilters.asin=this.value; renderCatalog();"><datalist id="catalog-filter-asin-list"></datalist>
           </div>
@@ -193,21 +200,11 @@
             <input type="text" id="catalog-filter-family" list="catalog-filter-family-list" placeholder="Search Product Family..." oninput="catalogFilters.family=this.value; renderCatalog();"><datalist id="catalog-filter-family-list"></datalist>
           </div>
         </div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('catalog-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('catalog-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="catalog-scroll">
         <table id="catalog-table">
-          <thead>
-            <tr>
-              <th style="width:14%">SKU</th>
-              <th style="width:12%">ASIN (Child)</th>
-              <th style="width:12%">Parent ASIN</th>
-              <th style="width:20%">Product Name</th>
-              <th style="width:12%">Brand</th>
-              <th style="width:16%">Product Family</th>
-              <th style="width:10%">Status</th>
-              <th style="width:4%"></th>
-            </tr>
-          </thead>
+          <thead><tr id="catalog-header-row"></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -237,6 +234,13 @@
       <div class="card">
         <div class="filter-bar">
           <div class="field">
+            <label>Level</label>
+            <select id="mfg-level" onchange="renderMfg()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN (grouped)</option>
+            </select>
+          </div>
+          <div class="field">
             <label>ASIN</label>
             <input type="text" id="mfg-filter-asin" list="mfg-filter-asin-list" placeholder="Search ASIN..." oninput="mfgFilters.asin=this.value; renderMfg();"><datalist id="mfg-filter-asin-list"></datalist>
           </div>
@@ -249,20 +253,11 @@
             <input type="text" id="mfg-filter-family" list="mfg-filter-family-list" placeholder="Search Product Family..." oninput="mfgFilters.family=this.value; renderMfg();"><datalist id="mfg-filter-family-list"></datalist>
           </div>
         </div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('mfg-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('mfg-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="mfg-scroll">
         <table id="mfg-table">
-          <thead>
-            <tr>
-              <th style="width:14%">SKU</th>
-              <th style="width:12%">ASIN</th>
-              <th style="width:12%">Parent ASIN</th>
-              <th style="width:26%">Product Name</th>
-              <th style="width:16%">Manufacturing Cost / Unit (USD)</th>
-              <th style="width:12%"></th>
-              <th style="width:8%"></th>
-            </tr>
-          </thead>
+          <thead><tr id="mfg-header-row"></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -413,6 +408,13 @@
         <h2>Per-SKU Warehouse Cost</h2>
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Total Warehouse Invoices &divide; Total "cartons handled" (units shipped to the 3PL warehouse &divide; units per carton, per SKU) = Cost per Carton. Each SKU's rate = Cost per Carton &divide; that SKU's own units per carton.</p>
         <div class="filter-bar">
+          <div class="field">
+            <label>Level</label>
+            <select id="warehouse-level" onchange="renderWarehouse()">
+              <option value="child">Child ASIN (SKU)</option>
+              <option value="parent">Parent ASIN</option>
+            </select>
+          </div>
           <div class="field">
             <label>ASIN</label>
             <input type="text" id="warehouse-filter-asin" list="warehouse-filter-asin-list" placeholder="Search ASIN..." oninput="renderWarehouse()"><datalist id="warehouse-filter-asin-list"></datalist>
@@ -931,18 +933,30 @@ function skuSelectOptions(selectedValue){
 // ---------------- TAB 0: Catalog ----------------
 const catalogFilters = { asin: '', parentAsin: '', family: '' };
 
+let catalogSortState = { column: 'key', direction: 'asc' };
+function toggleCatalogSort(column){
+  if(catalogSortState.column === column){
+    catalogSortState.direction = catalogSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    catalogSortState.column = column;
+    catalogSortState.direction = 'asc'; // catalog fields are all text — ascending is the natural default
+  }
+  renderCatalog();
+}
+
 function renderCatalog(){
   const editing = editModeState.catalog;
+  const level = document.getElementById('catalog-level').value;
+  const cs = catalogSortState;
+  const headerRow = document.getElementById('catalog-header-row');
   const tbody = document.querySelector('#catalog-table tbody');
   tbody.innerHTML = '';
-  let anyVisible = false;
-  state.catalog.forEach((row, idx)=>{
-    if(!matchesFilter(row.asin, catalogFilters.asin) || !matchesFilter(row.parentAsin, catalogFilters.parentAsin) || !matchesFilter(row.family, catalogFilters.family)) return;
-    anyVisible = true;
-    const tr = document.createElement('tr');
+
+  function catalogRowHtml(row, idx, indent){
+    const indentStyle = indent ? `style="padding-left:${indent}px;"` : '';
     if(editing){
-      tr.innerHTML = `
-        <td><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
+      return `
+        <td ${indentStyle}><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
         <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
         <td><input value="${row.parentAsin||''}" oninput="updateCatalog(${idx},'parentAsin',this.value)" placeholder="B0..."></td>
         <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
@@ -957,21 +971,89 @@ function renderCatalog(){
         </td>
         <td><button class="btn-del" onclick="deleteCatalog(${idx})">&times;</button></td>
       `;
-    } else {
-      tr.innerHTML = `
-        <td>${row.sku||'—'}</td>
-        <td>${row.asin||'—'}</td>
-        <td>${row.parentAsin||'—'}</td>
-        <td>${row.name||'—'}</td>
-        <td>${row.brand||'—'}</td>
-        <td>${row.family||'—'}</td>
-        <td>${row.status||'—'}</td>
-        <td></td>
-      `;
     }
-    tbody.appendChild(tr);
-  });
-  document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
+    return `
+      <td ${indentStyle}>${row.sku||'—'}</td>
+      <td>${row.asin||'—'}</td>
+      <td>${row.parentAsin||'—'}</td>
+      <td>${row.name||'—'}</td>
+      <td>${row.brand||'—'}</td>
+      <td>${row.family||'—'}</td>
+      <td>${row.status||'—'}</td>
+      <td></td>
+    `;
+  }
+
+  const visibleEntries = state.catalog.map((row, idx)=>({row, idx})).filter(({row})=>
+    matchesFilter(row.asin, catalogFilters.asin) && matchesFilter(row.parentAsin, catalogFilters.parentAsin) && matchesFilter(row.family, catalogFilters.family)
+  );
+
+  function sortValue(row){
+    if(cs.column === 'key') return row.sku||'';
+    return row[cs.column]||'';
+  }
+
+  if(level === 'parent'){
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '14%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN (Child)', 'asin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN', 'parentAsin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Name', 'name', '20%', cs, 'toggleCatalogSort'),
+      sortableTh('Brand', 'brand', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Family', 'family', '16%', cs, 'toggleCatalogSort'),
+      sortableTh('Status', 'status', '10%', cs, 'toggleCatalogSort'),
+      '<th style="width:4%"></th>'
+    ].join('');
+
+    const byParent = {};
+    visibleEntries.forEach(entry=>{
+      const parent = entry.row.parentAsin || `(no parent — ${entry.row.sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(entry);
+    });
+    const parents = Object.keys(byParent).sort();
+
+    let anyVisible = false;
+    parents.forEach(parent=>{
+      const entries = byParent[parent].slice().sort((a,b)=>{
+        const av = sortValue(a.row), bv = sortValue(b.row);
+        return cs.direction==='asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      });
+      anyVisible = true;
+      const dividerTr = document.createElement('tr');
+      dividerTr.innerHTML = `<td colspan="8" style="background:var(--blue-light); color:var(--navy); font-weight:700; padding:8px 10px;">${parent}</td>`;
+      tbody.appendChild(dividerTr);
+      entries.forEach(({row, idx})=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = catalogRowHtml(row, idx, 0);
+        tbody.appendChild(tr);
+      });
+    });
+    document.getElementById('catalog-empty').style.display = anyVisible ? 'none' : 'block';
+
+  } else {
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '14%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN (Child)', 'asin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN', 'parentAsin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Name', 'name', '20%', cs, 'toggleCatalogSort'),
+      sortableTh('Brand', 'brand', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Family', 'family', '16%', cs, 'toggleCatalogSort'),
+      sortableTh('Status', 'status', '10%', cs, 'toggleCatalogSort'),
+      '<th style="width:4%"></th>'
+    ].join('');
+
+    let sortedEntries = visibleEntries.slice().sort((a,b)=>{
+      const av = sortValue(a.row), bv = sortValue(b.row);
+      return cs.direction==='asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+    sortedEntries.forEach(({row, idx})=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = catalogRowHtml(row, idx, 0);
+      tbody.appendChild(tr);
+    });
+    document.getElementById('catalog-empty').style.display = sortedEntries.length ? 'none' : 'block';
+  }
   populateAsinFilterDropdowns();
   populateSummaryFilterDropdowns();
 }
@@ -1235,25 +1317,34 @@ const mfgFilters = { asin: '', parentAsin: '', family: '' };
 const logisticsFilters = { asin: '', parentAsin: '', family: '' };
 const skuFilters = { asin: '', parentAsin: '', family: '' };
 
+let mfgSortState = { column: 'key', direction: 'asc' };
+function toggleMfgSort(column){
+  if(mfgSortState.column === column){
+    mfgSortState.direction = mfgSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    mfgSortState.column = column;
+    mfgSortState.direction = (column === 'mfgCost') ? 'desc' : 'asc';
+  }
+  renderMfg();
+}
+
 function renderMfg(){
   const editing = editModeState.mfg;
+  const level = document.getElementById('mfg-level').value;
+  const ms = mfgSortState;
+  const headerRow = document.getElementById('mfg-header-row');
   const tbody = document.querySelector('#mfg-table tbody');
   tbody.innerHTML = '';
-  let anyVisible = false;
-  state.mfg.forEach((row, idx)=>{
-    const asin = catalogAsinForSku(row.sku);
-    const parentAsin = catalogParentAsinForSku(row.sku);
-    const family = catalogFamilyForSku(row.sku);
-    if(!matchesFilter(asin, mfgFilters.asin) || !matchesFilter(parentAsin, mfgFilters.parentAsin) || !matchesFilter(family, mfgFilters.family)) return;
-    anyVisible = true;
-    const tr = document.createElement('tr');
+
+  function mfgRowHtml(row, idx, asin, parentAsin, indent){
     const displayName = catalogNameForSku(row.sku);
     const costCell = editing
       ? `<input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00">`
       : `${row.mfgCost!==null && row.mfgCost!==undefined ? fmt(row.mfgCost) : '—'}`;
     const skuCell = editing ? skuCellHtml('mfg', idx, row.sku, 'updateMfg') : (row.sku || '—');
-    tr.innerHTML = `
-      <td>${skuCell}</td>
+    const indentStyle = indent ? `style="padding-left:${indent}px;"` : '';
+    return `
+      <td ${indentStyle}>${skuCell}</td>
       <td class="locked-readonly">${asinCellHtml(asin)}</td>
       <td class="locked-readonly">${parentAsinCellHtml(parentAsin)}</td>
       <td class="computed">${displayName || '<span style="color:var(--grey); font-style:italic;">(from Catalog)</span>'}</td>
@@ -1261,9 +1352,86 @@ function renderMfg(){
       <td></td>
       <td>${editing ? `<button class="btn-del" onclick="deleteMfg(${idx})">&times;</button>` : ''}</td>
     `;
-    tbody.appendChild(tr);
+  }
+
+  const visibleEntries = state.mfg.map((row, idx)=>({row, idx})).filter(({row})=>{
+    const asin = catalogAsinForSku(row.sku);
+    const parentAsin = catalogParentAsinForSku(row.sku);
+    const family = catalogFamilyForSku(row.sku);
+    return matchesFilter(asin, mfgFilters.asin) && matchesFilter(parentAsin, mfgFilters.parentAsin) && matchesFilter(family, mfgFilters.family);
   });
-  document.getElementById('mfg-empty').style.display = anyVisible ? 'none' : 'block';
+
+  function sortValue(entry){
+    if(ms.column === 'key') return entry.row.sku||'';
+    if(ms.column === 'asin') return catalogAsinForSku(entry.row.sku)||'';
+    if(ms.column === 'parentAsin') return catalogParentAsinForSku(entry.row.sku)||'';
+    if(ms.column === 'name') return catalogNameForSku(entry.row.sku)||'';
+    if(ms.column === 'mfgCost') return entry.row.mfgCost;
+    return '';
+  }
+  function compareEntries(a, b){
+    const av = sortValue(a), bv = sortValue(b);
+    if(ms.column === 'mfgCost'){
+      if(av===null || av===undefined) return 1;
+      if(bv===null || bv===undefined) return -1;
+      return ms.direction==='asc' ? av-bv : bv-av;
+    }
+    return ms.direction==='asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+  }
+
+  if(level === 'parent'){
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '14%', ms, 'toggleMfgSort'),
+      sortableTh('ASIN', 'asin', '12%', ms, 'toggleMfgSort'),
+      sortableTh('Parent ASIN', 'parentAsin', '12%', ms, 'toggleMfgSort'),
+      sortableTh('Product Name', 'name', '26%', ms, 'toggleMfgSort'),
+      sortableTh('Manufacturing Cost / Unit (USD)', 'mfgCost', '16%', ms, 'toggleMfgSort'),
+      '<th style="width:12%"></th>', '<th style="width:8%"></th>'
+    ].join('');
+
+    const byParent = {};
+    visibleEntries.forEach(entry=>{
+      const parent = catalogParentAsinForSku(entry.row.sku) || `(no parent — ${entry.row.sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(entry);
+    });
+    const parents = Object.keys(byParent).sort();
+
+    let anyVisible = parents.length > 0;
+    parents.forEach(parent=>{
+      const entries = byParent[parent].slice().sort(compareEntries);
+      const dividerTr = document.createElement('tr');
+      dividerTr.innerHTML = `<td colspan="7" style="background:var(--blue-light); color:var(--navy); font-weight:700; padding:8px 10px;">${parent}</td>`;
+      tbody.appendChild(dividerTr);
+      entries.forEach(({row, idx})=>{
+        const asin = catalogAsinForSku(row.sku);
+        const parentAsin = catalogParentAsinForSku(row.sku);
+        const tr = document.createElement('tr');
+        tr.innerHTML = mfgRowHtml(row, idx, asin, parentAsin, 0);
+        tbody.appendChild(tr);
+      });
+    });
+    document.getElementById('mfg-empty').style.display = anyVisible ? 'none' : 'block';
+
+  } else {
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '14%', ms, 'toggleMfgSort'),
+      sortableTh('ASIN', 'asin', '12%', ms, 'toggleMfgSort'),
+      sortableTh('Parent ASIN', 'parentAsin', '12%', ms, 'toggleMfgSort'),
+      sortableTh('Product Name', 'name', '26%', ms, 'toggleMfgSort'),
+      sortableTh('Manufacturing Cost / Unit (USD)', 'mfgCost', '16%', ms, 'toggleMfgSort'),
+      '<th style="width:12%"></th>', '<th style="width:8%"></th>'
+    ].join('');
+
+    const sortedEntries = visibleEntries.slice().sort(compareEntries);
+    sortedEntries.forEach(({row, idx})=>{
+      const asin = catalogAsinForSku(row.sku);
+      const parentAsin = catalogParentAsinForSku(row.sku);
+      const tr = document.createElement('tr');
+      tr.innerHTML = mfgRowHtml(row, idx, asin, parentAsin, 0);
+      tbody.appendChild(tr);
+    });
+    document.getElementById('mfg-empty').style.display = sortedEntries.length ? 'none' : 'block';
+  }
 }
 function addMfgRow(){
   if(!editModeState.mfg){ enterEditMode('mfg'); }
@@ -1899,60 +2067,138 @@ function renderWarehouse(){
   `;
 
   // Per-SKU table
+  const whLevel = document.getElementById('warehouse-level').value;
   const asinFilter = document.getElementById('warehouse-filter-asin').value;
   const parentFilter = document.getElementById('warehouse-filter-parent').value;
   const familyFilter = document.getElementById('warehouse-filter-family').value;
   const ws = warehouseSkuSortState;
 
   const headerRow = document.getElementById('warehouse-sku-header-row');
-  headerRow.innerHTML = [
-    sortableTh('SKU', 'key', '', ws, 'toggleWarehouseSkuSort'),
-    '<th>ASIN</th>', '<th>Parent ASIN</th>',
-    sortableTh('Units Shipped to WH', 'units', '', ws, 'toggleWarehouseSkuSort'),
-    sortableTh('Units per Carton', 'unitsPerCarton', '', ws, 'toggleWarehouseSkuSort'),
-    sortableTh('Warehouse Cost/Unit', 'cost', '', ws, 'toggleWarehouseSkuSort'),
-  ].join('');
+  const skuTbody = document.querySelector('#warehouse-sku-table tbody');
+  skuTbody.innerHTML = '';
 
   const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
     .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter));
 
-  let rows = skusWithShipments.map(sku=>{
-    const logRow = state.logistics.items.find(r=>r.sku===sku);
-    const units = unitsShippedToWhForSku(sku);
-    return {
-      sku,
-      units,
-      unitsPerCarton: logRow ? logRow.unitsPerCarton : null,
-      cost: warehouseCostPerUnitForSku(sku),
-    };
-  }).filter(r=>r.units > 0);
+  if(whLevel === 'parent'){
+    headerRow.innerHTML = [
+      sortableTh('Parent ASIN', 'key', '', ws, 'toggleWarehouseSkuSort'),
+      sortableTh('Units Shipped to WH', 'units', '', ws, 'toggleWarehouseSkuSort'),
+      sortableTh('Blended Warehouse Cost/Unit', 'cost', '', ws, 'toggleWarehouseSkuSort'),
+    ].join('');
 
-  if(ws.column === 'key'){
-    rows.sort((a,b)=> ws.direction==='asc' ? a.sku.localeCompare(b.sku) : b.sku.localeCompare(a.sku));
+    const byParent = {};
+    skusWithShipments.forEach(sku=>{
+      const parent = catalogParentAsinForSku(sku) || `(no parent — ${sku})`;
+      (byParent[parent] = byParent[parent]||[]).push(sku);
+    });
+
+    let parentRows = Object.keys(byParent).map(parent=>{
+      const skus = byParent[parent];
+      let totalUnits=0, weightedCostSum=0, hasCost=false;
+      skus.forEach(sku=>{
+        const units = unitsShippedToWhForSku(sku);
+        const cost = warehouseCostPerUnitForSku(sku);
+        if(units>0 && cost!==null){
+          totalUnits += units;
+          weightedCostSum += units*cost;
+          hasCost = true;
+        }
+      });
+      return { parent, skus, units: totalUnits, cost: hasCost && totalUnits ? weightedCostSum/totalUnits : null };
+    }).filter(r=>r.units>0);
+
+    if(ws.column === 'key'){
+      parentRows.sort((a,b)=> ws.direction==='asc' ? a.parent.localeCompare(b.parent) : b.parent.localeCompare(a.parent));
+    } else {
+      parentRows.sort((a,b)=>{
+        const av = a[ws.column], bv = b[ws.column];
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return ws.direction==='asc' ? av-bv : bv-av;
+      });
+    }
+
+    document.getElementById('warehouse-sku-empty').style.display = parentRows.length ? 'none' : 'block';
+    parentRows.forEach(pr=>{
+      const isExpanded = expandedWarehouseParents.has(pr.parent);
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>{
+        if(expandedWarehouseParents.has(pr.parent)) expandedWarehouseParents.delete(pr.parent);
+        else expandedWarehouseParents.add(pr.parent);
+        renderWarehouse();
+      };
+      tr.innerHTML = `
+        <td>${isExpanded ? '&#9662;' : '&#9656;'} ${pr.parent}</td>
+        <td>${pr.units.toLocaleString()}</td>
+        <td><strong>${pr.cost!==null ? fmt(pr.cost) : '—'}</strong></td>
+      `;
+      skuTbody.appendChild(tr);
+
+      if(isExpanded){
+        pr.skus.slice().sort().forEach(sku=>{
+          const units = unitsShippedToWhForSku(sku);
+          if(!units) return;
+          const logRow = state.logistics.items.find(r=>r.sku===sku);
+          const cost = warehouseCostPerUnitForSku(sku);
+          const childTr = document.createElement('tr');
+          childTr.style.background = '#FAFBFC';
+          childTr.innerHTML = `
+            <td style="padding-left:28px; color:var(--grey);">${sku} <span style="color:var(--grey); font-size:11px;">(${logRow && logRow.unitsPerCarton ? logRow.unitsPerCarton+'/carton' : 'no carton data'})</span></td>
+            <td>${units.toLocaleString()}</td>
+            <td>${cost!==null ? fmt(cost) : '—'}</td>
+          `;
+          skuTbody.appendChild(childTr);
+        });
+      }
+    });
+
   } else {
-    rows.sort((a,b)=>{
-      const av = a[ws.column], bv = b[ws.column];
-      if(av===null || av===undefined) return 1;
-      if(bv===null || bv===undefined) return -1;
-      return ws.direction==='asc' ? av-bv : bv-av;
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '', ws, 'toggleWarehouseSkuSort'),
+      '<th>ASIN</th>', '<th>Parent ASIN</th>',
+      sortableTh('Units Shipped to WH', 'units', '', ws, 'toggleWarehouseSkuSort'),
+      sortableTh('Units per Carton', 'unitsPerCarton', '', ws, 'toggleWarehouseSkuSort'),
+      sortableTh('Warehouse Cost/Unit', 'cost', '', ws, 'toggleWarehouseSkuSort'),
+    ].join('');
+
+    let rows = skusWithShipments.map(sku=>{
+      const logRow = state.logistics.items.find(r=>r.sku===sku);
+      const units = unitsShippedToWhForSku(sku);
+      return {
+        sku,
+        units,
+        unitsPerCarton: logRow ? logRow.unitsPerCarton : null,
+        cost: warehouseCostPerUnitForSku(sku),
+      };
+    }).filter(r=>r.units > 0);
+
+    if(ws.column === 'key'){
+      rows.sort((a,b)=> ws.direction==='asc' ? a.sku.localeCompare(b.sku) : b.sku.localeCompare(a.sku));
+    } else {
+      rows.sort((a,b)=>{
+        const av = a[ws.column], bv = b[ws.column];
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return ws.direction==='asc' ? av-bv : bv-av;
+      });
+    }
+
+    document.getElementById('warehouse-sku-empty').style.display = rows.length ? 'none' : 'block';
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.sku}</td>
+        <td class="locked-readonly">${asinCellHtml(catalogAsinForSku(r.sku))}</td>
+        <td class="locked-readonly">${parentAsinCellHtml(catalogParentAsinForSku(r.sku))}</td>
+        <td>${r.units.toLocaleString()}</td>
+        <td>${r.unitsPerCarton ?? '<span style="color:var(--red)">no Logistics data</span>'}</td>
+        <td><strong>${r.cost!==null ? fmt(r.cost) : '—'}</strong></td>
+      `;
+      skuTbody.appendChild(tr);
     });
   }
-
-  const skuTbody = document.querySelector('#warehouse-sku-table tbody');
-  skuTbody.innerHTML = '';
-  document.getElementById('warehouse-sku-empty').style.display = rows.length ? 'none' : 'block';
-  rows.forEach(r=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${r.sku}</td>
-      <td class="locked-readonly">${asinCellHtml(catalogAsinForSku(r.sku))}</td>
-      <td class="locked-readonly">${parentAsinCellHtml(catalogParentAsinForSku(r.sku))}</td>
-      <td>${r.units.toLocaleString()}</td>
-      <td>${r.unitsPerCarton ?? '<span style="color:var(--red)">no Logistics data</span>'}</td>
-      <td><strong>${r.cost!==null ? fmt(r.cost) : '—'}</strong></td>
-    `;
-    skuTbody.appendChild(tr);
-  });
 
   // Monthly invoices table
   const tbody = document.querySelector('#warehouse-table tbody');
@@ -2179,6 +2425,7 @@ function populateShipmentsFilterDropdowns(){
 const expandedShipments = new Set();
 const expandedShipmentSkuParents = new Set();
 const expandedSkuTableParents = new Set();
+const expandedWarehouseParents = new Set();
 function toggleShipmentExpand(shipmentId){
   if(expandedShipments.has(shipmentId)) expandedShipments.delete(shipmentId);
   else expandedShipments.add(shipmentId);
