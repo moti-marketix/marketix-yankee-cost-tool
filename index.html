@@ -395,7 +395,7 @@
     <!-- ===================== TAB 3: WAREHOUSE ===================== -->
     <section id="tab-warehouse" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Warehouse Costs</h1><div id="warehouse-lock-bar" class="lock-bar"></div></div>
-      <p class="subtitle">A flat Warehouse Cost/Unit estimated from a few representative months, plus a buffer for the unexpected — checked against your actual total spend.</p>
+      <p class="subtitle">Real invoice total, normalized by carton size — items packed 1-per-box carry more of the handling cost per unit than items packed 10 or 20-per-box.</p>
 
       <div class="kpi-grid" id="warehouse-kpis"></div>
 
@@ -410,33 +410,31 @@
       </div>
 
       <div class="card">
-        <h2>Estimate Settings</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Check the months below that represent normal, typical operations (2–3 good months is usually enough) — avoid unusually high or low months. The average of those, plus your buffer %, becomes the flat rate applied to every unit sold.</p>
-        <div class="row-inline">
+        <h2>Per-SKU Warehouse Cost</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Total Warehouse Invoices &divide; Total "cartons handled" (units shipped to the 3PL warehouse &divide; units per carton, per SKU) = Cost per Carton. Each SKU's rate = Cost per Carton &divide; that SKU's own units per carton.</p>
+        <div class="filter-bar">
           <div class="field">
-            <label>Buffer % (for unexpected costs)</label>
-            <input type="number" id="warehouse-buffer-pct" step="1" placeholder="e.g. 10" oninput="onWarehouseBufferChange(this.value)">
+            <label>ASIN</label>
+            <input type="text" id="warehouse-filter-asin" list="warehouse-filter-asin-list" placeholder="Search ASIN..." oninput="renderWarehouse()"><datalist id="warehouse-filter-asin-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <input type="text" id="warehouse-filter-parent" list="warehouse-filter-parent-list" placeholder="Search Parent ASIN..." oninput="renderWarehouse()"><datalist id="warehouse-filter-parent-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <input type="text" id="warehouse-filter-family" list="warehouse-filter-family-list" placeholder="Search Product Family..." oninput="renderWarehouse()"><datalist id="warehouse-filter-family-list"></datalist>
           </div>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Warehouse Cost/Unit Estimate</h2>
-        <table id="warehouse-annual-table">
-          <thead>
-            <tr>
-              <th>Year</th>
-              <th>Avg Monthly (selected months)</th>
-              <th>+ Buffer</th>
-              <th>Annualized Estimate</th>
-              <th>Total Units Sold</th>
-              <th>Warehouse Cost/Unit</th>
-              <th>Est. Total vs Actual Spend</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <div id="warehouse-annual-empty" class="empty" style="display:none;">Check at least one month below to see the estimate.</div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
+        <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('warehouse-sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('warehouse-sku-scroll',300)">&#9654;</button></div>
+        <div class="table-scroll" id="warehouse-sku-scroll">
+          <table id="warehouse-sku-table">
+            <thead><tr id="warehouse-sku-header-row"></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="warehouse-sku-empty" class="empty" style="display:none;">No SKUs with both shipment-to-warehouse data and carton size yet.</div>
       </div>
 
       <div class="card">
@@ -444,11 +442,10 @@
         <table id="warehouse-table">
           <thead>
             <tr>
-              <th style="width:9%">Use for Estimate</th>
-              <th style="width:22%">Month</th>
-              <th style="width:29%">Total Invoice Amount (USD)</th>
-              <th style="width:24%">Invoice File</th>
-              <th style="width:16%"></th>
+              <th style="width:26%">Month</th>
+              <th style="width:34%">Total Invoice Amount (USD)</th>
+              <th style="width:28%">Invoice File</th>
+              <th style="width:12%"></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -633,7 +630,6 @@ let state = {
   rawFiles: [],
   shipments: [],
   shipmentContents: [],
-  warehouseBufferPct: 10,
 };
 
 // ---------------- Lock / Edit / Submit workflow (applies to all data-entry tables) ----------------
@@ -675,7 +671,6 @@ async function submitChanges(tableKey){
       await Promise.all(state.logistics.items.filter(r=>r.sku).map(r=>saveLogisticsRow(r)));
     } else if(tableKey === 'warehouse'){
       await Promise.all(state.warehouse.filter(r=>r.month).map(r=>saveWarehouseRow(r)));
-      await saveWarehouseBufferPct(state.warehouseBufferPct);
     } else if(tableKey === 'sku'){
       await Promise.all(state.sku.filter(r=>r.sku && r.month).map(r=>saveSkuRow(r)));
     }
@@ -743,8 +738,7 @@ async function loadAllFromSupabase(){
         weight: r.weight_kg, unitsPerCarton: r.units_per_carton,
       })),
     };
-    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, includeInEstimate: r.include_in_estimate ?? true, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name }));
-    state.warehouseBufferPct = settingsRes.data && settingsRes.data.warehouse_buffer_pct!==null && settingsRes.data.warehouse_buffer_pct!==undefined ? settingsRes.data.warehouse_buffer_pct : 10;
+    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name }));
     state.sku = (skuRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
       referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
@@ -847,22 +841,9 @@ async function saveAvgCbmPrice(value){
     showSyncStatus('Save failed: ' + (err.message||err), true);
   }
 }
-async function saveWarehouseBufferPct(value){
-  try{
-    const { error } = await sb.from('client_settings').upsert(
-      { client_id: CLIENT_ID, warehouse_buffer_pct: value, updated_at: new Date().toISOString() },
-      { onConflict: 'client_id' }
-    );
-    if(error) throw error;
-    showSyncStatus('Saved.');
-  }catch(err){
-    console.error(err);
-    showSyncStatus('Save failed: ' + (err.message||err), true);
-  }
-}
 async function saveWarehouseRow(row){
   const payload = {
-    client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount, include_in_estimate: row.includeInEstimate,
+    client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount,
     invoice_file_path: row.invoiceFilePath || null, invoice_file_name: row.invoiceFileName || null,
     updated_at: new Date().toISOString(),
   };
@@ -1842,96 +1823,138 @@ function unitsSoldForMonth(month){
 function yearOf(monthStr){
   return monthStr ? monthStr.slice(0,4) : null;
 }
-function unitsSoldForYear(year){
-  return state.sku
-    .filter(r=>yearOf(r.month)===year && r.units)
-    .reduce((sum,r)=>sum + (r.units||0), 0);
+function totalWarehouseInvoices(){
+  return state.warehouse.reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
 }
-function invoicesForYear(year){
-  // Total ACTUAL spend for the year — every logged month, regardless of estimate selection. Used for reconciliation.
-  return state.warehouse
-    .filter(r=>yearOf(r.month)===year && r.invoiceAmount)
-    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
+function unitsShippedToWhForSku(sku){
+  return state.shipmentContents
+    .filter(c=>c.sku===sku)
+    .reduce((sum,c)=>{
+      const shipment = state.shipments.find(s=>s.id===c.shipmentId);
+      if(!shipment || shipment.destination !== 'WH') return sum;
+      return sum + (c.units||0);
+    }, 0);
 }
-function selectedInvoicesForYear(year){
-  return state.warehouse
-    .filter(r=>yearOf(r.month)===year && r.invoiceAmount && r.includeInEstimate)
-    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
+function totalCartonsHandled(){
+  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
+  let total = 0;
+  skusWithShipments.forEach(sku=>{
+    const logRow = state.logistics.items.find(r=>r.sku===sku);
+    if(!logRow || !logRow.unitsPerCarton) return;
+    const units = unitsShippedToWhForSku(sku);
+    if(units > 0) total += units / logRow.unitsPerCarton;
+  });
+  return total;
 }
-function selectedMonthsCountForYear(year){
-  return state.warehouse.filter(r=>yearOf(r.month)===year && r.invoiceAmount!==null && r.invoiceAmount!==undefined && r.includeInEstimate).length;
+function costPerCarton(){
+  const cartons = totalCartonsHandled();
+  const invoices = totalWarehouseInvoices();
+  if(!cartons || !invoices) return null;
+  return invoices / cartons;
 }
-function warehouseEstimateBreakdownForYear(year){
-  const selectedTotal = selectedInvoicesForYear(year);
-  const selectedCount = selectedMonthsCountForYear(year);
-  if(!selectedCount) return null;
-  const avgMonthly = selectedTotal / selectedCount;
-  const bufferPct = state.warehouseBufferPct || 0;
-  const bufferedMonthly = avgMonthly * (1 + bufferPct/100);
-  const annualizedEstimate = bufferedMonthly * 12;
-  const totalUnits = unitsSoldForYear(year);
-  const rate = totalUnits ? annualizedEstimate / totalUnits : null;
-  const totalActual = invoicesForYear(year);
-  const reconciliationPct = totalActual ? (annualizedEstimate/totalActual*100) : null;
-  return { avgMonthly, bufferedMonthly, annualizedEstimate, totalUnits, rate, totalActual, reconciliationPct };
+function warehouseCostPerUnitForSku(sku){
+  const cpc = costPerCarton();
+  if(cpc === null) return null;
+  const logRow = state.logistics.items.find(r=>r.sku===sku);
+  if(!logRow || !logRow.unitsPerCarton) return null;
+  return cpc / logRow.unitsPerCarton;
 }
-function warehouseCostForYear(year){
-  const b = warehouseEstimateBreakdownForYear(year);
-  return b ? b.rate : null;
+
+let warehouseSkuSortState = { column: 'cost', direction: 'desc' };
+function toggleWarehouseSkuSort(column){
+  if(warehouseSkuSortState.column === column){
+    warehouseSkuSortState.direction = warehouseSkuSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    warehouseSkuSortState.column = column;
+    warehouseSkuSortState.direction = (column === 'key') ? 'asc' : 'desc';
+  }
+  renderWarehouse();
 }
-function allYears(){
-  const set = new Set();
-  state.warehouse.forEach(r=>{ const y = yearOf(r.month); if(y) set.add(y); });
-  state.sku.forEach(r=>{ const y = yearOf(r.month); if(y) set.add(y); });
-  return Array.from(set).sort();
+function populateWarehouseFilterDropdowns(){
+  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
+  const asinListEl = document.getElementById('warehouse-filter-asin-list');
+  if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
+  const parentListEl = document.getElementById('warehouse-filter-parent-list');
+  if(parentListEl) parentListEl.innerHTML = parents.map(p=>`<option value="${p}">`).join('');
+  const familyListEl = document.getElementById('warehouse-filter-family-list');
+  if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
 }
 
 function renderWarehouse(){
-  const bufferInput = document.getElementById('warehouse-buffer-pct');
-  if(document.activeElement !== bufferInput) bufferInput.value = state.warehouseBufferPct ?? '';
-  bufferInput.disabled = !editModeState.warehouse;
+  if(!document.getElementById('warehouse-filter-asin-list').options.length) populateWarehouseFilterDropdowns();
 
-  const years = allYears();
-  const annualBody = document.querySelector('#warehouse-annual-table tbody');
-  annualBody.innerHTML = '';
-  document.getElementById('warehouse-annual-empty').style.display = years.length ? 'none' : 'block';
+  const totalInvoices = totalWarehouseInvoices();
+  const monthsLogged = state.warehouse.filter(r=>r.invoiceAmount!==null && r.invoiceAmount!==undefined).length;
+  const cartons = totalCartonsHandled();
+  const cpc = costPerCarton();
 
-  let kpiTotalCosts = 0, kpiMonthsLogged = 0;
-  years.forEach(year=>{
-    kpiTotalCosts += invoicesForYear(year);
-    kpiMonthsLogged += state.warehouse.filter(r=>yearOf(r.month)===year && r.invoiceAmount).length;
-
-    const b = warehouseEstimateBreakdownForYear(year);
-    const tr = document.createElement('tr');
-    if(!b){
-      tr.innerHTML = `<td><strong>${year}</strong></td><td colspan="6" style="color:var(--grey);">Check at least one month below to see the estimate.</td>`;
-    } else {
-      const reconciliationLabel = b.reconciliationPct!==null
-        ? `${Math.round(b.reconciliationPct)}% of actual <span style="color:var(--grey); font-size:11px;">(${fmt(b.annualizedEstimate)} est. vs ${fmt(b.totalActual)} actual)</span>`
-        : '—';
-      tr.innerHTML = `
-        <td><strong>${year}</strong></td>
-        <td>${fmt(b.avgMonthly)}</td>
-        <td>${fmt(b.bufferedMonthly)}</td>
-        <td>${fmt(b.annualizedEstimate)}</td>
-        <td>${b.totalUnits ? b.totalUnits.toLocaleString() : '<span style="color:var(--red)">0 — add SKU Economics data</span>'}</td>
-        <td class="computed">${b.rate!==null ? fmt(b.rate) : '—'}</td>
-        <td>${reconciliationLabel}</td>
-      `;
-    }
-    annualBody.appendChild(tr);
-  });
-
-  const currentYear = years.length ? years[years.length-1] : null;
-  const currentBreakdown = currentYear ? warehouseEstimateBreakdownForYear(currentYear) : null;
   document.getElementById('warehouse-kpis').innerHTML = `
-    <div class="kpi"><div class="label">Total Actual Costs (all months)</div><div class="value">${fmtWhole(kpiTotalCosts)}</div></div>
-    <div class="kpi"><div class="label">Avg per Month (all months)</div><div class="value">${kpiMonthsLogged ? fmtWhole(kpiTotalCosts/kpiMonthsLogged) : '—'}</div></div>
-    <div class="kpi"><div class="label">Months Logged</div><div class="value">${kpiMonthsLogged}</div></div>
-    <div class="kpi"><div class="label">Warehouse Cost/Unit</div><div class="value">${currentBreakdown && currentBreakdown.rate!==null ? fmt(currentBreakdown.rate) : '—'}</div></div>
-    <div class="kpi"><div class="label">Est. vs Actual Spend</div><div class="value">${currentBreakdown && currentBreakdown.reconciliationPct!==null ? Math.round(currentBreakdown.reconciliationPct)+'%' : '—'}</div></div>
+    <div class="kpi"><div class="label">Total Invoices (all months)</div><div class="value">${fmtWhole(totalInvoices)}</div></div>
+    <div class="kpi"><div class="label">Avg per Month</div><div class="value">${monthsLogged ? fmtWhole(totalInvoices/monthsLogged) : '—'}</div></div>
+    <div class="kpi"><div class="label">Months Logged</div><div class="value">${monthsLogged}</div></div>
+    <div class="kpi"><div class="label">Total Cartons Handled</div><div class="value">${cartons ? cartons.toLocaleString(undefined,{maximumFractionDigits:0}) : '—'}</div></div>
+    <div class="kpi"><div class="label">Cost per Carton</div><div class="value">${cpc!==null ? fmt(cpc) : '—'}</div></div>
   `;
 
+  // Per-SKU table
+  const asinFilter = document.getElementById('warehouse-filter-asin').value;
+  const parentFilter = document.getElementById('warehouse-filter-parent').value;
+  const familyFilter = document.getElementById('warehouse-filter-family').value;
+  const ws = warehouseSkuSortState;
+
+  const headerRow = document.getElementById('warehouse-sku-header-row');
+  headerRow.innerHTML = [
+    sortableTh('SKU', 'key', '', ws, 'toggleWarehouseSkuSort'),
+    '<th>ASIN</th>', '<th>Parent ASIN</th>',
+    sortableTh('Units Shipped to WH', 'units', '', ws, 'toggleWarehouseSkuSort'),
+    sortableTh('Units per Carton', 'unitsPerCarton', '', ws, 'toggleWarehouseSkuSort'),
+    sortableTh('Warehouse Cost/Unit', 'cost', '', ws, 'toggleWarehouseSkuSort'),
+  ].join('');
+
+  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
+    .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter));
+
+  let rows = skusWithShipments.map(sku=>{
+    const logRow = state.logistics.items.find(r=>r.sku===sku);
+    const units = unitsShippedToWhForSku(sku);
+    return {
+      sku,
+      units,
+      unitsPerCarton: logRow ? logRow.unitsPerCarton : null,
+      cost: warehouseCostPerUnitForSku(sku),
+    };
+  }).filter(r=>r.units > 0);
+
+  if(ws.column === 'key'){
+    rows.sort((a,b)=> ws.direction==='asc' ? a.sku.localeCompare(b.sku) : b.sku.localeCompare(a.sku));
+  } else {
+    rows.sort((a,b)=>{
+      const av = a[ws.column], bv = b[ws.column];
+      if(av===null || av===undefined) return 1;
+      if(bv===null || bv===undefined) return -1;
+      return ws.direction==='asc' ? av-bv : bv-av;
+    });
+  }
+
+  const skuTbody = document.querySelector('#warehouse-sku-table tbody');
+  skuTbody.innerHTML = '';
+  document.getElementById('warehouse-sku-empty').style.display = rows.length ? 'none' : 'block';
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.sku}</td>
+      <td class="locked-readonly">${asinCellHtml(catalogAsinForSku(r.sku))}</td>
+      <td class="locked-readonly">${parentAsinCellHtml(catalogParentAsinForSku(r.sku))}</td>
+      <td>${r.units.toLocaleString()}</td>
+      <td>${r.unitsPerCarton ?? '<span style="color:var(--red)">no Logistics data</span>'}</td>
+      <td><strong>${r.cost!==null ? fmt(r.cost) : '—'}</strong></td>
+    `;
+    skuTbody.appendChild(tr);
+  });
+
+  // Monthly invoices table
   const tbody = document.querySelector('#warehouse-table tbody');
   tbody.innerHTML = '';
   document.getElementById('warehouse-empty').style.display = state.warehouse.length ? 'none' : 'block';
@@ -1944,7 +1967,6 @@ function renderWarehouse(){
       : `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;" onclick="startWarehouseInvoiceUpload(${idx})">&#8679; Upload</button>`;
     if(editingWarehouse){
       tr.innerHTML = `
-        <td style="text-align:center;"><input type="checkbox" ${row.includeInEstimate?'checked':''} onchange="updateWarehouse(${idx},'includeInEstimate',this.checked)"></td>
         <td><input type="month" value="${row.month||''}" oninput="updateWarehouse(${idx},'month',this.value)"></td>
         <td><input type="number" step="0.01" value="${row.invoiceAmount??''}" oninput="updateWarehouse(${idx},'invoiceAmount',this.value)" placeholder="0.00"></td>
         <td>${fileCell}</td>
@@ -1952,7 +1974,6 @@ function renderWarehouse(){
       `;
     } else {
       tr.innerHTML = `
-        <td style="text-align:center;">${row.includeInEstimate ? '✓' : '—'}</td>
         <td>${row.month || '—'}</td>
         <td>${row.invoiceAmount!==null && row.invoiceAmount!==undefined ? fmt(row.invoiceAmount) : '—'}</td>
         <td>${fileCell}</td>
@@ -1964,22 +1985,15 @@ function renderWarehouse(){
 }
 function addWarehouseRow(){
   if(!editModeState.warehouse){ enterEditMode('warehouse'); }
-  state.warehouse.push({month:'', invoiceAmount:null, includeInEstimate:true});
+  state.warehouse.push({month:'', invoiceAmount:null});
   renderWarehouse();
 }
 function updateWarehouse(idx, field, value){
   const row = state.warehouse[idx];
   if(field==='month') row.month = value;
-  else if(field==='includeInEstimate') row.includeInEstimate = value;
   else row[field] = (value===''?null:parseFloat(value));
   renderWarehouse();
   // Held locally — no auto-save. Changes only persist when "Submit Changes" is confirmed.
-}
-function onWarehouseBufferChange(value){
-  const num = value===''? null : parseFloat(value);
-  state.warehouseBufferPct = num;
-  renderWarehouse();
-  // Held locally — saved along with the rest of the page when "Submit Changes" is confirmed.
 }
 function deleteWarehouse(idx){
   if(!editModeState.warehouse){ return; }
@@ -3088,11 +3102,6 @@ function landedCostForSku(sku){
   if(mfgCost===null && (freight===null || freight===undefined)) return null;
   return (mfgCost||0) + (freight||0);
 }
-function warehouseCostForMonth(month){
-  const year = yearOf(month);
-  if(!year) return null;
-  return warehouseCostForYear(year);
-}
 function parentAsinForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
   return (cat && cat.parentAsin) ? cat.parentAsin : null;
@@ -3180,7 +3189,7 @@ function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
   rows.forEach(row=>{
     const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only
-    const whPerUnit = warehouseCostForMonth(row.month) || 0;
+    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0;
     const u = row.units || 0;
     const rowCogs = landed * u;
     const rowWh = whPerUnit * u;
@@ -3660,7 +3669,7 @@ async function handleBulkInvoiceUpload(event){
       // Find existing row for this month, or create one
       let row = state.warehouse.find(r=>r.month === parsed.month);
       if(!row){
-        row = { month: parsed.month, invoiceAmount: null, includeInEstimate: true };
+        row = { month: parsed.month, invoiceAmount: null };
         state.warehouse.push(row);
       }
       row.invoiceAmount = parsed.invoiceAmount;
