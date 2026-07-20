@@ -310,15 +310,8 @@
             <label>Product Family</label>
             <input type="text" id="logistics-filter-family" list="logistics-filter-family-list" placeholder="Search Product Family..." oninput="logisticsFilters.family=this.value; renderLogistics();"><datalist id="logistics-filter-family-list"></datalist>
           </div>
-          <div class="field">
-            <label>Sort by Freight Cost/Unit</label>
-            <select id="logistics-sort" onchange="renderLogistics()">
-              <option value="none">Default (no sort)</option>
-              <option value="desc">Highest to Lowest</option>
-              <option value="asc">Lowest to Highest</option>
-            </select>
-          </div>
         </div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('logistics-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('logistics-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="logistics-scroll">
         <table id="logistics-table">
@@ -372,15 +365,8 @@
             <label>Product Family</label>
             <input type="text" id="shipments-filter-family" list="shipments-filter-family-list" placeholder="Search Product Family..." oninput="renderShipments()"><datalist id="shipments-filter-family-list"></datalist>
           </div>
-          <div class="field">
-            <label>Sort by Avg Freight Cost/Unit</label>
-            <select id="shipments-sku-sort" onchange="renderShipments()">
-              <option value="none">Default (no sort)</option>
-              <option value="desc">Highest to Lowest</option>
-              <option value="asc">Lowest to Highest</option>
-            </select>
-          </div>
         </div>
+        <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('shipments-sku-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('shipments-sku-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="shipments-sku-scroll">
           <table id="shipments-sku-table">
@@ -393,22 +379,11 @@
 
       <div class="card">
         <h2>Raw Shipments</h2>
+        <p style="margin:0 0 8px 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="scroll-controls"><button class="scroll-btn" onclick="scrollTable('shipments-raw-scroll',-300)">&#9664;</button><button class="scroll-btn" onclick="scrollTable('shipments-raw-scroll',300)">&#9654;</button></div>
         <div class="table-scroll" id="shipments-raw-scroll">
           <table id="shipments-raw-table">
-            <thead>
-              <tr>
-                <th>Patent#</th>
-                <th>Container#</th>
-                <th>Destination</th>
-                <th>Total Units</th>
-                <th>Total Boxes</th>
-                <th>Cost/CBM</th>
-                <th>Total Shipping Cost</th>
-                <th>Placement Fee</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr id="shipments-raw-header-row"></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -1532,9 +1507,20 @@ function computeFreightPerUnit(cbm, unitsPerCarton){
   return (price * cbm) / unitsPerCarton;
 }
 const expandedLogisticsParents = new Set();
+let logisticsSortState = { column: 'freight', direction: 'desc' };
+function toggleLogisticsSort(column){
+  if(logisticsSortState.column === column){
+    logisticsSortState.direction = logisticsSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    logisticsSortState.column = column;
+    logisticsSortState.direction = (column === 'key') ? 'asc' : 'desc';
+  }
+  renderLogistics();
+}
+
 function renderLogistics(){
   const level = document.getElementById('logistics-level').value;
-  const sortOrder = document.getElementById('logistics-sort').value;
+  const ls = logisticsSortState;
   const headerRow = document.getElementById('logistics-header-row');
   const tbody = document.querySelector('#logistics-table tbody');
   tbody.innerHTML = '';
@@ -1581,8 +1567,13 @@ function renderLogistics(){
   }
 
   if(level === 'parent'){
-    headerRow.innerHTML = ['Parent ASIN','# SKUs','Weighted Avg CBM/Unit','Weighted Avg Freight Cost/Unit','','']
-      .map(h=>`<th>${h}</th>`).join('');
+    headerRow.innerHTML = [
+      sortableTh('Parent ASIN', 'key', '', ls, 'toggleLogisticsSort'),
+      sortableTh('# SKUs', 'numSkus', '', ls, 'toggleLogisticsSort'),
+      sortableTh('Weighted Avg CBM/Unit', 'cbmPerUnit', '', ls, 'toggleLogisticsSort'),
+      sortableTh('Weighted Avg Freight Cost/Unit', 'freight', '', ls, 'toggleLogisticsSort'),
+      '<th></th>', '<th></th>'
+    ].join('');
 
     const visibleEntries = state.logistics.items.map((row, idx)=>({row, idx})).filter(({row})=>{
       const asin = catalogAsinForSku(row.sku);
@@ -1616,13 +1607,19 @@ function renderLogistics(){
       });
       const weightedAvgCbmPerUnit = totalUnits ? weightedCbmSum/totalUnits : null;
       const weightedAvgFreightPerUnit = (hasFreightData && totalUnits) ? weightedFreightSum/totalUnits : null;
-      return { parent, entries, weightedAvgCbmPerUnit, weightedAvgFreightPerUnit };
+      return { parent, entries, numSkus: entries.length, weightedAvgCbmPerUnit, weightedAvgFreightPerUnit };
     });
 
-    if(sortOrder !== 'none'){
-      parentRows.sort((a,b)=> sortOrder==='asc' ? (a.weightedAvgFreightPerUnit??0)-(b.weightedAvgFreightPerUnit??0) : (b.weightedAvgFreightPerUnit??0)-(a.weightedAvgFreightPerUnit??0));
+    if(ls.column === 'key'){
+      parentRows.sort((a,b)=> ls.direction==='asc' ? a.parent.localeCompare(b.parent) : b.parent.localeCompare(a.parent));
     } else {
-      parentRows.sort((a,b)=>a.parent.localeCompare(b.parent));
+      const valueOf = (pr) => ls.column==='numSkus' ? pr.numSkus : ls.column==='cbmPerUnit' ? pr.weightedAvgCbmPerUnit : pr.weightedAvgFreightPerUnit;
+      parentRows.sort((a,b)=>{
+        const av = valueOf(a), bv = valueOf(b);
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return ls.direction==='asc' ? av-bv : bv-av;
+      });
     }
 
     document.getElementById('logistics-empty').style.display = parentRows.length ? 'none' : 'block';
@@ -1656,8 +1653,18 @@ function renderLogistics(){
     });
 
   } else {
-    headerRow.innerHTML = ['SKU','ASIN','Parent ASIN','L (cm)','W (cm)','H (cm)','Weight (kg)','CBM','Units / Carton','Freight Cost / Unit (from Shipment Costs)','','']
-      .map(h=>`<th>${h}</th>`).join('');
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '', ls, 'toggleLogisticsSort'),
+      '<th>ASIN</th>', '<th>Parent ASIN</th>',
+      sortableTh('L (cm)', 'l', '', ls, 'toggleLogisticsSort'),
+      sortableTh('W (cm)', 'w', '', ls, 'toggleLogisticsSort'),
+      sortableTh('H (cm)', 'h', '', ls, 'toggleLogisticsSort'),
+      sortableTh('Weight (kg)', 'weight', '', ls, 'toggleLogisticsSort'),
+      sortableTh('CBM', 'cbm', '', ls, 'toggleLogisticsSort'),
+      sortableTh('Units / Carton', 'unitsPerCarton', '', ls, 'toggleLogisticsSort'),
+      sortableTh('Freight Cost / Unit (from Shipment Costs)', 'freight', '', ls, 'toggleLogisticsSort'),
+      '<th></th>', '<th></th>'
+    ].join('');
 
     let visibleEntries = state.logistics.items.map((row, idx)=>({row, idx})).filter(({row})=>{
       const asin = catalogAsinForSku(row.sku);
@@ -1666,13 +1673,19 @@ function renderLogistics(){
       return matchesFilter(asin, logisticsFilters.asin) && matchesFilter(parentAsin, logisticsFilters.parentAsin) && matchesFilter(family, logisticsFilters.family);
     });
 
-    if(sortOrder !== 'none'){
+    function logisticsSortValue(row){
+      if(ls.column === 'cbm') return computeCbm(row.l, row.w, row.h);
+      if(ls.column === 'freight') return shipmentFreightDataForSku(row.sku)?.freightPerUnit ?? null;
+      return row[ls.column];
+    }
+    if(ls.column === 'key'){
+      visibleEntries.sort((a,b)=> ls.direction==='asc' ? a.row.sku.localeCompare(b.row.sku) : b.row.sku.localeCompare(a.row.sku));
+    } else {
       visibleEntries.sort((a,b)=>{
-        const af = shipmentFreightDataForSku(a.row.sku)?.freightPerUnit ?? null;
-        const bf = shipmentFreightDataForSku(b.row.sku)?.freightPerUnit ?? null;
-        if(af===null) return 1;
-        if(bf===null) return -1;
-        return sortOrder==='asc' ? af-bf : bf-af;
+        const av = logisticsSortValue(a.row), bv = logisticsSortValue(b.row);
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return ls.direction==='asc' ? av-bv : bv-av;
       });
     }
 
@@ -2132,13 +2145,33 @@ function toggleShipmentExpand(shipmentId){
   renderShipments();
 }
 
+let shipmentsSkuSortState = { column: 'freight', direction: 'desc' };
+function toggleShipmentsSkuSort(column){
+  if(shipmentsSkuSortState.column === column){
+    shipmentsSkuSortState.direction = shipmentsSkuSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    shipmentsSkuSortState.column = column;
+    shipmentsSkuSortState.direction = (column === 'key') ? 'asc' : 'desc';
+  }
+  renderShipments();
+}
+let shipmentsRawSortState = { column: 'costPerCbm', direction: 'desc' };
+function toggleShipmentsRawSort(column){
+  if(shipmentsRawSortState.column === column){
+    shipmentsRawSortState.direction = shipmentsRawSortState.direction === 'desc' ? 'asc' : 'desc';
+  } else {
+    shipmentsRawSortState.column = column;
+    shipmentsRawSortState.direction = (column === 'key') ? 'asc' : 'desc';
+  }
+  renderShipments();
+}
+
 function renderShipments(){
   if(!document.getElementById('shipments-filter-asin-list').options.length) populateShipmentsFilterDropdowns();
 
   const asinFilter = document.getElementById('shipments-filter-asin').value;
   const parentFilter = document.getElementById('shipments-filter-parent').value;
   const familyFilter = document.getElementById('shipments-filter-family').value;
-  const sortOrder = document.getElementById('shipments-sku-sort').value;
 
   // KPIs
   const totalShipments = state.shipments.length;
@@ -2158,13 +2191,19 @@ function renderShipments(){
   const headerRow = document.getElementById('shipments-sku-header-row');
   const skuTbody = document.querySelector('#shipments-sku-table tbody');
   skuTbody.innerHTML = '';
+  const ss = shipmentsSkuSortState;
 
   const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
     .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter));
 
   if(level === 'parent'){
-    headerRow.innerHTML = ['Parent ASIN','Units Shipped','Weighted Avg Cost/CBM','Avg Freight Cost/Unit (blended)','Total Freight Cost']
-      .map(h=>`<th>${h}</th>`).join('');
+    headerRow.innerHTML = [
+      sortableTh('Parent ASIN', 'key', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('Units Shipped', 'totalUnits', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('Weighted Avg Cost/CBM', 'weightedAvgCostPerCbm', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('Avg Freight Cost/Unit (blended)', 'freight', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('Total Freight Cost', 'totalFreightCost', '', ss, 'toggleShipmentsSkuSort'),
+    ].join('');
 
     const byParent = {};
     skusWithShipments.forEach(sku=>{
@@ -2184,13 +2223,18 @@ function renderShipments(){
       });
       const weightedAvgCostPerCbm = totalUnits ? weightedCostSum/totalUnits : null;
       const avgFreightPerUnitBlended = totalUnits ? totalFreightCost/totalUnits : null;
-      return { parent, skus, totalUnits, weightedAvgCostPerCbm, avgFreightPerUnitBlended, totalFreightCost };
+      return { parent, skus, totalUnits, weightedAvgCostPerCbm, freight: avgFreightPerUnitBlended, totalFreightCost };
     }).filter(r=>r.totalUnits>0);
 
-    if(sortOrder !== 'none'){
-      parentRows.sort((a,b)=> sortOrder==='asc' ? (a.avgFreightPerUnitBlended??0)-(b.avgFreightPerUnitBlended??0) : (b.avgFreightPerUnitBlended??0)-(a.avgFreightPerUnitBlended??0));
+    if(ss.column === 'key'){
+      parentRows.sort((a,b)=> ss.direction==='asc' ? a.parent.localeCompare(b.parent) : b.parent.localeCompare(a.parent));
     } else {
-      parentRows.sort((a,b)=>a.parent.localeCompare(b.parent));
+      parentRows.sort((a,b)=>{
+        const av = a[ss.column], bv = b[ss.column];
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return ss.direction==='asc' ? av-bv : bv-av;
+      });
     }
 
     document.getElementById('shipments-sku-empty').style.display = parentRows.length ? 'none' : 'block';
@@ -2208,7 +2252,7 @@ function renderShipments(){
         <td>${isExpanded ? '&#9662;' : '&#9656;'} ${pr.parent}</td>
         <td>${pr.totalUnits.toLocaleString()}</td>
         <td>${pr.weightedAvgCostPerCbm!==null ? fmt(pr.weightedAvgCostPerCbm) : '—'}</td>
-        <td><strong>${pr.avgFreightPerUnitBlended!==null ? fmt(pr.avgFreightPerUnitBlended) : '—'}</strong></td>
+        <td><strong>${pr.freight!==null ? fmt(pr.freight) : '—'}</strong></td>
         <td>${fmt(pr.totalFreightCost)}</td>
       `;
       skuTbody.appendChild(tr);
@@ -2233,15 +2277,28 @@ function renderShipments(){
     });
 
   } else {
-    headerRow.innerHTML = ['SKU','ASIN','Parent ASIN','Units Shipped','Weighted Avg Cost/CBM','CBM/Unit','Avg Freight Cost/Unit','Total Freight Cost']
-      .map(h=>`<th>${h}</th>`).join('');
+    headerRow.innerHTML = [
+      sortableTh('SKU', 'key', '', ss, 'toggleShipmentsSkuSort'),
+      '<th>ASIN</th>', '<th>Parent ASIN</th>',
+      sortableTh('Units Shipped', 'totalUnits', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('Weighted Avg Cost/CBM', 'weightedAvgCostPerCbm', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('CBM/Unit', 'cbmPerUnit', '', ss, 'toggleShipmentsSkuSort'),
+      sortableTh('Avg Freight Cost/Unit', 'freight', '', ss, 'toggleShipmentsSkuSort'),
+      '<th>Total Freight Cost</th>',
+    ].join('');
 
     let skuRows = skusWithShipments.map(sku=>({ sku, data: shipmentFreightDataForSku(sku) })).filter(r=>r.data);
 
-    if(sortOrder !== 'none'){
-      skuRows.sort((a,b)=> sortOrder==='asc' ? (a.data.freightPerUnit??0)-(b.data.freightPerUnit??0) : (b.data.freightPerUnit??0)-(a.data.freightPerUnit??0));
+    if(ss.column === 'key'){
+      skuRows.sort((a,b)=> ss.direction==='asc' ? a.sku.localeCompare(b.sku) : b.sku.localeCompare(a.sku));
     } else {
-      skuRows.sort((a,b)=>a.sku.localeCompare(b.sku));
+      const valueOf = (r) => ss.column === 'freight' ? r.data.freightPerUnit : r.data[ss.column];
+      skuRows.sort((a,b)=>{
+        const av = valueOf(a), bv = valueOf(b);
+        if(av===null || av===undefined) return 1;
+        if(bv===null || bv===undefined) return -1;
+        return ss.direction==='asc' ? av-bv : bv-av;
+      });
     }
 
     document.getElementById('shipments-sku-empty').style.display = skuRows.length ? 'none' : 'block';
@@ -2263,10 +2320,38 @@ function renderShipments(){
   }
 
   // Raw shipments table
+  const rawHeaderRow = document.getElementById('shipments-raw-header-row');
+  const rs = shipmentsRawSortState;
+  rawHeaderRow.innerHTML = [
+    sortableTh('Patent#', 'key', '', rs, 'toggleShipmentsRawSort'),
+    '<th>Container#</th>', '<th>Destination</th>',
+    sortableTh('Total Units', 'totalUnits', '', rs, 'toggleShipmentsRawSort'),
+    sortableTh('Total Boxes', 'totalBoxes', '', rs, 'toggleShipmentsRawSort'),
+    sortableTh('Cost/CBM', 'costPerCbm', '', rs, 'toggleShipmentsRawSort'),
+    sortableTh('Total Shipping Cost', 'totalShippingCost', '', rs, 'toggleShipmentsRawSort'),
+    sortableTh('Placement Fee', 'placementFee', '', rs, 'toggleShipmentsRawSort'),
+    '<th></th>',
+  ].join('');
+
+  let sortedShipments = state.shipments.slice();
+  if(rs.column === 'key'){
+    sortedShipments.sort((a,b)=>{
+      const ak = a.patent||a.container||'', bk = b.patent||b.container||'';
+      return rs.direction==='asc' ? ak.localeCompare(bk) : bk.localeCompare(ak);
+    });
+  } else {
+    sortedShipments.sort((a,b)=>{
+      const av = a[rs.column], bv = b[rs.column];
+      if(av===null || av===undefined) return 1;
+      if(bv===null || bv===undefined) return -1;
+      return rs.direction==='asc' ? av-bv : bv-av;
+    });
+  }
+
   const rawTbody = document.querySelector('#shipments-raw-table tbody');
   rawTbody.innerHTML = '';
-  document.getElementById('shipments-raw-empty').style.display = state.shipments.length ? 'none' : 'block';
-  state.shipments.forEach(s=>{
+  document.getElementById('shipments-raw-empty').style.display = sortedShipments.length ? 'none' : 'block';
+  sortedShipments.forEach(s=>{
     const isExpanded = expandedShipments.has(s.id);
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
