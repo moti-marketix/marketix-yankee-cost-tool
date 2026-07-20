@@ -6,6 +6,7 @@
 <title>Yankee — Cost &amp; Profitability Tool</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
     --navy:#1F3864;
@@ -399,6 +400,16 @@
       <div class="kpi-grid" id="warehouse-kpis"></div>
 
       <div class="card">
+        <h2>Bulk Upload Invoices</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload one or more invoice PDFs directly — the system reads the invoice date and total due automatically, matches or creates the right month row, and attaches the file. If a file can't be read automatically, it's flagged so you can enter that one manually.</p>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-primary" onclick="document.getElementById('warehouse-bulk-invoice-input').click()">&#8679; Upload Invoice PDF(s)</button>
+          <input type="file" id="warehouse-bulk-invoice-input" accept=".pdf" multiple style="display:none;" onchange="handleBulkInvoiceUpload(event)">
+        </div>
+        <div id="warehouse-bulk-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
         <h2>Estimate Settings</h2>
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Check the months below that represent normal, typical operations (2–3 good months is usually enough) — avoid unusually high or low months. The average of those, plus your buffer %, becomes the flat rate applied to every unit sold.</p>
         <div class="row-inline">
@@ -606,6 +617,9 @@
 const SUPABASE_URL = 'https://oceomxioxqykmoombnfy.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_z1SETwLXb7MOygL4xqKpAQ_Uj5-Wvdh';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 // Hardcoded for now — this becomes a client picker once other clients are onboarded.
 const CLIENT_ID = 'c_yankee_001';
@@ -3597,6 +3611,86 @@ async function bulkReparseGroup(screen){
   progressEl.innerHTML = `&#10003; Done — re-parsed ${ids.length} file(s).`;
   await loadRawFiles();
   renderRawFiles();
+}
+
+// ---------------- Bulk Invoice PDF Upload (auto-extract date + total) ----------------
+async function extractTextFromPdf(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for(let i=1; i<=pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(item=>item.str).join(' ') + '\n';
+  }
+  return fullText;
+}
+
+function parseInvoiceText(text){
+  // Invoice date appears before Due Date in this vendor's template — take the first date found.
+  const dateMatches = [...text.matchAll(/(\d{1,2})\/(\d{1,2})\/(\d{4})/g)];
+  const totalMatch = text.match(/TOTAL\s*DUE\s*\$?\s*([\d,]+\.\d{2})/i);
+
+  if(!dateMatches.length || !totalMatch) return null;
+
+  const [, mm, , yyyy] = dateMatches[0];
+  const month = `${yyyy}-${mm.padStart(2,'0')}`;
+  const invoiceAmount = parseFloat(totalMatch[1].replace(/,/g,''));
+  return { month, invoiceAmount };
+}
+
+async function handleBulkInvoiceUpload(event){
+  const files = Array.from(event.target.files || []);
+  if(!files.length) return;
+  const statusEl = document.getElementById('warehouse-bulk-upload-status');
+
+  const results = [];
+  for(let i=0; i<files.length; i++){
+    const file = files[i];
+    statusEl.style.color = 'var(--grey)';
+    statusEl.textContent = `Reading file ${i+1} of ${files.length}: ${file.name}...`;
+    try{
+      const arrayBuffer = await file.arrayBuffer();
+      const text = await extractTextFromPdf(arrayBuffer);
+      const parsed = parseInvoiceText(text);
+      if(!parsed){
+        results.push({ file: file.name, success: false, error: "Couldn't find a date and total in this file" });
+        continue;
+      }
+
+      // Find existing row for this month, or create one
+      let row = state.warehouse.find(r=>r.month === parsed.month);
+      if(!row){
+        row = { month: parsed.month, invoiceAmount: null, includeInEstimate: true };
+        state.warehouse.push(row);
+      }
+      row.invoiceAmount = parsed.invoiceAmount;
+
+      // Archive the PDF and attach it to this row
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const path = `${CLIENT_ID}/warehouse_invoice_docs/${row.month}_${timestamp}_${file.name}`;
+      const { error: uploadErr } = await sb.storage.from('raw-uploads').upload(path, file);
+      if(uploadErr) throw uploadErr;
+      row.invoiceFilePath = path;
+      row.invoiceFileName = file.name;
+
+      await saveWarehouseRow(row);
+      results.push({ file: file.name, success: true, month: parsed.month, amount: parsed.invoiceAmount });
+    }catch(err){
+      console.error(err);
+      results.push({ file: file.name, success: false, error: err.message || String(err) });
+    }
+  }
+
+  renderWarehouse();
+
+  const succeeded = results.filter(r=>r.success);
+  const failed = results.filter(r=>!r.success);
+  let msg = `Done — ${succeeded.length} of ${files.length} invoice(s) read and saved automatically`;
+  if(succeeded.length) msg += `: ${succeeded.map(r=>`${r.month} (${fmt(r.amount)})`).join(', ')}`;
+  if(failed.length) msg += `. ${failed.length} file(s) need manual entry: ${failed.map(f=>`${f.file} — ${f.error}`).join('; ')}`;
+  statusEl.style.color = failed.length ? 'var(--red)' : 'var(--green)';
+  statusEl.textContent = msg + '.';
+  event.target.value = '';
 }
 
 let pendingWarehouseInvoiceUploadIdx = null;
