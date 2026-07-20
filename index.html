@@ -757,6 +757,7 @@ async function loadAllFromSupabase(){
       refundAdministrationFee: r.refund_administration_fee, storageUtilizationSurcharge: r.storage_utilization_surcharge,
       sponsoredProductsCharge: r.sponsored_products_charge, netProceedsPerUnit: r.net_proceeds_per_unit,
       inboundTransportationFeeQty: r.inbound_transportation_fee_qty, fbaInboundPlacementFeeQty: r.fba_inbound_placement_fee_qty,
+      inboundTransportationFeePerUnit: r.inbound_transportation_fee_per_unit,
     }));
 
     state.shipments = (shipmentsRes.data||[]).map(r=>({
@@ -870,6 +871,7 @@ async function saveSkuRow(row){
     refund_administration_fee: row.refundAdministrationFee, storage_utilization_surcharge: row.storageUtilizationSurcharge,
     sponsored_products_charge: row.sponsoredProductsCharge, net_proceeds_per_unit: row.netProceedsPerUnit,
     inbound_transportation_fee_qty: row.inboundTransportationFeeQty, fba_inbound_placement_fee_qty: row.fbaInboundPlacementFeeQty,
+    inbound_transportation_fee_per_unit: row.inboundTransportationFeePerUnit,
     updated_at: new Date().toISOString(),
   };
   const result = await upsertRow('sku_economics', row, payload);
@@ -2705,6 +2707,7 @@ const skuColumnDefs = [
   { key: 'fbaInboundPlacementFee', label: 'FBA Inbound Placement Fee', money: true },
   { key: 'fbaRemovalOrderFee', label: 'FBA Removal Order Fee', money: true },
   { key: 'inboundTransportationFee', label: 'Inbound Transportation Fee', money: true },
+  { key: 'inboundTransportationFeePerUnit', label: 'Inbound Transportation Fee / Unit (Amazon)', money: true },
   { key: 'liquidationProcessingFee', label: 'Liquidation Processing Fee', money: true },
   { key: 'liquidationReferralFee', label: 'Liquidation Referral Fee', money: true },
   { key: 'monthlyInventoryStorageFee', label: 'Monthly Inventory Storage Fee', money: true },
@@ -2715,7 +2718,7 @@ const skuColumnDefs = [
   { key: 'sponsoredProductsCharge', label: 'Sponsored Products Charge', money: true },
   { key: 'netProceedsPerUnit', label: 'Net Proceeds / Unit (Amazon)', money: true },
 ];
-const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','referralFees','fbaFees','storageFees','adSpend','tacos','refunds','netProceeds'];
+const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','referralFees','fbaFees','storageFees','adSpend','tacos','refunds','netProceeds','inboundTransportationFeePerUnit'];
 
 function loadVisibleSkuColumns(){
   try{
@@ -3203,6 +3206,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     const sponsoredProductsCharge = numOrNull(row[headerMap['sponsored products charge total']]);
     const netProceedsPerUnit = numOrNull(row[headerMap['net proceeds per net unit sold']]);
     const inboundTransportationFeeQty = numOrNull(row[headerMap['inbound transportation fee quantity']]);
+    const inboundTransportationFeePerUnit = numOrNull(row[headerMap['inbound transportation fee per unit']]);
     const fbaInboundPlacementFeeQty = numOrNull(row[headerMap['fba inbound placement service fee quantity']]);
 
     const existing = state.sku.find(r=>r.sku===sku && r.month===month);
@@ -3217,7 +3221,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
       liquidationProcessingFee, liquidationReferralFee, monthlyInventoryStorageFee,
       referralFeeRefunds, referralFeeRaw, refundAdministrationFee,
       storageUtilizationSurcharge, sponsoredProductsCharge, netProceedsPerUnit,
-      inboundTransportationFeeQty, fbaInboundPlacementFeeQty,
+      inboundTransportationFeeQty, inboundTransportationFeePerUnit, fbaInboundPlacementFeeQty,
     };
     if(existing){
       Object.assign(existing, rowData);
