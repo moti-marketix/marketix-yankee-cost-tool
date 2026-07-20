@@ -358,7 +358,7 @@
 
       <div class="card">
         <h2>Upload Shipment Cost File</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the 2-sheet shipment file (Sheet1 = shipment costs, Sheet2 = SKU-by-shipment quantities, row 1 = Patent#/Container# matching keys). Re-uploading replaces all shipment data with this file's contents.</p>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the shipment file — either the classic 2-sheet format, or the multi-brand format (a "{Brand}" sheet paired with a "{Brand} Shipment content" sheet, for each brand). Re-uploading replaces all shipment data with this file's contents.</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-primary" onclick="document.getElementById('shipments-upload').click()">&#8679; Upload Shipment File</button>
           <input type="file" id="shipments-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleShipmentsUpload(event)">
@@ -810,6 +810,7 @@ async function loadAllFromSupabase(){
 
     state.shipments = (shipmentsRes.data||[]).map(r=>({
       id: r.id, patent: r.patent, container: r.container, destination: r.destination,
+      fbaShipmentId: r.fba_shipment_id, brand: r.brand,
       totalUnits: r.total_units, totalBoxes: r.total_boxes, costPerCbm: r.cost_per_cbm,
       totalShippingCost: r.total_shipping_cost, placementFee: r.placement_fee,
     }));
@@ -2318,66 +2319,124 @@ function deleteWarehouse(idx){
 // ---------------- TAB 4: SKU Economics ----------------
 // ================= SHIPMENT COSTS =================
 function parseShipmentWorkbook(wb){
-  const ws1 = wb.Sheets[wb.SheetNames[0]];
-  const ws2 = wb.Sheets[wb.SheetNames[1]];
-  const sheet1Rows = XLSX.utils.sheet_to_json(ws1, {header:1, defval:null});
-  const sheet2Rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null});
+  const sheetNames = wb.SheetNames;
+  const contentSuffix = /\s+shipments?\s+content$/i;
+  const contentSheetNames = sheetNames.filter(n => contentSuffix.test(n));
 
-  // --- Sheet1: one row per shipment ---
-  // A=Container#, B=Patent#, C=Destination, D=Shipment ID, E=Total units, F=Total boxes, G=Cost per CBM, H=Total Shipping cost, I=Placement Fee
-  const shipments = [];
-  for(let i=1; i<sheet1Rows.length; i++){
-    const row = sheet1Rows[i] || [];
-    const container = row[0], patent = row[1], destination = row[2];
-    if(!container && !patent) continue;
-    shipments.push({
-      container: container ? String(container).trim() : null,
-      patent: patent ? String(patent).trim() : null,
-      destination: destination ? String(destination).trim() : null,
-      totalUnits: num(row[4]), totalBoxes: num(row[5]), costPerCbm: num(row[6]),
-      totalShippingCost: num(row[7]), placementFee: num(row[8]),
+  // Detect sheet pairs: either "{Brand}" + "{Brand} Shipment content" (new multi-brand format),
+  // or fall back to the first two sheets (old single-brand format with generic names).
+  let pairs = [];
+  if(contentSheetNames.length){
+    contentSheetNames.forEach(contentName=>{
+      const brandName = contentName.replace(contentSuffix, '').trim();
+      const match = sheetNames.find(n => n.trim().toLowerCase() === brandName.toLowerCase());
+      if(match) pairs.push({ shipmentSheet: match, contentSheet: contentName, brand: brandName });
     });
+  } else if(sheetNames.length >= 2){
+    pairs.push({ shipmentSheet: sheetNames[0], contentSheet: sheetNames[1], brand: null });
   }
 
-  const shipmentsByKey = {};
-  shipments.forEach(s=>{
-    if(s.patent) shipmentsByKey[s.patent] = s;
-    if(s.container) shipmentsByKey[s.container] = s;
+  const allShipments = [];
+  const allContents = [];
+  const allUnmatchedKeys = [];
+
+  pairs.forEach(({shipmentSheet, contentSheet, brand})=>{
+    const ws1 = wb.Sheets[shipmentSheet];
+    const ws2 = wb.Sheets[contentSheet];
+    const sheet1Rows = XLSX.utils.sheet_to_json(ws1, {header:1, defval:null});
+    const sheet2Rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null});
+
+    // --- Shipment-level sheet: one row per shipment ---
+    // A=Container#, B=Patent#, C=Destination, D=Shipment ID, E=Total units, F=Total boxes, G=Cost per CBM, H=Total Shipping cost, I=Placement Fee
+    const shipments = [];
+    for(let i=1; i<sheet1Rows.length; i++){
+      const row = sheet1Rows[i] || [];
+      const container = row[0], patent = row[1], destination = row[2], fbaShipmentId = row[3];
+      if(!container && !patent && !fbaShipmentId) continue; // truly empty row
+      shipments.push({
+        container: container ? String(container).trim() : null,
+        patent: patent ? String(patent).trim() : null,
+        destination: destination ? String(destination).trim() : null,
+        fbaShipmentId: fbaShipmentId ? String(fbaShipmentId).trim() : null,
+        totalUnits: num(row[4]), totalBoxes: num(row[5]), costPerCbm: num(row[6]),
+        totalShippingCost: num(row[7]), placementFee: num(row[8]),
+        brand,
+      });
+    }
+
+    // Index every shipment by every reference it could plausibly be called by in the content sheet:
+    // Patent#, Container#, and each individual token within Shipment ID (which can be a compound
+    // value like "FBA198RD376Q and FBA198RDQB2G"). Some values (e.g. "LCL", a generic shipping term)
+    // get reused as Container# across multiple unrelated shipments — those are ambiguous and must be
+    // excluded, or a content-sheet reference could silently get matched to the wrong shipment.
+    const keyOwners = {}; // key -> Set of distinct shipment objects that use it
+    function registerKey(key, shipment){
+      if(!key) return;
+      if(!keyOwners[key]) keyOwners[key] = new Set();
+      keyOwners[key].add(shipment);
+    }
+    shipments.forEach(s=>{
+      registerKey(s.patent, s);
+      registerKey(s.container, s);
+      if(s.fbaShipmentId){
+        s.fbaShipmentId.split(/\s+and\s+|[,+]/i).map(t=>t.trim()).filter(Boolean).forEach(token=>registerKey(token, s));
+      }
+    });
+    const shipmentsByKey = {};
+    Object.keys(keyOwners).forEach(key=>{
+      const owners = keyOwners[key];
+      if(owners.size === 1) shipmentsByKey[key] = Array.from(owners)[0]; // unambiguous — safe to use
+      // if owners.size > 1, this key is ambiguous (reused across shipments) — deliberately excluded
+    });
+    const knownKeys = Object.keys(shipmentsByKey).filter(Boolean).sort((a,b)=>b.length-a.length); // longest/most-specific first
+
+    // --- Content sheet: find the header row (the one with "SKU" in column B) — some files have a
+    // leading title row above it (e.g. "USA", "DSW  US"), so don't assume a fixed row index.
+    // That header row's cells from column F onward are messy multi-line reference text (may contain
+    // PO numbers, ETAs, and notes alongside the actual patent/container/shipment-id) — search for any
+    // known key as a substring rather than requiring an exact match. Data rows follow immediately after.
+    let headerRowIdx = -1;
+    for(let i=0; i<Math.min(sheet2Rows.length,10); i++){
+      const cell1 = sheet2Rows[i] && sheet2Rows[i][1];
+      if(cell1 && String(cell1).trim().toUpperCase()==='SKU'){ headerRowIdx = i; break; }
+    }
+    if(headerRowIdx === -1) headerRowIdx = 1; // fallback to the old assumed layout
+
+    const headerKeyRow = sheet2Rows[headerRowIdx] || [];
+    const colResolution = {};
+    const unmatchedCols = [];
+    for(let c=5; c<headerKeyRow.length; c++){
+      const val = headerKeyRow[c];
+      if(!val) continue;
+      const text = String(val);
+      let matched = null;
+      for(const key of knownKeys){
+        if(text.includes(key)){ matched = shipmentsByKey[key]; break; }
+      }
+      if(matched) colResolution[c] = matched;
+      else { colResolution[c] = null; unmatchedCols.push(text.split('\n')[0].trim()); }
+    }
+
+    const contents = [];
+    for(let r=headerRowIdx+1; r<sheet2Rows.length; r++){
+      const row = sheet2Rows[r] || [];
+      const sku = row[1];
+      if(!sku) continue;
+      Object.keys(colResolution).forEach(c=>{
+        const shipment = colResolution[c];
+        if(!shipment) return;
+        const unitsNum = num(row[c]);
+        if(!unitsNum) return;
+        contents.push({ sku: String(sku).trim(), shipment, units: unitsNum });
+      });
+    }
+
+    allShipments.push(...shipments);
+    allContents.push(...contents);
+    allUnmatchedKeys.push(...unmatchedCols.map(k => brand ? `${brand}: ${k}` : k));
   });
 
-  // --- Sheet2: row 0 = matching key(s) per column (from column F / index 5 onward), row 1 = labels, row 2+ = SKU data ---
-  const headerKeyRow = sheet2Rows[0] || [];
-  const colKeys = {};
-  for(let c=5; c<headerKeyRow.length; c++){
-    const val = headerKeyRow[c];
-    if(val) colKeys[c] = String(val).split('+').map(k=>k.trim()).filter(Boolean);
-  }
-
-  const colResolution = {};
-  const unmatchedKeys = new Set();
-  Object.keys(colKeys).forEach(c=>{
-    const keys = colKeys[c];
-    let matched = null;
-    for(const k of keys){ if(shipmentsByKey[k]){ matched = shipmentsByKey[k]; break; } }
-    if(matched) colResolution[c] = matched;
-    else { colResolution[c] = null; keys.forEach(k=>unmatchedKeys.add(k)); }
-  });
-
-  const contents = [];
-  for(let r=2; r<sheet2Rows.length; r++){
-    const row = sheet2Rows[r] || [];
-    const sku = row[1];
-    if(!sku) continue;
-    Object.keys(colKeys).forEach(c=>{
-      const shipment = colResolution[c];
-      if(!shipment) return;
-      const unitsNum = num(row[c]);
-      if(!unitsNum) return;
-      contents.push({ sku: String(sku).trim(), shipment, units: unitsNum });
-    });
-  }
-
-  return { shipments, contents, unmatchedKeys: Array.from(unmatchedKeys) };
+  return { shipments: allShipments, contents: allContents, unmatchedKeys: allUnmatchedKeys };
 }
 
 async function handleShipmentsUpload(event){
@@ -2403,21 +2462,28 @@ async function handleShipmentsUpload(event){
 
       const shipmentInsertPayload = shipments.map(s=>({
         client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
+        fba_shipment_id: s.fbaShipmentId, brand: s.brand,
         total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
         total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
       }));
       const { data: insertedShipments, error: shipErr } = await sb.from('shipments').insert(shipmentInsertPayload).select();
       if(shipErr) throw shipErr;
 
-      // Map each shipment object (by identity) to its newly-created DB id, using patent/container as the join key
+      // Map each shipment object (by identity) to its newly-created DB id, using every reference
+      // it could be matched by — patent, container, or an individual token from a compound shipment ID.
       const dbIdByKey = {};
       insertedShipments.forEach(row=>{
         if(row.patent) dbIdByKey[row.patent] = row.id;
         if(row.container) dbIdByKey[row.container] = row.id;
+        if(row.fba_shipment_id){
+          row.fba_shipment_id.split(/\s+and\s+|[,+]/i).map(t=>t.trim()).filter(Boolean).forEach(token=>{
+            dbIdByKey[token] = row.id;
+          });
+        }
       });
 
       const contentsInsertPayload = contents.map(c=>{
-        const key = c.shipment.patent || c.shipment.container;
+        const key = c.shipment.patent || c.shipment.container || c.shipment.fbaShipmentId;
         return { client_id: CLIENT_ID, shipment_id: dbIdByKey[key], sku: c.sku, units: c.units };
       }).filter(c=>c.shipment_id);
 
@@ -2680,7 +2746,7 @@ function renderShipments(){
   const rs = shipmentsRawSortState;
   rawHeaderRow.innerHTML = [
     sortableTh('Patent#', 'key', '', rs, 'toggleShipmentsRawSort'),
-    '<th>Container#</th>', '<th>Destination</th>',
+    '<th>Container#</th>', '<th>FBA Shipment ID</th>', '<th>Brand</th>', '<th>Destination</th>',
     sortableTh('Total Units', 'totalUnits', '', rs, 'toggleShipmentsRawSort'),
     sortableTh('Total Boxes', 'totalBoxes', '', rs, 'toggleShipmentsRawSort'),
     sortableTh('Cost/CBM', 'costPerCbm', '', rs, 'toggleShipmentsRawSort'),
@@ -2692,7 +2758,7 @@ function renderShipments(){
   let sortedShipments = state.shipments.slice();
   if(rs.column === 'key'){
     sortedShipments.sort((a,b)=>{
-      const ak = a.patent||a.container||'', bk = b.patent||b.container||'';
+      const ak = a.patent||a.container||a.fbaShipmentId||'', bk = b.patent||b.container||b.fbaShipmentId||'';
       return rs.direction==='asc' ? ak.localeCompare(bk) : bk.localeCompare(ak);
     });
   } else {
@@ -2715,6 +2781,8 @@ function renderShipments(){
     tr.innerHTML = `
       <td>${isExpanded ? '&#9662;' : '&#9656;'} ${s.patent||'—'}</td>
       <td>${s.container||'—'}</td>
+      <td>${s.fbaShipmentId||'—'}</td>
+      <td>${s.brand||'—'}</td>
       <td>${s.destination||'—'}</td>
       <td>${(s.totalUnits||0).toLocaleString()}</td>
       <td>${(s.totalBoxes||0).toLocaleString()}</td>
@@ -2729,7 +2797,7 @@ function renderShipments(){
       contents.forEach(c=>{
         const childTr = document.createElement('tr');
         childTr.style.background = '#FAFBFC';
-        childTr.innerHTML = `<td colspan="9" style="padding-left:28px; color:var(--grey);">${c.sku} — ${c.units.toLocaleString()} units</td>`;
+        childTr.innerHTML = `<td colspan="11" style="padding-left:28px; color:var(--grey);">${c.sku} — ${c.units.toLocaleString()} units</td>`;
         rawTbody.appendChild(childTr);
       });
     }
