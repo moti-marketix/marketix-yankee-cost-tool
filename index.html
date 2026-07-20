@@ -572,6 +572,9 @@
           </div>
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
+        <div class="btn-row" style="margin-top:10px; margin-bottom:0;">
+          <button class="btn btn-ghost" id="normalized-profitability-toggle-btn" onclick="toggleNormalizedProfitability()">&#9656; Show Normalized Profitability</button>
+        </div>
       </div>
 
       <div class="kpi-grid" id="summary-kpis"></div>
@@ -3438,6 +3441,7 @@ function onSummaryPeriodTypeChange(){
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
+  let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
   rows.forEach(row=>{
     const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only
     const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0;
@@ -3450,6 +3454,13 @@ function aggregateRows(rows){
     cogs += rowCogs;
     wh += rowWh;
 
+    const shippedQty = row.inboundTransportationFeeQty || 0;
+    unitsShipped += shippedQty;
+    if(row.inboundTransportationFeePerUnit!==null && row.inboundTransportationFeePerUnit!==undefined && shippedQty>0){
+      feeWeightSum += row.inboundTransportationFeePerUnit * shippedQty;
+      feeQtySum += shippedQty;
+    }
+
     if(row.netProceeds!==null && row.netProceeds!==undefined){
       netProceedsTotal += row.netProceeds;
       netProfit += (row.netProceeds - rowCogs - rowWh);
@@ -3461,14 +3472,27 @@ function aggregateRows(rows){
   const margin = revenue ? (netProfit/revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
   const netProceedsPct = revenue ? (netProceedsTotal/revenue*100) : null;
-  return { units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds };
+
+  // Normalized Profitability: add back Inbound Transportation Fee paid on units still sitting in stock
+  const unitsInStock = Math.max(0, unitsShipped - units);
+  const weightedAvgFeePerUnit = feeQtySum ? feeWeightSum/feeQtySum : null;
+  const addBack = weightedAvgFeePerUnit!==null ? weightedAvgFeePerUnit * unitsInStock : 0;
+  const normalizedNetProceedsTotal = netProceedsTotal + addBack;
+  const normalizedNetProfit = normalizedNetProceedsTotal - cogs - wh;
+  const normalizedMargin = revenue ? (normalizedNetProfit/revenue*100) : null;
+  const normalizedRoi = cogs ? (normalizedNetProfit/cogs*100) : null;
+
+  return {
+    units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds,
+    unitsShipped, unitsInStock, weightedAvgFeePerUnit, addBack, normalizedNetProceedsTotal, normalizedNetProfit, normalizedMargin, normalizedRoi,
+  };
 }
 
 function summaryRowHtml(label, agg, indent, rawKey, level){
   const indentStyle = indent ? `style="padding-left:${indent}px; color:var(--grey);"` : '';
   const missingNote = agg.rowsMissingNetProceeds ? ` <span style="color:var(--red); font-size:11px;">(${agg.rowsMissingNetProceeds} missing Net Proceeds)</span>` : '';
   const cogsClickable = rawKey ? `onclick="event.stopPropagation(); showCogsBreakdown('${String(rawKey).replace(/'/g,"\\'")}','${level||'child'}')" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Click for breakdown"` : '';
-  return `
+  let html = `
     <td ${indentStyle}>${label}${missingNote}</td>
     <td>${agg.units.toLocaleString()}</td>
     <td>${fmt(agg.revenue)}</td>
@@ -3480,6 +3504,17 @@ function summaryRowHtml(label, agg, indent, rawKey, level){
     <td>${agg.margin!==null ? `<span class="pill ${agg.margin>=0?'pos':'neg'}">${agg.margin.toFixed(1)}%</span>` : '—'}</td>
     <td>${agg.roi!==null ? `<span class="pill ${agg.roi>=0?'pos':'neg'}">${agg.roi.toFixed(1)}%</span>` : '—'}</td>
   `;
+  if(normalizedProfitabilityExpanded){
+    html += `
+      <td>${agg.unitsShipped.toLocaleString()}</td>
+      <td>${agg.units.toLocaleString()}</td>
+      <td>${agg.unitsInStock.toLocaleString()}</td>
+      <td>${fmt(agg.normalizedNetProceedsTotal)}</td>
+      <td>${agg.normalizedMargin!==null ? `<span class="pill ${agg.normalizedMargin>=0?'pos':'neg'}">${agg.normalizedMargin.toFixed(1)}%</span>` : '—'}</td>
+      <td>${agg.normalizedRoi!==null ? `<span class="pill ${agg.normalizedRoi>=0?'pos':'neg'}">${agg.normalizedRoi.toFixed(1)}%</span>` : '—'}</td>
+    `;
+  }
+  return html;
 }
 
 const expandedParents = new Set();
@@ -3571,6 +3606,13 @@ function populateSummaryFilterDropdowns(){
   if(familyListEl) familyListEl.innerHTML = families.map(f=>`<option value="${f}">`).join('');
 }
 
+let normalizedProfitabilityExpanded = false;
+function toggleNormalizedProfitability(){
+  normalizedProfitabilityExpanded = !normalizedProfitabilityExpanded;
+  const btn = document.getElementById('normalized-profitability-toggle-btn');
+  if(btn) btn.innerHTML = normalizedProfitabilityExpanded ? '&#9662; Hide Normalized Profitability' : '&#9656; Show Normalized Profitability';
+  renderSummary();
+}
 let summarySortState = { column: 'netProfit', direction: 'desc' };
 function toggleSummarySort(column){
   if(summarySortState.column === column){
@@ -3634,6 +3676,14 @@ function renderSummary(){
   document.getElementById('summary-empty').style.display = scopedRows.length ? 'none' : 'block';
 
   const s = summarySortState;
+  const normalizedHeaderCells = normalizedProfitabilityExpanded ? `
+      ${sortableTh('Units Shipped', 'unitsShipped', '10%', s, 'toggleSummarySort')}
+      ${sortableTh('Units Sold', 'units', '9%', s, 'toggleSummarySort')}
+      ${sortableTh('Units in Stock', 'unitsInStock', '10%', s, 'toggleSummarySort')}
+      ${sortableTh('Normalized Net Proceeds', 'normalizedNetProceedsTotal', '13%', s, 'toggleSummarySort')}
+      ${sortableTh('Normalized Margin %', 'normalizedMargin', '11%', s, 'toggleSummarySort')}
+      ${sortableTh('Normalized ROI %', 'normalizedRoi', '10%', s, 'toggleSummarySort')}
+  ` : '';
   thead.innerHTML = `
     <tr>
       ${sortableTh(level==='parent' ? 'Parent ASIN' : 'SKU', 'key', '18%', s, 'toggleSummarySort')}
@@ -3646,6 +3696,7 @@ function renderSummary(){
       ${sortableTh('Net Profit', 'netProfit', '14%', s, 'toggleSummarySort')}
       ${sortableTh('Margin %', 'margin', '11%', s, 'toggleSummarySort')}
       ${sortableTh('ROI %', 'roi', '10%', s, 'toggleSummarySort')}
+      ${normalizedHeaderCells}
     </tr>
   `;
 
