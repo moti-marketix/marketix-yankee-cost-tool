@@ -157,6 +157,23 @@
       <div class="title">Yankee Cost &amp; Profitability Tool</div>
       <div id="sync-status" style="margin-top:10px; font-size:11px; color:#9DC3E6; min-height:14px;"></div>
     </div>
+    <div class="market-switcher" style="padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.12); margin-bottom:6px;">
+      <label style="display:block; font-size:10.5px; letter-spacing:0.5px; text-transform:uppercase; color:#9DC3E6; margin-bottom:6px;">Market</label>
+      <select id="market-select" onchange="onMarketChange()" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(255,255,255,0.08); color:#fff; font-size:13px;">
+        <option value="USA">USA</option>
+        <option value="CA">Canada</option>
+        <option value="EU">EU (DE / IT / FR / ES)</option>
+      </select>
+      <div id="eu-country-subselect" style="display:none; margin-top:8px;">
+        <select id="eu-country-select" onchange="onEuCountryChange()" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(255,255,255,0.08); color:#fff; font-size:13px;">
+          <option value="">All EU (combined)</option>
+          <option value="DE">Germany</option>
+          <option value="IT">Italy</option>
+          <option value="FR">France</option>
+          <option value="ES">Spain</option>
+        </select>
+      </div>
+    </div>
     <div class="nav-item active" data-tab="catalog"><span class="num">1</span>Catalog</div>
     <div class="nav-item" data-tab="mfg"><span class="num">2</span>Manufacturing Costs</div>
     <div class="nav-item" data-tab="logistics"><span class="num">3</span>Logistics &amp; Freight</div>
@@ -687,6 +704,8 @@ let state = {
   shipments: [],
   shipmentContents: [],
   warehouseExcludedBrands: [],
+  currentMarket: 'USA',
+  currentEuCountry: '',
 };
 
 // ---------------- Lock / Edit / Submit workflow (applies to all data-entry tables) ----------------
@@ -785,6 +804,7 @@ async function loadAllFromSupabase(){
 
     state.catalog = (catalogRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, asin: r.asin||'', parentAsin: r.parent_asin||'', name: r.product_name||'',
+      asinEu: r.asin_eu||'', parentAsinEu: r.parent_asin_eu||'',
       brand: r.brand||'', family: r.product_family||'', status: r.status||'Active',
     }));
     state.mfg = (mfgRes.data||[]).map(r=>({ id: r.id, sku: r.sku, mfgCost: r.mfg_cost }));
@@ -799,6 +819,8 @@ async function loadAllFromSupabase(){
     state.warehouseExcludedBrands = settingsRes.data && settingsRes.data.warehouse_excluded_brands
       ? settingsRes.data.warehouse_excluded_brands.split(',').map(b=>b.trim()).filter(Boolean)
       : [];
+    state.currentMarket = (settingsRes.data && settingsRes.data.current_market) || 'USA';
+    state.currentEuCountry = (settingsRes.data && settingsRes.data.current_eu_country) || '';
     state.sku = (skuRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
       referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
@@ -868,6 +890,7 @@ async function deleteRow(table, id){
 async function saveCatalogRow(row){
   const payload = {
     client_id: CLIENT_ID, sku: row.sku, asin: row.asin||null, parent_asin: row.parentAsin||null, product_name: row.name||null,
+    asin_eu: row.asinEu||null, parent_asin_eu: row.parentAsinEu||null,
     brand: row.brand||null, product_family: row.family||null, status: row.status||'Active',
     updated_at: new Date().toISOString(),
   };
@@ -890,6 +913,39 @@ async function saveLogisticsRow(row){
   row.id = result.id;
   return result;
 }
+async function saveMarketSettings(market, euCountry){
+  try{
+    const { error } = await sb.from('client_settings').upsert(
+      { client_id: CLIENT_ID, current_market: market, current_eu_country: euCountry, updated_at: new Date().toISOString() },
+      { onConflict: 'client_id' }
+    );
+    if(error) throw error;
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Save failed: ' + (err.message||err), true);
+  }
+}
+function onMarketChange(){
+  state.currentMarket = document.getElementById('market-select').value;
+  if(state.currentMarket !== 'EU') state.currentEuCountry = '';
+  document.getElementById('eu-country-subselect').style.display = state.currentMarket === 'EU' ? 'block' : 'none';
+  saveMarketSettings(state.currentMarket, state.currentEuCountry);
+  refreshAllMarketScopedPages();
+}
+function onEuCountryChange(){
+  state.currentEuCountry = document.getElementById('eu-country-select').value;
+  saveMarketSettings(state.currentMarket, state.currentEuCountry);
+  refreshAllMarketScopedPages();
+}
+function refreshAllMarketScopedPages(){
+  // Catalog/Manufacturing/Logistics dimensions are shared and don't depend on market — only re-render
+  // the pages whose data is actually market-scoped.
+  renderShipments();
+  renderWarehouse();
+  renderSku();
+  renderSummary();
+}
+
 async function saveAvgCbmPrice(value){
   try{
     const { error } = await sb.from('client_settings').upsert(
@@ -1042,6 +1098,8 @@ function renderCatalog(){
         <td ${indentStyle}><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
         <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
         <td><input value="${row.parentAsin||''}" oninput="updateCatalog(${idx},'parentAsin',this.value)" placeholder="B0..."></td>
+        <td><input value="${row.asinEu||''}" oninput="updateCatalog(${idx},'asinEu',this.value)" placeholder="B0... (EU)"></td>
+        <td><input value="${row.parentAsinEu||''}" oninput="updateCatalog(${idx},'parentAsinEu',this.value)" placeholder="B0... (EU)"></td>
         <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
         <td><input value="${row.brand||''}" oninput="updateCatalog(${idx},'brand',this.value)" placeholder="Yankee"></td>
         <td><input value="${row.family||''}" oninput="updateCatalog(${idx},'family',this.value)" placeholder="Pool Covers"></td>
@@ -1059,6 +1117,8 @@ function renderCatalog(){
       <td ${indentStyle}>${row.sku||'—'}</td>
       <td>${row.asin||'—'}</td>
       <td>${row.parentAsin||'—'}</td>
+      <td>${row.asinEu||'—'}</td>
+      <td>${row.parentAsinEu||'—'}</td>
       <td>${row.name||'—'}</td>
       <td>${row.brand||'—'}</td>
       <td>${row.family||'—'}</td>
@@ -1078,13 +1138,15 @@ function renderCatalog(){
 
   if(level === 'parent'){
     headerRow.innerHTML = [
-      sortableTh('SKU', 'key', '14%', cs, 'toggleCatalogSort'),
-      sortableTh('ASIN (Child)', 'asin', '12%', cs, 'toggleCatalogSort'),
-      sortableTh('Parent ASIN', 'parentAsin', '12%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Name', 'name', '20%', cs, 'toggleCatalogSort'),
-      sortableTh('Brand', 'brand', '12%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Family', 'family', '16%', cs, 'toggleCatalogSort'),
-      sortableTh('Status', 'status', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('SKU', 'key', '11%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN (US/CA)', 'asin', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN (US/CA)', 'parentAsin', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN (EU)', 'asinEu', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN (EU)', 'parentAsinEu', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Name', 'name', '16%', cs, 'toggleCatalogSort'),
+      sortableTh('Brand', 'brand', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Family', 'family', '13%', cs, 'toggleCatalogSort'),
+      sortableTh('Status', 'status', '8%', cs, 'toggleCatalogSort'),
       '<th style="width:4%"></th>'
     ].join('');
 
@@ -1115,13 +1177,15 @@ function renderCatalog(){
 
   } else {
     headerRow.innerHTML = [
-      sortableTh('SKU', 'key', '14%', cs, 'toggleCatalogSort'),
-      sortableTh('ASIN (Child)', 'asin', '12%', cs, 'toggleCatalogSort'),
-      sortableTh('Parent ASIN', 'parentAsin', '12%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Name', 'name', '20%', cs, 'toggleCatalogSort'),
-      sortableTh('Brand', 'brand', '12%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Family', 'family', '16%', cs, 'toggleCatalogSort'),
-      sortableTh('Status', 'status', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('SKU', 'key', '11%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN (US/CA)', 'asin', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN (US/CA)', 'parentAsin', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN (EU)', 'asinEu', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN (EU)', 'parentAsinEu', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Name', 'name', '16%', cs, 'toggleCatalogSort'),
+      sortableTh('Brand', 'brand', '10%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Family', 'family', '13%', cs, 'toggleCatalogSort'),
+      sortableTh('Status', 'status', '8%', cs, 'toggleCatalogSort'),
       '<th style="width:4%"></th>'
     ].join('');
 
@@ -1142,7 +1206,7 @@ function renderCatalog(){
 }
 function addCatalogRow(){
   if(!editModeState.catalog){ enterEditMode('catalog'); }
-  state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active'});
+  state.catalog.push({sku:'', asin:'', parentAsin:'', asinEu:'', parentAsinEu:'', name:'', brand:'', family:'', status:'Active'});
   renderCatalog();
 }
 function updateCatalog(idx, field, value){
@@ -1313,11 +1377,13 @@ function catalogNameForSku(sku){
 }
 function catalogAsinForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
-  return cat ? (cat.asin||'') : '';
+  if(!cat) return '';
+  return state.currentMarket === 'EU' ? (cat.asinEu||'') : (cat.asin||'');
 }
 function catalogParentAsinForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
-  return cat ? (cat.parentAsin||'') : '';
+  if(!cat) return '';
+  return state.currentMarket === 'EU' ? (cat.parentAsinEu||'') : (cat.parentAsin||'');
 }
 function catalogFamilyForSku(sku){
   const cat = state.catalog.find(r=>r.sku===sku);
@@ -4473,6 +4539,9 @@ async function deleteRawFile(id){
 
 async function initApp(){
   await loadAllFromSupabase();
+  document.getElementById('market-select').value = state.currentMarket;
+  document.getElementById('eu-country-select').value = state.currentEuCountry;
+  document.getElementById('eu-country-subselect').style.display = state.currentMarket === 'EU' ? 'block' : 'none';
   renderCatalog();
   renderMfg();
   renderLogistics();
