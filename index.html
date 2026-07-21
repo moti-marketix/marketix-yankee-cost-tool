@@ -189,11 +189,11 @@
     <!-- ===================== TAB 0: CATALOG ===================== -->
     <section id="tab-catalog">
       <div class="top-bar"><h1 class="page-title">Catalog</h1><div id="catalog-lock-bar" class="lock-bar"></div></div>
-      <p class="subtitle">The master list of products. Every other tab references SKUs from here.</p>
+      <p class="subtitle">The master list of products. Every other tab references SKUs from here. <strong id="catalog-market-indicator" style="color:var(--blue);"></strong></p>
 
       <div class="card">
         <h2>Bulk Import — All Sheets at Once</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Fill in the Catalog, Manufacturing Costs, and Logistics &amp; Freight sheets in one file, then upload it once here — all three screens get populated in a single action.</p>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Fill in the Catalog, Manufacturing Costs, and Logistics &amp; Freight sheets in one file, then upload it once here — all three screens get populated in a single action. Add an optional "Catalog EU" sheet (same columns) for products with a different EU listing/ASIN — Manufacturing Costs and Logistics stay shared across all markets either way.</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
           <button class="btn btn-primary" onclick="document.getElementById('full-template-upload').click()">&#8679; Upload Full Template</button>
@@ -804,7 +804,7 @@ async function loadAllFromSupabase(){
 
     state.catalog = (catalogRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, asin: r.asin||'', parentAsin: r.parent_asin||'', name: r.product_name||'',
-      asinEu: r.asin_eu||'', parentAsinEu: r.parent_asin_eu||'',
+      marketGroup: r.market_group || 'USA_CA',
       brand: r.brand||'', family: r.product_family||'', status: r.status||'Active',
     }));
     state.mfg = (mfgRes.data||[]).map(r=>({ id: r.id, sku: r.sku, mfgCost: r.mfg_cost }));
@@ -890,7 +890,7 @@ async function deleteRow(table, id){
 async function saveCatalogRow(row){
   const payload = {
     client_id: CLIENT_ID, sku: row.sku, asin: row.asin||null, parent_asin: row.parentAsin||null, product_name: row.name||null,
-    asin_eu: row.asinEu||null, parent_asin_eu: row.parentAsinEu||null,
+    market_group: row.marketGroup || 'USA_CA',
     brand: row.brand||null, product_family: row.family||null, status: row.status||'Active',
     updated_at: new Date().toISOString(),
   };
@@ -938,8 +938,8 @@ function onEuCountryChange(){
   refreshAllMarketScopedPages();
 }
 function refreshAllMarketScopedPages(){
-  // Catalog/Manufacturing/Logistics dimensions are shared and don't depend on market — only re-render
-  // the pages whose data is actually market-scoped.
+  // Catalog is now market-scoped too — Manufacturing Costs and Logistics dimensions remain shared and don't depend on market.
+  renderCatalog();
   renderShipments();
   renderWarehouse();
   renderSku();
@@ -1083,6 +1083,10 @@ function toggleCatalogSort(column){
   renderCatalog();
 }
 
+function currentCatalogMarketGroup(){
+  return state.currentMarket === 'EU' ? 'EU' : 'USA_CA';
+}
+
 function renderCatalog(){
   const editing = editModeState.catalog;
   const level = document.getElementById('catalog-level').value;
@@ -1090,6 +1094,9 @@ function renderCatalog(){
   const headerRow = document.getElementById('catalog-header-row');
   const tbody = document.querySelector('#catalog-table tbody');
   tbody.innerHTML = '';
+  const marketGroup = currentCatalogMarketGroup();
+  document.getElementById('catalog-market-indicator').textContent =
+    marketGroup === 'EU' ? '— Showing EU catalog (Germany/Italy/France/Spain share this listing)' : '— Showing USA/Canada catalog (shared)';
 
   function catalogRowHtml(row, idx, indent){
     const indentStyle = indent ? `style="padding-left:${indent}px;"` : '';
@@ -1098,8 +1105,6 @@ function renderCatalog(){
         <td ${indentStyle}><input value="${row.sku||''}" oninput="updateCatalog(${idx},'sku',this.value)" placeholder="SKU-001"></td>
         <td><input value="${row.asin||''}" oninput="updateCatalog(${idx},'asin',this.value)" placeholder="B0..."></td>
         <td><input value="${row.parentAsin||''}" oninput="updateCatalog(${idx},'parentAsin',this.value)" placeholder="B0..."></td>
-        <td><input value="${row.asinEu||''}" oninput="updateCatalog(${idx},'asinEu',this.value)" placeholder="B0... (EU)"></td>
-        <td><input value="${row.parentAsinEu||''}" oninput="updateCatalog(${idx},'parentAsinEu',this.value)" placeholder="B0... (EU)"></td>
         <td><input value="${row.name||''}" oninput="updateCatalog(${idx},'name',this.value)" placeholder="Product name"></td>
         <td><input value="${row.brand||''}" oninput="updateCatalog(${idx},'brand',this.value)" placeholder="Yankee"></td>
         <td><input value="${row.family||''}" oninput="updateCatalog(${idx},'family',this.value)" placeholder="Pool Covers"></td>
@@ -1117,8 +1122,6 @@ function renderCatalog(){
       <td ${indentStyle}>${row.sku||'—'}</td>
       <td>${row.asin||'—'}</td>
       <td>${row.parentAsin||'—'}</td>
-      <td>${row.asinEu||'—'}</td>
-      <td>${row.parentAsinEu||'—'}</td>
       <td>${row.name||'—'}</td>
       <td>${row.brand||'—'}</td>
       <td>${row.family||'—'}</td>
@@ -1127,7 +1130,9 @@ function renderCatalog(){
     `;
   }
 
+  // Catalog is fully market-scoped: only rows belonging to the current market group are shown at all.
   const visibleEntries = state.catalog.map((row, idx)=>({row, idx})).filter(({row})=>
+    row.marketGroup === marketGroup &&
     matchesFilter(row.asin, catalogFilters.asin) && matchesFilter(row.parentAsin, catalogFilters.parentAsin) && matchesFilter(row.family, catalogFilters.family) && matchesFilter(row.brand, catalogFilters.brand)
   );
 
@@ -1138,15 +1143,13 @@ function renderCatalog(){
 
   if(level === 'parent'){
     headerRow.innerHTML = [
-      sortableTh('SKU', 'key', '11%', cs, 'toggleCatalogSort'),
-      sortableTh('ASIN (US/CA)', 'asin', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Parent ASIN (US/CA)', 'parentAsin', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('ASIN (EU)', 'asinEu', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Parent ASIN (EU)', 'parentAsinEu', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Name', 'name', '16%', cs, 'toggleCatalogSort'),
-      sortableTh('Brand', 'brand', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Family', 'family', '13%', cs, 'toggleCatalogSort'),
-      sortableTh('Status', 'status', '8%', cs, 'toggleCatalogSort'),
+      sortableTh('SKU', 'key', '14%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN', 'asin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN', 'parentAsin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Name', 'name', '20%', cs, 'toggleCatalogSort'),
+      sortableTh('Brand', 'brand', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Family', 'family', '16%', cs, 'toggleCatalogSort'),
+      sortableTh('Status', 'status', '10%', cs, 'toggleCatalogSort'),
       '<th style="width:4%"></th>'
     ].join('');
 
@@ -1177,15 +1180,13 @@ function renderCatalog(){
 
   } else {
     headerRow.innerHTML = [
-      sortableTh('SKU', 'key', '11%', cs, 'toggleCatalogSort'),
-      sortableTh('ASIN (US/CA)', 'asin', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Parent ASIN (US/CA)', 'parentAsin', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('ASIN (EU)', 'asinEu', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Parent ASIN (EU)', 'parentAsinEu', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Name', 'name', '16%', cs, 'toggleCatalogSort'),
-      sortableTh('Brand', 'brand', '10%', cs, 'toggleCatalogSort'),
-      sortableTh('Product Family', 'family', '13%', cs, 'toggleCatalogSort'),
-      sortableTh('Status', 'status', '8%', cs, 'toggleCatalogSort'),
+      sortableTh('SKU', 'key', '14%', cs, 'toggleCatalogSort'),
+      sortableTh('ASIN', 'asin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Parent ASIN', 'parentAsin', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Name', 'name', '20%', cs, 'toggleCatalogSort'),
+      sortableTh('Brand', 'brand', '12%', cs, 'toggleCatalogSort'),
+      sortableTh('Product Family', 'family', '16%', cs, 'toggleCatalogSort'),
+      sortableTh('Status', 'status', '10%', cs, 'toggleCatalogSort'),
       '<th style="width:4%"></th>'
     ].join('');
 
@@ -1206,7 +1207,7 @@ function renderCatalog(){
 }
 function addCatalogRow(){
   if(!editModeState.catalog){ enterEditMode('catalog'); }
-  state.catalog.push({sku:'', asin:'', parentAsin:'', asinEu:'', parentAsinEu:'', name:'', brand:'', family:'', status:'Active'});
+  state.catalog.push({sku:'', asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active', marketGroup: currentCatalogMarketGroup()});
   renderCatalog();
 }
 function updateCatalog(idx, field, value){
@@ -1273,8 +1274,13 @@ function findSheet(wb, name){
   const match = wb.SheetNames.find(n => n.trim().toLowerCase() === name.trim().toLowerCase());
   return match ? wb.Sheets[match] : wb.Sheets[wb.SheetNames[0]]; // fallback: first sheet
 }
+function findSheetOptional(wb, name){
+  const match = wb.SheetNames.find(n => n.trim().toLowerCase() === name.trim().toLowerCase());
+  return match ? wb.Sheets[match] : null; // no fallback — genuinely optional
+}
 
-async function parseAndSaveCatalogRows(rows, statusEl){
+async function parseAndSaveCatalogRows(rows, statusEl, marketGroup){
+  marketGroup = marketGroup || 'USA_CA';
   let headerRowIdx = -1, headerMap = {};
   for(let i=0; i<Math.min(rows.length,10); i++){
     const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
@@ -1306,7 +1312,7 @@ async function parseAndSaveCatalogRows(rows, statusEl){
     if(!sku){ skipped++; continue; }
 
     const skuStr = String(sku).trim();
-    const existing = state.catalog.find(r=>r.sku===skuStr);
+    const existing = state.catalog.find(r=>r.sku===skuStr && r.marketGroup===marketGroup);
     const rowData = {
       sku: skuStr,
       asin: asin ? String(asin).trim() : (existing ? existing.asin : ''),
@@ -1315,6 +1321,7 @@ async function parseAndSaveCatalogRows(rows, statusEl){
       brand: brand ? String(brand).trim() : (existing ? existing.brand : ''),
       family: family ? String(family).trim() : (existing ? existing.family : ''),
       status: status ? String(status).trim() : (existing ? existing.status : 'Active'),
+      marketGroup,
     };
     if(existing){
       Object.assign(existing, rowData);
@@ -1359,7 +1366,7 @@ function handleCatalogUpload(event){
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Catalog');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      const result = await parseAndSaveCatalogRows(rows, statusEl);
+      const result = await parseAndSaveCatalogRows(rows, statusEl, currentCatalogMarketGroup());
       await updateRawFileStats(fileId, result);
     }catch(err){
       statusEl.style.color = 'var(--red)';
@@ -1371,26 +1378,28 @@ function handleCatalogUpload(event){
 }
 
 // ---------------- TAB 1: Manufacturing ----------------
+function catalogRowForSku(sku){
+  const marketGroup = currentCatalogMarketGroup();
+  return state.catalog.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+}
 function catalogNameForSku(sku){
-  const cat = state.catalog.find(r=>r.sku===sku);
+  const cat = catalogRowForSku(sku);
   return cat ? (cat.name||'') : '';
 }
 function catalogAsinForSku(sku){
-  const cat = state.catalog.find(r=>r.sku===sku);
-  if(!cat) return '';
-  return state.currentMarket === 'EU' ? (cat.asinEu||'') : (cat.asin||'');
+  const cat = catalogRowForSku(sku);
+  return cat ? (cat.asin||'') : '';
 }
 function catalogParentAsinForSku(sku){
-  const cat = state.catalog.find(r=>r.sku===sku);
-  if(!cat) return '';
-  return state.currentMarket === 'EU' ? (cat.parentAsinEu||'') : (cat.parentAsin||'');
+  const cat = catalogRowForSku(sku);
+  return cat ? (cat.parentAsin||'') : '';
 }
 function catalogFamilyForSku(sku){
-  const cat = state.catalog.find(r=>r.sku===sku);
+  const cat = catalogRowForSku(sku);
   return cat ? (cat.family||'') : '';
 }
 function catalogBrandForSku(sku){
-  const cat = state.catalog.find(r=>r.sku===sku);
+  const cat = catalogRowForSku(sku);
   return cat ? (cat.brand||'') : '';
 }
 function nameForAsin(asin){
@@ -1686,6 +1695,7 @@ function buildLogisticsSheet(){
 function downloadFullTemplate(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog");
+  XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog EU");
   XLSX.utils.book_append_sheet(wb, buildMfgSheet(), "Manufacturing Costs");
   XLSX.utils.book_append_sheet(wb, buildLogisticsSheet(), "Logistics & Freight");
   XLSX.writeFile(wb, "Yankee_Data_Template.xlsx");
@@ -1709,7 +1719,15 @@ function handleFullTemplateUpload(event){
       statusEl.textContent = 'Importing Catalog...';
       const catalogWs = findSheet(wb, 'Catalog');
       const catalogRows = XLSX.utils.sheet_to_json(catalogWs, {header:1, defval:null});
-      const catalogResult = await parseAndSaveCatalogRows(catalogRows, null);
+      const catalogResult = await parseAndSaveCatalogRows(catalogRows, null, 'USA_CA');
+
+      let catalogEuResult = { success: true, rowsImported: 0, rowsSkipped: 0 };
+      const catalogEuWs = findSheetOptional(wb, 'Catalog EU');
+      if(catalogEuWs){
+        statusEl.textContent = 'Importing Catalog (EU)...';
+        const catalogEuRows = XLSX.utils.sheet_to_json(catalogEuWs, {header:1, defval:null});
+        catalogEuResult = await parseAndSaveCatalogRows(catalogEuRows, null, 'EU');
+      }
 
       statusEl.textContent = 'Importing Manufacturing Costs...';
       const mfgWs = findSheet(wb, 'Manufacturing Costs');
@@ -1721,13 +1739,14 @@ function handleFullTemplateUpload(event){
       const logRows = XLSX.utils.sheet_to_json(logWs, {header:1, defval:null});
       const logResult = await parseAndSaveLogisticsRows(logRows, null);
 
-      const allSucceeded = [catalogResult, mfgResult, logResult].every(r => r && r.success);
-      const totalImported = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
-      const totalSkipped = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
+      const allSucceeded = [catalogResult, catalogEuResult, mfgResult, logResult].every(r => r && r.success);
+      const totalImported = [catalogResult, catalogEuResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
+      const totalSkipped = [catalogResult, catalogEuResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
       await updateRawFileStats(fileId, { success: allSucceeded, rowsImported: totalImported, rowsSkipped: totalSkipped });
 
+      const euNote = catalogEuWs ? `, Catalog EU (${state.catalog.filter(r=>r.marketGroup==='EU').length} SKUs)` : ' (no "Catalog EU" sheet found — EU catalog unchanged)';
       statusEl.style.color = 'var(--green)';
-      statusEl.textContent = `Done — imported Catalog (${state.catalog.length} SKUs), Manufacturing Costs (${state.mfg.length} SKUs), and Logistics (${state.logistics.items.length} SKUs).`;
+      statusEl.textContent = `Done — imported Catalog (${state.catalog.filter(r=>r.marketGroup==='USA_CA').length} SKUs)${euNote}, Manufacturing Costs (${state.mfg.length} SKUs), and Logistics (${state.logistics.items.length} SKUs).`;
     }catch(err){
       console.error(err);
       statusEl.style.color = 'var(--red)';
