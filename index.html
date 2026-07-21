@@ -663,7 +663,13 @@
     <!-- ===================== UPLOADED FILES ===================== -->
     <section id="tab-files" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Uploaded Files</h1></div>
-      <p class="subtitle">Every original file you've uploaded, archived exactly as received. Download, re-parse, or delete as needed.</p>
+      <p class="subtitle">Every original file you've uploaded, archived exactly as received. Download, re-parse, or delete as needed. Catalog/Manufacturing/Logistics files are shared across markets and always shown; Shipment Costs and SKU Economics files are market-specific.</p>
+
+      <div class="btn-row" style="margin-top:0;">
+        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13.5px; color:var(--grey);">
+          <input type="checkbox" id="files-show-all-markets" onchange="renderRawFiles()"> Show Shipment Costs / SKU Economics files for all markets (not just the current one)
+        </label>
+      </div>
 
       <div id="files-groups"></div>
       <div id="files-empty" class="empty" style="display:none;">No files uploaded yet.</div>
@@ -816,7 +822,7 @@ async function loadAllFromSupabase(){
         weight: r.weight_kg, unitsPerCarton: r.units_per_carton,
       })),
     };
-    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name }));
+    state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name, market: r.market || 'USA', country: r.country || '' }));
     state.warehouseExcludedBrands = settingsRes.data && settingsRes.data.warehouse_excluded_brands
       ? settingsRes.data.warehouse_excluded_brands.split(',').map(b=>b.trim()).filter(Boolean)
       : [];
@@ -826,6 +832,7 @@ async function loadAllFromSupabase(){
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
       referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
       adSpend: r.ad_spend, refunds: r.refunds, netProceeds: r.net_proceeds,
+      market: r.market || 'USA', country: r.country || '',
       unitsReturned: r.units_returned, netUnitsSold: r.net_units_sold,
       avgSalesPrice: r.avg_sales_price, salesGross: r.sales_gross,
       agedInventorySurcharge: r.aged_inventory_surcharge, baseFulfillmentFee: r.base_fulfillment_fee,
@@ -843,7 +850,7 @@ async function loadAllFromSupabase(){
 
     state.shipments = (shipmentsRes.data||[]).map(r=>({
       id: r.id, patent: r.patent, container: r.container, destination: r.destination,
-      fbaShipmentId: r.fba_shipment_id, brand: r.brand,
+      fbaShipmentId: r.fba_shipment_id, brand: r.brand, market: r.market || 'USA', country: r.country || '',
       totalUnits: r.total_units, totalBoxes: r.total_boxes, costPerCbm: r.cost_per_cbm,
       totalShippingCost: r.total_shipping_cost, placementFee: r.placement_fee,
     }));
@@ -945,6 +952,7 @@ function refreshAllMarketScopedPages(){
   renderWarehouse();
   renderSku();
   renderSummary();
+  renderRawFiles();
 }
 
 async function saveAvgCbmPrice(value){
@@ -986,6 +994,7 @@ async function saveWarehouseRow(row){
   const payload = {
     client_id: CLIENT_ID, month: row.month, invoice_amount: row.invoiceAmount,
     invoice_file_path: row.invoiceFilePath || null, invoice_file_name: row.invoiceFileName || null,
+    market: row.market || state.currentMarket, country: row.country!==undefined ? row.country : (state.currentEuCountry || ''),
     updated_at: new Date().toISOString(),
   };
   const result = await upsertRow('warehouse_invoices', row, payload);
@@ -1010,6 +1019,7 @@ async function saveSkuRow(row){
     sponsored_products_charge: row.sponsoredProductsCharge, net_proceeds_per_unit: row.netProceedsPerUnit,
     inbound_transportation_fee_qty: row.inboundTransportationFeeQty, fba_inbound_placement_fee_qty: row.fbaInboundPlacementFeeQty,
     inbound_transportation_fee_per_unit: row.inboundTransportationFeePerUnit,
+    market: row.market || state.currentMarket, country: row.country!==undefined ? row.country : (state.currentEuCountry || ''),
     updated_at: new Date().toISOString(),
   };
   const result = await upsertRow('sku_economics', row, payload);
@@ -1086,6 +1096,16 @@ function toggleCatalogSort(column){
 
 function currentCatalogMarketGroup(){
   return state.currentMarket === 'EU' ? 'EU' : 'USA_CA';
+}
+
+// Shared scoping rule for Shipment Costs, Warehouse Costs, and SKU Economics — each row carries its
+// own market ('USA'|'CA'|'EU') and, for EU rows, a country ('DE'|'IT'|'FR'|'ES'). When viewing EU with
+// no specific country selected ("All EU"), every EU country's rows combine into one view.
+function matchesCurrentMarketScope(rowMarket, rowCountry){
+  if(state.currentMarket !== 'EU') return rowMarket === state.currentMarket;
+  if(rowMarket !== 'EU') return false;
+  if(!state.currentEuCountry) return true; // "All EU" — combine every country
+  return rowCountry === state.currentEuCountry;
 }
 
 function renderCatalog(){
@@ -2173,7 +2193,9 @@ function yearOf(monthStr){
   return monthStr ? monthStr.slice(0,4) : null;
 }
 function totalWarehouseInvoices(){
-  return state.warehouse.reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
+  return state.warehouse
+    .filter(r=>matchesCurrentMarketScope(r.market||'USA', r.country||''))
+    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
 }
 function isWarehouseExcludedForSku(sku){
   const brand = catalogBrandForSku(sku);
@@ -2186,6 +2208,7 @@ function unitsShippedToWhForSku(sku){
     .reduce((sum,c)=>{
       const shipment = state.shipments.find(s=>s.id===c.shipmentId);
       if(!shipment || shipment.destination !== 'WH') return sum;
+      if(!matchesCurrentMarketScope(shipment.market, shipment.country)) return sum;
       return sum + (c.units||0);
     }, 0);
 }
@@ -2254,7 +2277,7 @@ function renderWarehouse(){
     : '<span style="color:var(--grey); font-size:13px;">No brands found yet — add some in Catalog.</span>';
 
   const totalInvoices = totalWarehouseInvoices();
-  const monthsLogged = state.warehouse.filter(r=>r.invoiceAmount!==null && r.invoiceAmount!==undefined).length;
+  const monthsLogged = state.warehouse.filter(r=>r.invoiceAmount!==null && r.invoiceAmount!==undefined && matchesCurrentMarketScope(r.market||'USA', r.country||'')).length;
   const cartons = totalCartonsHandled();
   const cpc = costPerCarton();
 
@@ -2404,9 +2427,10 @@ function renderWarehouse(){
   // Monthly invoices table
   const tbody = document.querySelector('#warehouse-table tbody');
   tbody.innerHTML = '';
-  document.getElementById('warehouse-empty').style.display = state.warehouse.length ? 'none' : 'block';
+  const visibleWarehouseEntries = state.warehouse.map((row, idx)=>({row, idx})).filter(({row})=>matchesCurrentMarketScope(row.market||'USA', row.country||''));
+  document.getElementById('warehouse-empty').style.display = visibleWarehouseEntries.length ? 'none' : 'block';
   const editingWarehouse = editModeState.warehouse;
-  state.warehouse.forEach((row, idx)=>{
+  visibleWarehouseEntries.forEach(({row, idx})=>{
     const tr = document.createElement('tr');
     const fileCell = row.invoiceFilePath
       ? `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;" onclick="viewWarehouseInvoiceFile(${idx})">&#128196; ${row.invoiceFileName || 'View file'}</button>
@@ -2432,7 +2456,7 @@ function renderWarehouse(){
 }
 function addWarehouseRow(){
   if(!editModeState.warehouse){ enterEditMode('warehouse'); }
-  state.warehouse.push({month:'', invoiceAmount:null});
+  state.warehouse.push({month:'', invoiceAmount:null, market: state.currentMarket, country: state.currentEuCountry || ''});
   renderWarehouse();
 }
 function updateWarehouse(idx, field, value){
@@ -2588,16 +2612,24 @@ async function handleShipmentsUpload(event){
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
+      const uploadMarket = state.currentMarket;
+      const uploadCountry = state.currentEuCountry || '';
 
       statusEl.textContent = `Saving ${shipments.length} shipment(s) and ${contents.length} SKU-shipment record(s)...`;
 
-      // Full replace: clear existing shipment data for this client, then insert fresh
-      await sb.from('shipment_contents').delete().eq('client_id', CLIENT_ID);
-      await sb.from('shipments').delete().eq('client_id', CLIENT_ID);
+      // Full replace, but scoped to the market (and EU country) currently selected — re-uploading
+      // Canada's shipment file must never touch USA's or EU's data, and vice versa.
+      const existingForMarket = await sb.from('shipments').select('id').eq('client_id', CLIENT_ID).eq('market', uploadMarket).eq('country', uploadCountry);
+      const existingIds = (existingForMarket.data||[]).map(r=>r.id);
+      if(existingIds.length){
+        await sb.from('shipment_contents').delete().in('shipment_id', existingIds);
+        await sb.from('shipments').delete().in('id', existingIds);
+      }
 
       const shipmentInsertPayload = shipments.map(s=>({
         client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
         fba_shipment_id: s.fbaShipmentId, brand: s.brand,
+        market: uploadMarket, country: uploadCountry,
         total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
         total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
       }));
@@ -2655,7 +2687,11 @@ async function handleShipmentsUpload(event){
 
 // Weighted average Freight Cost/Unit for a SKU, from real shipment data (quantity-weighted across all its shipments)
 function shipmentFreightDataForSku(sku){
-  const entries = state.shipmentContents.filter(c=>c.sku===sku);
+  const entries = state.shipmentContents.filter(c=>{
+    if(c.sku !== sku) return false;
+    const shipment = state.shipments.find(s=>s.id===c.shipmentId);
+    return shipment && matchesCurrentMarketScope(shipment.market, shipment.country);
+  });
   if(!entries.length) return null;
 
   let totalUnits = 0, weightedCostPerCbmSum = 0;
@@ -3127,6 +3163,7 @@ function renderSku(){
 
   // Filter first (same rules regardless of view mode)
   let filteredEntries = state.sku.map((row, idx)=>({row, idx})).filter(({row})=>{
+    if(!matchesCurrentMarketScope(row.market||'USA', row.country||'')) return false;
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const family = catalogFamilyForSku(row.sku);
@@ -3363,7 +3400,7 @@ function renderSku(){
 }
 function addSkuRow(){
   if(!editModeState.sku){ enterEditMode('sku'); }
-  state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null});
+  state.sku.push({sku:'', month:'', units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, adSpend:null, refunds:null, netProceeds:null, market: state.currentMarket, country: state.currentEuCountry || ''});
   renderSku();
 }
 function updateSku(idx, field, value){
@@ -3447,7 +3484,9 @@ function numOrNull(v){
   return isNaN(n) ? null : n;
 }
 
-async function parseAmazonSkuEconomicsReport(rows, statusEl){
+async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, countryOverride){
+  const uploadMarket = marketOverride !== undefined ? marketOverride : state.currentMarket;
+  const uploadCountry = countryOverride !== undefined ? countryOverride : (state.currentEuCountry || '');
   if(!rows.length){
     if(statusEl){ statusEl.textContent = 'File appears to be empty.'; statusEl.style.color = 'var(--red)'; }
     return { success: false, error: 'File appears to be empty.' };
@@ -3544,7 +3583,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
     const inboundTransportationFeePerUnit = numOrNull(row[headerMap['inbound transportation fee per unit']]);
     const fbaInboundPlacementFeeQty = numOrNull(row[headerMap['fba inbound placement service fee quantity']]);
 
-    const existing = state.sku.find(r=>r.sku===sku && r.month===month);
+    const existing = state.sku.find(r=>r.sku===sku && r.month===month && (r.market||'USA')===uploadMarket && (r.country||'')===uploadCountry);
     const rowData = {
       sku, month, units: unitsSold, revenue,
       referralFees: referralFee, fbaFees, storageFees, adSpend, refunds,
@@ -3557,6 +3596,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl){
       referralFeeRefunds, referralFeeRaw, refundAdministrationFee,
       storageUtilizationSurcharge, sponsoredProductsCharge, netProceedsPerUnit,
       inboundTransportationFeeQty, inboundTransportationFeePerUnit, fbaInboundPlacementFeeQty,
+      market: uploadMarket, country: uploadCountry,
     };
     if(existing){
       Object.assign(existing, rowData);
@@ -3999,6 +4039,7 @@ function renderSummary(){
   const months = monthsInScope();
   const scopedRows = state.sku.filter(r => {
     if(!r.sku || !r.month || !months.includes(r.month)) return false;
+    if(!matchesCurrentMarketScope(r.market||'USA', r.country||'')) return false;
     if(!matchesFilter(catalogAsinForSku(r.sku), asinFilter)) return false;
     if(!matchesFilter(catalogParentAsinForSku(r.sku), parentFilter)) return false;
     if(!matchesFilter(catalogFamilyForSku(r.sku), familyFilter)) return false;
@@ -4188,11 +4229,18 @@ function parseStatusBadge(f){
 function renderRawFiles(){
   const container = document.getElementById('files-groups');
   container.innerHTML = '';
-  document.getElementById('files-empty').style.display = state.rawFiles.length ? 'none' : 'block';
+  const showAllMarkets = document.getElementById('files-show-all-markets').checked;
+  const marketScopedScreens = ['shipment_costs', 'sku_economics'];
+
+  const visibleFiles = state.rawFiles.filter(f=>{
+    if(showAllMarkets || !marketScopedScreens.includes(f.screen)) return true;
+    return matchesCurrentMarketScope(f.market||'USA', f.country||'');
+  });
+  document.getElementById('files-empty').style.display = visibleFiles.length ? 'none' : 'block';
 
   const screens = ['full_template', 'catalog', 'manufacturing_costs', 'logistics', 'shipment_costs', 'sku_economics'];
   screens.forEach(screen=>{
-    const files = state.rawFiles.filter(f=>f.screen===screen);
+    const files = visibleFiles.filter(f=>f.screen===screen);
     if(!files.length) return;
 
     const card = document.createElement('div');
@@ -4315,10 +4363,10 @@ async function handleBulkInvoiceUpload(event){
         continue;
       }
 
-      // Find existing row for this month, or create one
-      let row = state.warehouse.find(r=>r.month === parsed.month);
+      // Find existing row for this month AND market, or create one
+      let row = state.warehouse.find(r=>r.month === parsed.month && (r.market||'USA')===state.currentMarket && (r.country||'')===(state.currentEuCountry||''));
       if(!row){
-        row = { month: parsed.month, invoiceAmount: null };
+        row = { month: parsed.month, invoiceAmount: null, market: state.currentMarket, country: state.currentEuCountry || '' };
         state.warehouse.push(row);
       }
       row.invoiceAmount = parsed.invoiceAmount;
@@ -4439,12 +4487,22 @@ async function reparseRawFile(id, opts){
       const arrayBuffer = await data.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
       const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
+      // Re-parsing uses the market this file was ORIGINALLY uploaded under, not whatever's currently
+      // selected in the switcher — otherwise re-parsing a CA file while viewing USA would mistag it.
+      const fileMarket = fileRow.market || 'USA';
+      const fileCountry = fileRow.country || '';
 
-      await sb.from('shipment_contents').delete().eq('client_id', CLIENT_ID);
-      await sb.from('shipments').delete().eq('client_id', CLIENT_ID);
+      const existingForMarket = await sb.from('shipments').select('id').eq('client_id', CLIENT_ID).eq('market', fileMarket).eq('country', fileCountry);
+      const existingIds = (existingForMarket.data||[]).map(r=>r.id);
+      if(existingIds.length){
+        await sb.from('shipment_contents').delete().in('shipment_id', existingIds);
+        await sb.from('shipments').delete().in('id', existingIds);
+      }
 
       const shipmentInsertPayload = shipments.map(s=>({
         client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
+        fba_shipment_id: s.fbaShipmentId, brand: s.brand,
+        market: fileMarket, country: fileCountry,
         total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
         total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
       }));
@@ -4455,9 +4513,14 @@ async function reparseRawFile(id, opts){
       insertedShipments.forEach(row=>{
         if(row.patent) dbIdByKey[row.patent] = row.id;
         if(row.container) dbIdByKey[row.container] = row.id;
+        if(row.fba_shipment_id){
+          row.fba_shipment_id.split(/\s+and\s+|[,+]/i).map(t=>t.trim()).filter(Boolean).forEach(token=>{
+            dbIdByKey[token] = row.id;
+          });
+        }
       });
       const contentsInsertPayload = contents.map(c=>{
-        const key = c.shipment.patent || c.shipment.container;
+        const key = c.shipment.patent || c.shipment.container || c.shipment.fbaShipmentId;
         return { client_id: CLIENT_ID, shipment_id: dbIdByKey[key], sku: c.sku, units: c.units };
       }).filter(c=>c.shipment_id);
       if(contentsInsertPayload.length){
@@ -4523,7 +4586,7 @@ async function reparseRawFile(id, opts){
     if(fileRow.screen === 'catalog') result = await parseAndSaveCatalogRows(rows, null);
     else if(fileRow.screen === 'manufacturing_costs') result = await parseAndSaveMfgRows(rows, null);
     else if(fileRow.screen === 'logistics') result = await parseAndSaveLogisticsRows(rows, null);
-    else if(fileRow.screen === 'sku_economics') result = await parseAmazonSkuEconomicsReport(rows, null);
+    else if(fileRow.screen === 'sku_economics') result = await parseAmazonSkuEconomicsReport(rows, null, fileRow.market || 'USA', fileRow.country || '');
 
     if(fileRow.screen === 'sku_economics' && result){
       await updateRawFileStats(id, {
