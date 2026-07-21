@@ -428,6 +428,12 @@
       <div class="kpi-grid" id="warehouse-kpis"></div>
 
       <div class="card">
+        <h2>Brand Exclusions</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Check any brand that never touches this 3PL warehouse (e.g. ships direct to Amazon) — its items will show no Warehouse Cost at all, and won't count toward the shared Cost per Carton calculation for other brands.</p>
+        <div id="warehouse-brand-exclusions"></div>
+      </div>
+
+      <div class="card">
         <h2>Bulk Upload Invoices</h2>
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload one or more invoice PDFs directly — the system reads the invoice date and total due automatically, matches or creates the right month row, and attaches the file. If a file can't be read automatically, it's flagged so you can enter that one manually.</p>
         <div class="btn-row" style="margin-top:0;">
@@ -680,6 +686,7 @@ let state = {
   rawFiles: [],
   shipments: [],
   shipmentContents: [],
+  warehouseExcludedBrands: [],
 };
 
 // ---------------- Lock / Edit / Submit workflow (applies to all data-entry tables) ----------------
@@ -789,6 +796,9 @@ async function loadAllFromSupabase(){
       })),
     };
     state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name }));
+    state.warehouseExcludedBrands = settingsRes.data && settingsRes.data.warehouse_excluded_brands
+      ? settingsRes.data.warehouse_excluded_brands.split(',').map(b=>b.trim()).filter(Boolean)
+      : [];
     state.sku = (skuRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
       referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
@@ -892,6 +902,28 @@ async function saveAvgCbmPrice(value){
     console.error(err);
     showSyncStatus('Save failed: ' + (err.message||err), true);
   }
+}
+async function saveWarehouseExcludedBrands(brands){
+  try{
+    const { error } = await sb.from('client_settings').upsert(
+      { client_id: CLIENT_ID, warehouse_excluded_brands: brands.join(','), updated_at: new Date().toISOString() },
+      { onConflict: 'client_id' }
+    );
+    if(error) throw error;
+    showSyncStatus('Saved.');
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Save failed: ' + (err.message||err), true);
+  }
+}
+function toggleWarehouseExcludedBrand(brand, checked){
+  if(checked){
+    if(!state.warehouseExcludedBrands.includes(brand)) state.warehouseExcludedBrands.push(brand);
+  } else {
+    state.warehouseExcludedBrands = state.warehouseExcludedBrands.filter(b=>b!==brand);
+  }
+  saveWarehouseExcludedBrands(state.warehouseExcludedBrands);
+  renderWarehouse();
 }
 async function saveWarehouseRow(row){
   const payload = {
@@ -2056,7 +2088,12 @@ function yearOf(monthStr){
 function totalWarehouseInvoices(){
   return state.warehouse.reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
 }
+function isWarehouseExcludedForSku(sku){
+  const brand = catalogBrandForSku(sku);
+  return brand && state.warehouseExcludedBrands.includes(brand);
+}
 function unitsShippedToWhForSku(sku){
+  if(isWarehouseExcludedForSku(sku)) return 0; // this brand never touches the 3PL warehouse (e.g. ships direct to AMZ)
   return state.shipmentContents
     .filter(c=>c.sku===sku)
     .reduce((sum,c)=>{
@@ -2083,6 +2120,7 @@ function costPerCarton(){
   return invoices / cartons;
 }
 function warehouseCostPerUnitForSku(sku){
+  if(isWarehouseExcludedForSku(sku)) return null;
   const cpc = costPerCarton();
   if(cpc === null) return null;
   const logRow = state.logistics.items.find(r=>r.sku===sku);
@@ -2117,6 +2155,16 @@ function populateWarehouseFilterDropdowns(){
 
 function renderWarehouse(){
   if(!document.getElementById('warehouse-filter-asin-list').options.length) populateWarehouseFilterDropdowns();
+
+  const allBrands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+  document.getElementById('warehouse-brand-exclusions').innerHTML = allBrands.length
+    ? allBrands.map(b=>{
+        const checked = state.warehouseExcludedBrands.includes(b);
+        return `<label style="display:inline-flex; align-items:center; gap:6px; margin-right:20px; font-size:13.5px; cursor:pointer;">
+          <input type="checkbox" ${checked?'checked':''} onchange="toggleWarehouseExcludedBrand('${b.replace(/'/g,"\\'")}', this.checked)"> ${b}
+        </label>`;
+      }).join('')
+    : '<span style="color:var(--grey); font-size:13px;">No brands found yet — add some in Catalog.</span>';
 
   const totalInvoices = totalWarehouseInvoices();
   const monthsLogged = state.warehouse.filter(r=>r.invoiceAmount!==null && r.invoiceAmount!==undefined).length;
