@@ -1232,6 +1232,7 @@ async function uploadRawFile(file, screen){
     if(uploadErr) throw uploadErr;
     const { data, error: logErr } = await sb.from('raw_files').insert({
       client_id: CLIENT_ID, screen, original_filename: file.name, storage_path: path, parse_status: 'pending',
+      market: state.currentMarket, country: state.currentEuCountry || '',
     }).select().single();
     if(logErr) throw logErr;
     return data.id;
@@ -4145,6 +4146,14 @@ function formatDateTime(iso){
   return d.toLocaleString(undefined, { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
+function marketBadge(f){
+  const market = f.market || 'USA';
+  const colors = { USA: 'var(--navy)', CA: '#B12A2A', EU: '#1F6F5C' };
+  const color = colors[market] || 'var(--grey)';
+  let label = market;
+  if(market === 'EU' && f.country) label = `EU · ${f.country}`;
+  return `<span style="display:inline-block; padding:2px 9px; border-radius:10px; font-size:11px; font-weight:700; color:#fff; background:${color};">${label}</span>`;
+}
 function parseStatusBadge(f){
   if(f.parse_status === 'success'){
     const imported = f.rows_imported ?? 0;
@@ -4192,9 +4201,10 @@ function renderRawFiles(){
       <thead>
         <tr>
           <th style="width:4%"><input type="checkbox" onchange="toggleSelectAllInGroup(this, '${screen}')"></th>
-          <th style="width:30%">Filename</th>
-          <th style="width:16%">Uploaded</th>
-          <th style="width:22%">Status</th>
+          <th style="width:25%">Filename</th>
+          <th style="width:10%">Market</th>
+          <th style="width:14%">Uploaded</th>
+          <th style="width:19%">Status</th>
           <th style="width:28%">Actions</th>
         </tr>
       </thead>
@@ -4206,6 +4216,7 @@ function renderRawFiles(){
       tr.innerHTML = `
         <td><input type="checkbox" class="reparse-checkbox" data-screen="${screen}" value="${f.id}"></td>
         <td>${f.original_filename}</td>
+        <td>${marketBadge(f)}</td>
         <td>${formatDateTime(f.uploaded_at)}</td>
         <td>${parseStatusBadge(f)}</td>
         <td>
