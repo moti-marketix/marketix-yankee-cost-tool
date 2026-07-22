@@ -430,6 +430,9 @@
 
       <div class="card">
         <h2>Per-SKU Freight Cost Summary</h2>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-ghost" onclick="downloadShipmentCostsExcel()">&#8681; Download Excel</button>
+        </div>
         <div class="filter-bar">
           <div class="field">
             <label>Level</label>
@@ -2991,6 +2994,32 @@ function toggleShipmentsRawSort(column){
   renderShipments();
 }
 
+function downloadShipmentCostsExcel(){
+  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
+  const perSkuRows = skusWithShipments.map(sku=>{
+    const data = shipmentFreightDataForSku(sku);
+    if(!data) return null;
+    return {
+      SKU: sku, ASIN: catalogAsinForSku(sku), 'Parent ASIN': catalogParentAsinForSku(sku),
+      'Units Shipped': data.totalUnits, 'Weighted Avg Cost/CBM': data.weightedAvgCostPerCbm,
+      'CBM/Unit': data.cbmPerUnit, 'Avg Freight Cost/Unit': data.freightPerUnit,
+      'Total Freight Cost': data.freightPerUnit!==null ? data.freightPerUnit*data.totalUnits : null,
+    };
+  }).filter(Boolean);
+
+  const rawRows = state.shipments
+    .filter(s=>matchesCurrentMarketScope(s.market||'USA', s.country||''))
+    .map(s=>({
+      'Patent#': s.patent, 'Container#': s.container, 'FBA Shipment ID': s.fbaShipmentId, Brand: s.brand,
+      Destination: s.destination, 'Total Units': s.totalUnits, 'Total Boxes': s.totalBoxes,
+      'Cost/CBM': s.costPerCbm, 'Total Shipping Cost': s.totalShippingCost, 'Placement Fee': s.placementFee,
+    }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(perSkuRows), 'Per-SKU Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rawRows), 'Raw Shipments');
+  XLSX.writeFile(wb, `Shipment_Costs_${marketContextLabel().replace(/[^a-zA-Z0-9]/g,'_')}.xlsx`);
+}
 function renderShipments(){
   if(!document.getElementById('shipments-filter-asin-list').options.length) populateShipmentsFilterDropdowns();
 
