@@ -87,6 +87,47 @@
   .locked-value{ font-weight:600; }
   .locked-readonly{ color:var(--grey); }
   #market-select option, #eu-country-select option{ color:#1F3864; background:#fff; }
+
+  #marki-toggle-btn{
+    position:fixed; bottom:26px; right:26px; z-index:500;
+    width:58px; height:58px; border-radius:50%; border:none; cursor:pointer;
+    background:linear-gradient(135deg, #2E75B6, #1F3864); color:#fff; font-size:24px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.25); transition:transform 0.15s;
+  }
+  #marki-toggle-btn:hover{ transform:scale(1.06); }
+
+  #marki-panel{
+    position:fixed; bottom:96px; right:26px; z-index:500;
+    width:400px; max-width:92vw; height:560px; max-height:75vh;
+    background:#fff; border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,0.28);
+    display:none; flex-direction:column; overflow:hidden; border:1px solid var(--border);
+  }
+  #marki-panel.open{ display:flex; }
+  #marki-header{
+    background:linear-gradient(135deg, #2E75B6, #1F3864); color:#fff;
+    padding:14px 16px; font-weight:700; font-size:15px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  #marki-close-btn{ background:none; border:none; color:#fff; font-size:20px; cursor:pointer; line-height:1; opacity:0.85; }
+  #marki-close-btn:hover{ opacity:1; }
+  #marki-messages{ flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; background:#F7F9FC; }
+  .marki-msg{ max-width:85%; padding:9px 13px; border-radius:12px; font-size:13.5px; line-height:1.45; white-space:pre-wrap; }
+  .marki-msg.user{ align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:3px; }
+  .marki-msg.assistant{ align-self:flex-start; background:#fff; color:#222; border:1px solid var(--border); border-bottom-left-radius:3px; }
+  .marki-msg.system-note{ align-self:center; color:var(--grey); font-size:11.5px; font-style:italic; background:none; }
+  .marki-action-card{
+    align-self:flex-start; max-width:90%; background:#FFF8E6; border:1.5px solid #D9A400;
+    border-radius:10px; padding:10px 13px; font-size:13px;
+  }
+  .marki-action-card .title{ font-weight:700; color:#8A6600; margin-bottom:6px; }
+  .marki-action-card .btn-row{ margin-top:8px; display:flex; gap:8px; }
+  .marki-action-card button{ padding:5px 12px; border-radius:6px; border:none; cursor:pointer; font-size:12.5px; font-weight:600; }
+  .marki-action-card .confirm-btn{ background:#1E9E63; color:#fff; }
+  .marki-action-card .cancel-btn{ background:#E5E7EB; color:#333; }
+  #marki-input-row{ display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:#fff; }
+  #marki-input{ flex:1; resize:none; border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; }
+  #marki-send-btn{ padding:0 16px; border-radius:8px; border:none; background:var(--blue); color:#fff; font-weight:600; cursor:pointer; }
+  #marki-send-btn:disabled{ opacity:0.5; cursor:default; }
   .fee-breakdown-cell{ cursor:help; border-bottom:1px dotted var(--grey); display:inline-block; }
   #shared-breakdown-tooltip{
     display:none; position:fixed; z-index:200;
@@ -4836,7 +4877,300 @@ async function initApp(){
   renderSku();
   ['catalog','mfg','logistics','warehouse','sku'].forEach(k=>renderLockBar(k));
 }
+// ---------------- MARKI: embedded AI assistant ----------------
+const MARKI_FUNCTION_URL = SUPABASE_URL + '/functions/v1/marki-chat';
+let markiConversation = []; // Anthropic API message history: [{role, content}]
+let markiBusy = false;
+
+const MARKI_TOOLS = [
+  {
+    name: 'update_manufacturing_cost',
+    description: "Set the Manufacturing Cost per unit for a SKU (shared across all markets).",
+    input_schema: { type: 'object', properties: {
+      sku: { type: 'string', description: 'Exact SKU to update' },
+      mfg_cost: { type: 'number', description: 'New manufacturing cost per unit, in USD' },
+    }, required: ['sku','mfg_cost'] },
+  },
+  {
+    name: 'update_catalog_field',
+    description: "Update one field on a SKU's Catalog entry, in the currently selected market.",
+    input_schema: { type: 'object', properties: {
+      sku: { type: 'string' },
+      field: { type: 'string', enum: ['asin','parentAsin','name','brand','family','status'] },
+      value: { type: 'string' },
+    }, required: ['sku','field','value'] },
+  },
+  {
+    name: 'update_logistics_dimension',
+    description: "Update one dimensional field (length, width, height in cm, weight in kg, or units per carton) for a SKU. Shared across all markets.",
+    input_schema: { type: 'object', properties: {
+      sku: { type: 'string' },
+      field: { type: 'string', enum: ['l','w','h','weight','unitsPerCarton'] },
+      value: { type: 'number' },
+    }, required: ['sku','field','value'] },
+  },
+  {
+    name: 'update_warehouse_invoice',
+    description: "Set the invoice amount for a given month, in the currently selected market's Warehouse Costs.",
+    input_schema: { type: 'object', properties: {
+      month: { type: 'string', description: 'Format YYYY-MM' },
+      amount: { type: 'number' },
+    }, required: ['month','amount'] },
+  },
+  {
+    name: 'flag_sku_economics_row',
+    description: "Toggle the highlight marker on a specific SKU+month row in SKU Economics, for visual analysis. Only affects the granular Month view.",
+    input_schema: { type: 'object', properties: {
+      sku: { type: 'string' },
+      month: { type: 'string', description: 'Format YYYY-MM' },
+    }, required: ['sku','month'] },
+  },
+];
+
+function marketContextLabel(){
+  if(state.currentMarket !== 'EU') return state.currentMarket;
+  return state.currentEuCountry ? `EU — ${state.currentEuCountry}` : 'EU — All (DE/IT/FR/ES combined)';
+}
+
+function buildMarkiContext(){
+  const marketGroup = currentCatalogMarketGroup();
+  const catalogRows = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  const catalogLines = catalogRows.slice(0, 400).map(r=>
+    `${r.sku} | ASIN:${r.asin||'-'} | Parent:${r.parentAsin||'-'} | ${r.name||'-'} | Brand:${r.brand||'-'} | Family:${r.family||'-'} | ${r.status||'-'}`
+  ).join('\n');
+  const catalogNote = catalogRows.length > 400 ? `\n(...and ${catalogRows.length-400} more SKUs not shown here — ask about a specific SKU/ASIN/family if needed.)` : '';
+
+  const mfgLines = state.mfg.map(r=>`${r.sku}: ${r.mfgCost!==null && r.mfgCost!==undefined ? '$'+r.mfgCost : '—'}`).join('\n');
+  const logLines = state.logistics.items.map(r=>`${r.sku}: L${r.l??'-'}xW${r.w??'-'}xH${r.h??'-'}cm, ${r.weight??'-'}kg, ${r.unitsPerCarton??'-'}/carton`).join('\n');
+
+  let profSummary = 'Not available — visit Profitability Summary to populate.';
+  try{
+    const months = monthsInScope();
+    const scopedRows = state.sku.filter(r=>r.sku && r.month && months.includes(r.month) && matchesCurrentMarketScope(r.market||'USA', r.country||''));
+    const bySku = {};
+    scopedRows.forEach(r=>{ (bySku[r.sku]=bySku[r.sku]||[]).push(r); });
+    profSummary = Object.keys(bySku).map(sku=>{
+      const agg = aggregateRows(bySku[sku]);
+      return `${sku}: Revenue ${fmtWhole(agg.revenue)}, Net Profit ${fmtWhole(agg.netProfit)}, Margin ${agg.margin!==null?Math.round(agg.margin)+'%':'—'}, ROI ${agg.roi!==null?Math.round(agg.roi)+'%':'—'}`;
+    }).join('\n') || '(no data in current period/market scope)';
+  }catch(e){ /* Profitability Summary tab not yet rendered this session — skip */ }
+
+  return `
+CURRENT MARKET: ${marketContextLabel()}
+
+=== CATALOG (${catalogRows.length} SKUs in this market) ===
+${catalogLines}${catalogNote}
+
+=== MANUFACTURING COSTS ===
+${mfgLines || '(none entered yet)'}
+
+=== LOGISTICS DIMENSIONS ===
+${logLines || '(none entered yet)'}
+
+=== PROFITABILITY (current period/market/level selection on Profitability Summary) ===
+${profSummary}
+`.trim();
+}
+
+function toggleMarkiPanel(){
+  const panel = document.getElementById('marki-panel');
+  panel.classList.toggle('open');
+  if(panel.classList.contains('open') && !markiConversation.length){
+    addMarkiBubble('assistant', "Hi, I'm Marki. I can see your Catalog, costs, and current profitability numbers for whichever market you've got selected — ask me anything, or ask me to update a cost, dimension, or invoice and I'll confirm before changing anything.");
+  }
+}
+
+function addMarkiBubble(role, text){
+  const el = document.getElementById('marki-messages');
+  const div = document.createElement('div');
+  div.className = `marki-msg ${role}`;
+  div.textContent = text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  return div;
+}
+
+function addMarkiNote(text){
+  const el = document.getElementById('marki-messages');
+  const div = document.createElement('div');
+  div.className = 'marki-msg system-note';
+  div.textContent = text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function onMarkiInputKeydown(evt){
+  if(evt.key === 'Enter' && !evt.shiftKey){
+    evt.preventDefault();
+    sendMarkiMessage();
+  }
+}
+
+async function callMarkiBackend(messages){
+  const systemPrompt = `You are Marki, an AI assistant embedded directly inside Marketix's Yankee Cost & Profitability Tool. You help analyze real profitability data and can make specific data changes when asked, using the tools available to you. Always be concise and specific, citing real numbers from the context below rather than guessing. When the user asks you to change something, use the matching tool — the tool call will be shown to the user for confirmation before anything is actually changed, so you don't need to ask permission in your text response, just call the tool.
+
+${buildMarkiContext()}`;
+
+  const res = await fetch(MARKI_FUNCTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY, 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ system: systemPrompt, messages, tools: MARKI_TOOLS }),
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || 'Marki backend error');
+  return data;
+}
+
+async function sendMarkiMessage(){
+  if(markiBusy) return;
+  const input = document.getElementById('marki-input');
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  addMarkiBubble('user', text);
+  markiConversation.push({ role: 'user', content: text });
+  await runMarkiTurn();
+}
+
+async function runMarkiTurn(){
+  markiBusy = true;
+  document.getElementById('marki-send-btn').disabled = true;
+  addMarkiNote('Marki is thinking...');
+  try{
+    const data = await callMarkiBackend(markiConversation);
+    document.querySelector('#marki-messages .system-note:last-child')?.remove();
+
+    const textBlocks = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+    const toolUseBlocks = (data.content||[]).filter(b=>b.type==='tool_use');
+
+    if(textBlocks) addMarkiBubble('assistant', textBlocks);
+    markiConversation.push({ role: 'assistant', content: data.content });
+
+    if(toolUseBlocks.length){
+      for(const block of toolUseBlocks){
+        await presentMarkiActionConfirmation(block);
+      }
+    }
+  }catch(err){
+    document.querySelector('#marki-messages .system-note:last-child')?.remove();
+    console.error(err);
+    addMarkiBubble('assistant', "I couldn't reach my backend just now (" + (err.message||err) + "). If this is the first time you're trying this, Marki's Edge Function may not be deployed yet — see DEPLOY_MARKI.md.");
+  } finally {
+    markiBusy = false;
+    document.getElementById('marki-send-btn').disabled = false;
+  }
+}
+
+function describeMarkiAction(name, input){
+  if(name === 'update_manufacturing_cost') return `Set Manufacturing Cost for ${input.sku} to $${input.mfg_cost}`;
+  if(name === 'update_catalog_field') return `Set Catalog field "${input.field}" for ${input.sku} to "${input.value}"`;
+  if(name === 'update_logistics_dimension') return `Set Logistics field "${input.field}" for ${input.sku} to ${input.value}`;
+  if(name === 'update_warehouse_invoice') return `Set Warehouse invoice for ${input.month} (${marketContextLabel()}) to $${input.amount}`;
+  if(name === 'flag_sku_economics_row') return `Toggle highlight on ${input.sku} / ${input.month} in SKU Economics`;
+  return `${name}(${JSON.stringify(input)})`;
+}
+
+function presentMarkiActionConfirmation(block){
+  return new Promise((resolve)=>{
+    const el = document.getElementById('marki-messages');
+    const card = document.createElement('div');
+    card.className = 'marki-action-card';
+    card.innerHTML = `
+      <div class="title">&#9889; Marki wants to:</div>
+      <div>${describeMarkiAction(block.name, block.input)}</div>
+      <div class="btn-row">
+        <button class="confirm-btn">Confirm</button>
+        <button class="cancel-btn">Cancel</button>
+      </div>
+    `;
+    el.appendChild(card);
+    el.scrollTop = el.scrollHeight;
+
+    card.querySelector('.confirm-btn').onclick = async ()=>{
+      card.querySelectorAll('button').forEach(b=>b.disabled=true);
+      let resultText;
+      try{
+        resultText = await executeMarkiTool(block.name, block.input);
+        card.querySelector('.title').textContent = '✓ Done:';
+      }catch(err){
+        resultText = 'Failed: ' + (err.message||err);
+        card.querySelector('.title').textContent = '✗ Failed:';
+      }
+      card.querySelector('.btn-row').remove();
+      markiConversation.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: block.id, content: resultText }] });
+      await runMarkiTurn();
+      resolve();
+    };
+    card.querySelector('.cancel-btn').onclick = ()=>{
+      card.querySelector('.title').textContent = '— Cancelled:';
+      card.querySelector('.btn-row').remove();
+      markiConversation.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: block.id, content: 'The user declined this action. Do not retry it.' }] });
+      resolve();
+    };
+  });
+}
+
+async function executeMarkiTool(name, input){
+  if(name === 'update_manufacturing_cost'){
+    let row = state.mfg.find(r=>r.sku===input.sku);
+    if(!row){ row = { sku: input.sku, mfgCost: null }; state.mfg.push(row); }
+    row.mfgCost = input.mfg_cost;
+    await saveMfgRow(row);
+    renderMfg();
+    return `Manufacturing Cost for ${input.sku} is now $${input.mfg_cost}.`;
+  }
+  if(name === 'update_catalog_field'){
+    const marketGroup = currentCatalogMarketGroup();
+    let row = state.catalog.find(r=>r.sku===input.sku && r.marketGroup===marketGroup);
+    if(!row){ row = { sku: input.sku, asin:'', parentAsin:'', name:'', brand:'', family:'', status:'Active', marketGroup }; state.catalog.push(row); }
+    row[input.field] = input.value;
+    await saveCatalogRow(row);
+    renderCatalog();
+    return `${input.field} for ${input.sku} is now "${input.value}" (${marketContextLabel()} catalog).`;
+  }
+  if(name === 'update_logistics_dimension'){
+    let row = state.logistics.items.find(r=>r.sku===input.sku);
+    if(!row){ row = { sku: input.sku, l:null,w:null,h:null,weight:null,unitsPerCarton:null }; state.logistics.items.push(row); }
+    row[input.field] = input.value;
+    await saveLogisticsRow(row);
+    renderLogistics();
+    return `${input.field} for ${input.sku} is now ${input.value}.`;
+  }
+  if(name === 'update_warehouse_invoice'){
+    let row = state.warehouse.find(r=>r.month===input.month && (r.market||'USA')===state.currentMarket && (r.country||'')===(state.currentEuCountry||''));
+    if(!row){ row = { month: input.month, invoiceAmount: null, market: state.currentMarket, country: state.currentEuCountry||'' }; state.warehouse.push(row); }
+    row.invoiceAmount = input.amount;
+    await saveWarehouseRow(row);
+    renderWarehouse();
+    return `Warehouse invoice for ${input.month} (${marketContextLabel()}) is now $${input.amount}.`;
+  }
+  if(name === 'flag_sku_economics_row'){
+    const key = `${input.sku}|${input.month}`;
+    if(highlightedSkuRows.has(key)) highlightedSkuRows.delete(key);
+    else highlightedSkuRows.add(key);
+    renderSku();
+    return `Highlight toggled for ${input.sku} / ${input.month}.`;
+  }
+  throw new Error(`Unknown tool: ${name}`);
+}
+
 initApp();
 </script>
+  <!-- ===================== MARKI CHAT ===================== -->
+  <button id="marki-toggle-btn" onclick="toggleMarkiPanel()" title="Ask Marki">
+    <span id="marki-toggle-icon">&#128172;</span>
+  </button>
+  <div id="marki-panel">
+    <div id="marki-header">
+      <span>&#9889; Marki</span>
+      <button id="marki-close-btn" onclick="toggleMarkiPanel()">&times;</button>
+    </div>
+    <div id="marki-messages"></div>
+    <div id="marki-input-row">
+      <textarea id="marki-input" placeholder="Ask Marki about your data, or ask it to make a change..." rows="2" onkeydown="onMarkiInputKeydown(event)"></textarea>
+      <button id="marki-send-btn" onclick="sendMarkiMessage()">Send</button>
+    </div>
+  </div>
+
 </body>
 </html>
