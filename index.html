@@ -182,6 +182,7 @@
     <div class="nav-item" data-tab="warehouse"><span class="num">4</span>Warehouse Costs</div>
     <div class="nav-item" data-tab="sku"><span class="num">5</span>SKU Economics</div>
     <div class="nav-item" data-tab="summary"><span class="num">&#9733;</span>Profitability Summary</div>
+    <div class="nav-item" data-tab="execsummary"><span class="num">&#9889;</span>Executive Summary</div>
     <div class="nav-item" data-tab="files"><span class="num">&#128193;</span>Uploaded Files</div>
   </div>
 
@@ -660,6 +661,43 @@
       </div>
     </section>
 
+    <!-- ===================== EXECUTIVE SUMMARY ===================== -->
+    <section id="tab-execsummary" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Executive Summary</h1></div>
+      <p class="subtitle">A bright, at-a-glance view of how each product family is performing — grouped two levels deep.</p>
+
+      <div class="card">
+        <div class="row-inline">
+          <div class="field">
+            <label>Period</label>
+            <select id="exec-period-type" onchange="onExecPeriodTypeChange()">
+              <option value="all">All Time</option>
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="ytd" selected>YTD</option>
+            </select>
+          </div>
+          <div class="field">
+            <label id="exec-period-value-label">Value</label>
+            <select id="exec-period-value" onchange="renderExecSummary()"></select>
+          </div>
+          <div class="field">
+            <label>Brand</label>
+            <input type="text" id="exec-filter-brand" list="exec-filter-brand-list" placeholder="Search Brand..." oninput="renderExecSummary()"><datalist id="exec-filter-brand-list"></datalist>
+          </div>
+        </div>
+      </div>
+
+      <div id="exec-summary-cards"></div>
+      <div id="exec-summary-empty" class="empty" style="display:none;">No data yet for this period — add Manufacturing, Logistics, Warehouse, and SKU Economics data to see family performance here.</div>
+
+      <div class="card">
+        <h2>Family Grouping</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Assign each existing Product Family to a High-Level Family — a one-time setup. Families left unassigned show under "Ungrouped" below so nothing is hidden.</p>
+        <div id="family-group-mapping"></div>
+      </div>
+    </section>
+
     <!-- ===================== UPLOADED FILES ===================== -->
     <section id="tab-files" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Uploaded Files</h1></div>
@@ -713,6 +751,7 @@ let state = {
   warehouseExcludedBrands: [],
   currentMarket: 'USA',
   currentEuCountry: '',
+  familyGroups: [],
 };
 
 // ---------------- Lock / Edit / Submit workflow (applies to all data-entry tables) ----------------
@@ -793,7 +832,7 @@ function debounceSave(key, fn, delay=600){
 async function loadAllFromSupabase(){
   showSyncStatus('Loading data…');
   try{
-    const [catalogRes, mfgRes, logisticsRes, settingsRes, warehouseRes, skuRes, shipmentsRes, shipmentContentsRes] = await Promise.all([
+    const [catalogRes, mfgRes, logisticsRes, settingsRes, warehouseRes, skuRes, shipmentsRes, shipmentContentsRes, familyGroupsRes] = await Promise.all([
       sb.from('catalog').select('*').eq('client_id', CLIENT_ID),
       sb.from('manufacturing_costs').select('*').eq('client_id', CLIENT_ID),
       sb.from('logistics').select('*').eq('client_id', CLIENT_ID),
@@ -802,9 +841,10 @@ async function loadAllFromSupabase(){
       sb.from('sku_economics').select('*').eq('client_id', CLIENT_ID),
       sb.from('shipments').select('*').eq('client_id', CLIENT_ID),
       sb.from('shipment_contents').select('*').eq('client_id', CLIENT_ID),
+      sb.from('family_groups').select('*').eq('client_id', CLIENT_ID),
     ]);
 
-    for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes, shipmentsRes, shipmentContentsRes]){
+    for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes, shipmentsRes, shipmentContentsRes, familyGroupsRes]){
       if(r.error) throw r.error;
     }
     if(settingsRes.error) throw settingsRes.error;
@@ -826,6 +866,7 @@ async function loadAllFromSupabase(){
     state.warehouseExcludedBrands = settingsRes.data && settingsRes.data.warehouse_excluded_brands
       ? settingsRes.data.warehouse_excluded_brands.split(',').map(b=>b.trim()).filter(Boolean)
       : [];
+    state.familyGroups = (familyGroupsRes.data||[]).map(r=>({ id: r.id, productFamily: r.product_family, highLevelFamily: r.high_level_family||'' }));
     state.currentMarket = (settingsRes.data && settingsRes.data.current_market) || 'USA';
     state.currentEuCountry = (settingsRes.data && settingsRes.data.current_eu_country) || '';
     state.sku = (skuRes.data||[]).map(r=>({
@@ -1039,6 +1080,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     if(item.dataset.tab === 'shipments') renderShipments();
     if(item.dataset.tab === 'files'){ loadRawFiles().then(renderRawFiles); }
     if(item.dataset.tab === 'sku'){ renderSku(); }
+    if(item.dataset.tab === 'execsummary'){ renderExecSummary(); }
   });
 });
 
@@ -1415,6 +1457,156 @@ function catalogAsinForSku(sku){
 function catalogParentAsinForSku(sku){
   const cat = catalogRowForSku(sku);
   return cat ? (cat.parentAsin||'') : '';
+}
+function onExecPeriodTypeChange(){
+  populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
+  renderExecSummary();
+}
+function execMonthsInScope(){
+  const periodType = document.getElementById('exec-period-type').value;
+  const value = document.getElementById('exec-period-value').value;
+  return computeMonthsInScope(periodType, value);
+}
+
+function healthColor(margin){
+  if(margin===null || margin===undefined) return { bg:'#F3F4F6', border:'#9CA3AF', text:'#6B7280' };
+  if(margin >= 20) return { bg:'#E8F8F0', border:'#1E9E63', text:'#0F6B41' };
+  if(margin >= 5) return { bg:'#FFF7E0', border:'#D9A400', text:'#8A6600' };
+  return { bg:'#FDEAEA', border:'#D9453D', text:'#A32B25' };
+}
+
+function familyCardHtml(label, agg, indentLevel){
+  const colors = healthColor(agg.margin);
+  const indent = indentLevel ? indentLevel * 22 : 0;
+  return `
+    <div style="background:${colors.bg}; border:1.5px solid ${colors.border}; border-radius:12px; padding:18px 22px; margin-bottom:${indentLevel ? '10px' : '14px'}; margin-left:${indent}px;">
+      <div style="font-size:${indentLevel ? '15px' : '18px'}; font-weight:800; color:var(--navy); margin-bottom:10px;">${label}</div>
+      <div style="display:flex; gap:32px; flex-wrap:wrap;">
+        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">Revenue</div><div style="font-size:20px; font-weight:700; color:var(--navy);">${fmtWhole(agg.revenue)}</div></div>
+        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">Net Profit</div><div style="font-size:20px; font-weight:700; color:var(--navy);">${fmtWhole(agg.netProfit)}</div></div>
+        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">Margin %</div><div style="font-size:20px; font-weight:800; color:${colors.text};">${agg.margin!==null ? Math.round(agg.margin)+'%' : '—'}</div></div>
+        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">ROI %</div><div style="font-size:20px; font-weight:700; color:var(--navy);">${agg.roi!==null ? Math.round(agg.roi)+'%' : '—'}</div></div>
+      </div>
+    </div>
+  `;
+}
+
+const expandedExecFamilies = new Set();
+function toggleExecFamily(name){
+  if(expandedExecFamilies.has(name)) expandedExecFamilies.delete(name);
+  else expandedExecFamilies.add(name);
+  renderExecSummary();
+}
+
+function renderExecSummary(){
+  const valueSelect = document.getElementById('exec-period-value');
+  if(!valueSelect.options.length) populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
+  if(!document.getElementById('exec-filter-brand-list').options.length){
+    const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+    document.getElementById('exec-filter-brand-list').innerHTML = brands.map(b=>`<option value="${b}">`).join('');
+  }
+
+  const months = execMonthsInScope();
+  const brandFilter = document.getElementById('exec-filter-brand').value;
+
+  const scopedRows = state.sku.filter(r=>{
+    if(!r.sku || !r.month || !months.includes(r.month)) return false;
+    if(!matchesCurrentMarketScope(r.market||'USA', r.country||'')) return false;
+    if(!matchesFilter(catalogBrandForSku(r.sku), brandFilter)) return false;
+    return true;
+  });
+
+  const container = document.getElementById('exec-summary-cards');
+  document.getElementById('exec-summary-empty').style.display = scopedRows.length ? 'none' : 'block';
+
+  // Group by high-level family -> internal (product) family
+  const byHighLevel = {};
+  scopedRows.forEach(row=>{
+    const productFamily = catalogFamilyForSku(row.sku) || '(no family)';
+    const highLevel = highLevelFamilyForProductFamily(productFamily) || 'Ungrouped';
+    if(!byHighLevel[highLevel]) byHighLevel[highLevel] = {};
+    if(!byHighLevel[highLevel][productFamily]) byHighLevel[highLevel][productFamily] = [];
+    byHighLevel[highLevel][productFamily].push(row);
+  });
+
+  const highLevelNames = Object.keys(byHighLevel).sort((a,b)=> a==='Ungrouped' ? 1 : b==='Ungrouped' ? -1 : a.localeCompare(b));
+
+  if(!highLevelNames.length){
+    container.innerHTML = '';
+    renderFamilyGroupMapping();
+    return;
+  }
+
+  container.innerHTML = highLevelNames.map(highLevel=>{
+    const internalFamilies = byHighLevel[highLevel];
+    const allRowsForHighLevel = Object.values(internalFamilies).flat();
+    const agg = aggregateRows(allRowsForHighLevel);
+    const isExpanded = expandedExecFamilies.has(highLevel);
+    const internalNames = Object.keys(internalFamilies).sort();
+
+    let html = `<div onclick="toggleExecFamily('${highLevel.replace(/'/g,"\\'")}')" style="cursor:pointer;">${familyCardHtml((isExpanded?'&#9662; ':'&#9656; ')+highLevel, agg, 0)}</div>`;
+    if(isExpanded){
+      html += internalNames.map(pf=>{
+        const pfAgg = aggregateRows(internalFamilies[pf]);
+        return familyCardHtml(pf, pfAgg, 1);
+      }).join('');
+    }
+    return html;
+  }).join('');
+
+  renderFamilyGroupMapping();
+}
+
+
+function highLevelFamilyForProductFamily(pf){
+  if(!pf) return '';
+  const g = state.familyGroups.find(r=>r.productFamily===pf);
+  return g ? (g.highLevelFamily||'') : '';
+}
+async function saveFamilyGroup(productFamily, highLevelFamily){
+  try{
+    const { data, error } = await sb.from('family_groups').upsert(
+      { client_id: CLIENT_ID, product_family: productFamily, high_level_family: highLevelFamily, updated_at: new Date().toISOString() },
+      { onConflict: 'client_id,product_family' }
+    ).select().single();
+    if(error) throw error;
+    let existing = state.familyGroups.find(r=>r.productFamily===productFamily);
+    if(existing) existing.highLevelFamily = highLevelFamily;
+    else state.familyGroups.push({ id: data.id, productFamily, highLevelFamily });
+    showSyncStatus('Saved.');
+  }catch(err){
+    console.error(err);
+    showSyncStatus('Save failed: ' + (err.message||err), true);
+  }
+}
+function onFamilyGroupInputChange(productFamily, value){
+  debounceSave('family-group-'+productFamily, ()=>saveFamilyGroup(productFamily, value.trim()));
+}
+
+function renderFamilyGroupMapping(){
+  const marketGroup = currentCatalogMarketGroup();
+  const families = Array.from(new Set(
+    state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.family).filter(Boolean)
+  )).sort();
+
+  const container = document.getElementById('family-group-mapping');
+  if(!families.length){
+    container.innerHTML = '<span style="color:var(--grey); font-size:13px;">No Product Family values found yet — add some in Catalog.</span>';
+    return;
+  }
+  container.innerHTML = `
+    <table>
+      <thead><tr><th style="width:50%">Product Family (existing)</th><th style="width:50%">High-Level Family</th></tr></thead>
+      <tbody>
+        ${families.map(pf=>`
+          <tr>
+            <td>${pf}</td>
+            <td><input type="text" value="${highLevelFamilyForProductFamily(pf)}" placeholder="e.g. Sapphire" oninput="onFamilyGroupInputChange('${pf.replace(/'/g,"\\'")}', this.value)"></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 }
 function catalogFamilyForSku(sku){
   const cat = catalogRowForSku(sku);
