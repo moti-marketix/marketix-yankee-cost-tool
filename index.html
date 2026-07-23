@@ -584,6 +584,22 @@
       </div>
 
       <div class="card">
+        <h2>Upload Advertising Report (overwrites Ad Spend)</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the DSP-style advertising report (all campaign types, all markets, all months in one file) — this typically captures more ad types (headline, video) than Amazon's SKU Economics report. Spend is summed by ASIN + Month + Market and overwrites Ad Spend for exactly those combinations only; anything not in this file is left untouched. TACOS % recalculates automatically.</p>
+        <div class="row-inline">
+          <div class="field">
+            <label>Year for this file's "Month" column</label>
+            <input type="number" id="ad-report-year" value="2026" style="width:100px;">
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn btn-primary" onclick="document.getElementById('ad-report-upload').click()">&#8679; Upload Advertising Report</button>
+          <input type="file" id="ad-report-upload" accept=".csv,.xlsx,.xls" style="display:none;" onchange="handleAdvertisingReportUpload(event)">
+        </div>
+        <div id="ad-report-upload-status" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card">
         <div class="filter-bar">
           <div class="field">
             <label>Level</label>
@@ -3939,6 +3955,101 @@ function readAndParseOneReportFile(file){
     if(isCsv) reader.readAsText(file);
     else reader.readAsArrayBuffer(file);
   });
+}
+
+function skuForAsinInMarketGroup(asin, marketGroup){
+  const row = state.catalog.find(r=>r.asin===asin && r.marketGroup===marketGroup);
+  return row ? row.sku : null;
+}
+const AD_REPORT_COUNTRY_MAP = {
+  US: { market:'USA', country:'' },
+  CA: { market:'CA', country:'' },
+  DE: { market:'EU', country:'DE' }, IT: { market:'EU', country:'IT' },
+  FR: { market:'EU', country:'FR' }, ES: { market:'EU', country:'ES' },
+};
+
+async function handleAdvertisingReportUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('ad-report-upload-status');
+  const year = document.getElementById('ad-report-year').value.trim();
+  if(!/^\d{4}$/.test(year)){
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Enter a valid 4-digit year first.';
+    return;
+  }
+  statusEl.style.color = 'var(--grey)';
+  statusEl.textContent = 'Reading file...';
+
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      let text = e.target.result;
+      if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const wb = XLSX.read(text, {type:'string'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+      const header = (rows[0]||[]).map(c=>c===null?'':String(c).trim());
+      const col = name => header.indexOf(name);
+      const cAsin = col('Advertised product ID'), cMonth = col('Month'), cCountry = col('Campaign country'), cCost = col('Total cost');
+      if(cAsin===-1 || cMonth===-1 || cCountry===-1 || cCost===-1){
+        throw new Error('Missing expected columns (Advertised product ID / Month / Campaign country / Total cost).');
+      }
+
+      // Sum spend by ASIN + Month + Country
+      const spendMap = {}; // key: asin|month|country -> total
+      let skippedNoCountryMap = 0;
+      for(let i=1; i<rows.length; i++){
+        const row = rows[i];
+        if(!row) continue;
+        const asin = row[cAsin], monthNum = row[cMonth], country = row[cCountry], cost = row[cCost];
+        if(!asin || !monthNum || !country) continue;
+        const mapping = AD_REPORT_COUNTRY_MAP[String(country).trim()];
+        if(!mapping){ skippedNoCountryMap++; continue; }
+        const monthStr = `${year}-${String(monthNum).padStart(2,'0')}`;
+        const key = `${asin}|${monthStr}|${mapping.market}|${mapping.country}`;
+        spendMap[key] = (spendMap[key]||0) + (parseFloat(cost)||0);
+      }
+
+      // Apply: find or create matching SKU Economics rows, overwrite adSpend only
+      let updated = 0, created = 0, noSkuMatch = 0;
+      const rowsToSave = [];
+      Object.keys(spendMap).forEach(key=>{
+        const [asin, month, market, country] = key.split('|');
+        const marketGroup = market === 'EU' ? 'EU' : 'USA_CA';
+        const sku = skuForAsinInMarketGroup(asin, marketGroup);
+        if(!sku){ noSkuMatch++; return; }
+        let row = state.sku.find(r=>r.sku===sku && r.month===month && (r.market||'USA')===market && (r.country||'')===country);
+        if(row){
+          row.adSpend = spendMap[key];
+          updated++;
+        } else {
+          row = { sku, month, adSpend: spendMap[key], units:null, revenue:null, referralFees:null, fbaFees:null, storageFees:null, refunds:null, netProceeds:null, market, country };
+          state.sku.push(row);
+          created++;
+        }
+        rowsToSave.push(row);
+      });
+
+      statusEl.textContent = `Saving ${rowsToSave.length} row(s)...`;
+      await Promise.all(rowsToSave.map(r=>saveSkuRow(r)));
+
+      renderSku();
+      let msg = `Done — Ad Spend updated for ${updated} existing row(s)`;
+      if(created) msg += `, ${created} new row(s) created (ad spend only, no other data)`;
+      if(noSkuMatch) msg += `. ${noSkuMatch} ASIN+market combination(s) had no matching Catalog SKU`;
+      if(skippedNoCountryMap) msg += `. ${skippedNoCountryMap} row(s) had an unrecognized country code`;
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = msg + '.';
+    }catch(err){
+      console.error(err);
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Could not process this file: ' + (err.message||err);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
 }
 
 async function handleSkuEconomicsReportUpload(event){
