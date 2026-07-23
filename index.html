@@ -3998,9 +3998,11 @@ function campaignMatchesFamily(campaignName, family){
   const campaignTokens = campaignTokenSet(campaignName);
   return tokens.every(t=>campaignTokens.has(t));
 }
-function campaignMatchesSingleKeyword(campaignName, keyword){
+function campaignMatchesSingleKeyword(campaignName, highLevelFamily){
+  const familyTokens = familyMatchTokens(highLevelFamily); // already lowercased + abbreviation-expanded
+  if(!familyTokens.length) return false;
   const campaignTokens = campaignTokenSet(campaignName);
-  return campaignTokens.has(expandToken(keyword));
+  return familyTokens.some(t=>campaignTokens.has(t)); // ANY meaningful word overlapping is enough for this fallback tier
 }
 function skusForFamilyInMarketGroup(family, marketGroup){
   return state.catalog.filter(r=>r.family===family && r.marketGroup===marketGroup).map(r=>r.sku);
