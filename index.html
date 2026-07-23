@@ -3981,15 +3981,21 @@ const FAMILY_MATCH_ABBREVIATIONS = {
 function expandToken(t){
   return FAMILY_MATCH_ABBREVIATIONS[t] || t;
 }
+function singularize(t){
+  if(t.length > 3 && t.endsWith('ies')) return t.slice(0,-3)+'y'; // e.g. "families" -> "family"
+  if(t.length > 3 && t.endsWith('es') && /[sxz]$|[cs]h$/.test(t.slice(0,-2))) return t.slice(0,-2); // e.g. "boxes" -> "box"
+  if(t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) return t.slice(0,-1); // e.g. "pillows" -> "pillow"
+  return t;
+}
 function familyMatchTokens(family){
   return (family||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/)
     .filter(t=>t && !FAMILY_MATCH_STOPWORDS.has(t) && !/^\d+$/.test(t))
-    .map(expandToken);
+    .map(t=>expandToken(singularize(t)));
 }
 function campaignTokenSet(campaignName){
   return new Set(
     (campaignName||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/)
-      .filter(Boolean).map(expandToken)
+      .filter(Boolean).map(t=>expandToken(singularize(t)))
   );
 }
 function campaignMatchesFamily(campaignName, family){
