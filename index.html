@@ -3971,18 +3971,43 @@ function skusForParentAsinInMarketGroup(parentAsin, marketGroup){
   return state.catalog.filter(r=>r.parentAsin===parentAsin && r.marketGroup===marketGroup).map(r=>r.sku);
 }
 const FAMILY_MATCH_STOPWORDS = new Set(['pool','cover','covers','the','a','an','and','-','&','ft','feet']);
+const FAMILY_MATCH_ABBREVIATIONS = {
+  rec:'rectangle', rect:'rectangle', rectangular:'rectangle', rectangle:'rectangle',
+  ov:'oval', oval:'oval',
+  rd:'round', rnd:'round', round:'round',
+  sq:'square', square:'square',
+  sol:'solar', solar:'solar',
+};
+function expandToken(t){
+  return FAMILY_MATCH_ABBREVIATIONS[t] || t;
+}
 function familyMatchTokens(family){
   return (family||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/)
-    .filter(t=>t && !FAMILY_MATCH_STOPWORDS.has(t) && !/^\d+$/.test(t));
+    .filter(t=>t && !FAMILY_MATCH_STOPWORDS.has(t) && !/^\d+$/.test(t))
+    .map(expandToken);
+}
+function campaignTokenSet(campaignName){
+  return new Set(
+    (campaignName||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/)
+      .filter(Boolean).map(expandToken)
+  );
 }
 function campaignMatchesFamily(campaignName, family){
   const tokens = familyMatchTokens(family);
   if(tokens.length < 2) return false; // require at least 2 meaningful words — avoids over-matching on one generic term
-  const nameLower = (campaignName||'').toLowerCase();
-  return tokens.every(t=>nameLower.includes(t));
+  const campaignTokens = campaignTokenSet(campaignName);
+  return tokens.every(t=>campaignTokens.has(t));
+}
+function campaignMatchesSingleKeyword(campaignName, keyword){
+  const campaignTokens = campaignTokenSet(campaignName);
+  return campaignTokens.has(expandToken(keyword));
 }
 function skusForFamilyInMarketGroup(family, marketGroup){
   return state.catalog.filter(r=>r.family===family && r.marketGroup===marketGroup).map(r=>r.sku);
+}
+function skusForHighLevelFamilyInMarketGroup(highLevelFamily, marketGroup){
+  const memberFamilies = state.familyGroups.filter(g=>g.highLevelFamily===highLevelFamily).map(g=>g.productFamily);
+  return state.catalog.filter(r=>memberFamilies.includes(r.family) && r.marketGroup===marketGroup).map(r=>r.sku);
 }
 
 let pendingAdReportPlan = null;
@@ -3995,11 +4020,13 @@ function planAdvertisingReportSpend(rows, header, year){
 
   const marketGroupOf = market => market==='EU' ? 'EU' : 'USA_CA';
   const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean)));
+  const highLevelFamilies = Array.from(new Set(state.familyGroups.map(g=>g.highLevelFamily).filter(Boolean)));
 
   const spendPerSku = {}; // key: sku|month|market|country -> amount
-  const tierCounts = { direct: 0, parent: 0, family: 0, unmatched: 0 };
-  const tierAmounts = { direct: 0, parent: 0, family: 0, unmatched: 0 };
+  const tierCounts = { direct: 0, parent: 0, family: 0, highLevel: 0, unmatched: 0 };
+  const tierAmounts = { direct: 0, parent: 0, family: 0, highLevel: 0, unmatched: 0 };
   const familyMatchesFound = {}; // family -> {amount, campaignNames:Set}
+  const highLevelMatchesFound = {}; // high-level family -> {amount, campaignNames:Set}
   const unmatchedCampaigns = {}; // campaignName -> amount
 
   function addSpend(sku, month, market, country, amount, tier){
@@ -4043,12 +4070,24 @@ function planAdvertisingReportSpend(rows, header, year){
         continue;
       }
     }
+    const matchedHighLevel = highLevelFamilies.find(hl=>campaignMatchesSingleKeyword(name, hl));
+    if(matchedHighLevel){
+      const skus = skusForHighLevelFamilyInMarketGroup(matchedHighLevel, marketGroup);
+      if(skus.length){
+        const share = cost / skus.length;
+        skus.forEach(sku=>addSpend(sku, monthStr, mapping.market, mapping.country, share, 'highLevel'));
+        if(!highLevelMatchesFound[matchedHighLevel]) highLevelMatchesFound[matchedHighLevel] = { amount:0, campaignNames:new Set() };
+        highLevelMatchesFound[matchedHighLevel].amount += cost;
+        highLevelMatchesFound[matchedHighLevel].campaignNames.add(name);
+        continue;
+      }
+    }
     tierCounts.unmatched++;
     tierAmounts.unmatched += cost;
     unmatchedCampaigns[name] = (unmatchedCampaigns[name]||0) + cost;
   }
 
-  return { spendPerSku, tierCounts, tierAmounts, familyMatchesFound, unmatchedCampaigns };
+  return { spendPerSku, tierCounts, tierAmounts, familyMatchesFound, highLevelMatchesFound, unmatchedCampaigns };
 }
 
 async function handleAdvertisingReportUpload(event){
@@ -4078,18 +4117,27 @@ async function handleAdvertisingReportUpload(event){
       pendingAdReportPlan = plan;
 
       const famList = Object.keys(plan.familyMatchesFound);
+      const hlList = Object.keys(plan.highLevelMatchesFound);
       let html = `
         <div style="border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:6px; background:#FAFBFC;">
           <strong>Preview — nothing saved yet</strong><br>
           Direct ASIN match: ${plan.tierCounts.direct} rows, ${fmt(plan.tierAmounts.direct)}<br>
           Parent ASIN match (split across siblings): ${plan.tierCounts.parent} rows, ${fmt(plan.tierAmounts.parent)}<br>
           Product Family match (split across family): ${plan.tierCounts.family} rows, ${fmt(plan.tierAmounts.family)}<br>
+          Single-keyword → High-Level Family match (split across whole family): ${plan.tierCounts.highLevel} rows, ${fmt(plan.tierAmounts.highLevel)}<br>
           Still unmatched: ${plan.tierCounts.unmatched} rows, ${fmt(plan.tierAmounts.unmatched)}
       `;
       if(famList.length){
         html += `<br><br><strong>Family matches found:</strong><br>`;
         famList.forEach(f=>{
           const info = plan.familyMatchesFound[f];
+          html += `${f}: ${fmt(info.amount)} — from "${Array.from(info.campaignNames).slice(0,2).join('", "')}${info.campaignNames.size>2?'...':''}"<br>`;
+        });
+      }
+      if(hlList.length){
+        html += `<br><strong>High-Level Family matches found (single keyword):</strong><br>`;
+        hlList.forEach(f=>{
+          const info = plan.highLevelMatchesFound[f];
           html += `${f}: ${fmt(info.amount)} — from "${Array.from(info.campaignNames).slice(0,2).join('", "')}${info.campaignNames.size>2?'...':''}"<br>`;
         });
       }
