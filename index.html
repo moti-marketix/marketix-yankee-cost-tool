@@ -239,6 +239,7 @@
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Fill in the Catalog, Manufacturing Costs, and Logistics &amp; Freight sheets in one file, then upload it once here — all three screens get populated in a single action. Add an optional "Catalog EU" sheet (same columns) for products with a different EU listing/ASIN — Manufacturing Costs and Logistics stay shared across all markets either way.</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
+          <button class="btn btn-ghost" onclick="downloadFullTemplateWithData()">&#8681; Download Template with Current Data</button>
           <button class="btn btn-primary" onclick="document.getElementById('full-template-upload').click()">&#8679; Upload Full Template</button>
           <input type="file" id="full-template-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleFullTemplateUpload(event)">
         </div>
@@ -306,6 +307,7 @@
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Download the shared template (same file as Catalog and Logistics), fill in the "Manufacturing Costs" sheet, then upload it here.</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
+          <button class="btn btn-ghost" onclick="downloadFullTemplateWithData()">&#8681; Download Template with Current Data</button>
           <button class="btn btn-primary" onclick="document.getElementById('mfg-upload').click()">&#8679; Upload Filled Template</button>
           <input type="file" id="mfg-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleMfgUpload(event)">
         </div>
@@ -363,6 +365,7 @@
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Download the shared template, fill in the "Logistics &amp; Freight" sheet, then upload it here.</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-ghost" onclick="downloadFullTemplate()">&#8681; Download Empty Template</button>
+          <button class="btn btn-ghost" onclick="downloadFullTemplateWithData()">&#8681; Download Template with Current Data</button>
           <button class="btn btn-primary" onclick="document.getElementById('logistics-upload').click()">&#8679; Upload Filled Template</button>
           <input type="file" id="logistics-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleLogisticsUpload(event)">
         </div>
@@ -914,12 +917,12 @@ async function loadAllFromSupabase(){
       marketGroup: r.market_group || 'USA_CA',
       brand: r.brand||'', family: r.product_family||'', status: r.status||'Active',
     }));
-    state.mfg = (mfgRes.data||[]).map(r=>({ id: r.id, sku: r.sku, mfgCost: r.mfg_cost }));
+    state.mfg = (mfgRes.data||[]).map(r=>({ id: r.id, sku: r.sku, mfgCost: r.mfg_cost, marketGroup: r.market_group || 'USA_CA' }));
     state.logistics = {
       avgCbmPrice: settingsRes.data ? settingsRes.data.avg_cbm_price : null,
       items: (logisticsRes.data||[]).map(r=>({
         id: r.id, sku: r.sku, l: r.carton_l, w: r.carton_w, h: r.carton_h,
-        weight: r.weight_kg, unitsPerCarton: r.units_per_carton,
+        weight: r.weight_kg, unitsPerCarton: r.units_per_carton, marketGroup: r.market_group || 'USA_CA',
       })),
     };
     state.warehouse = (warehouseRes.data||[]).map(r=>({ id: r.id, month: r.month, invoiceAmount: r.invoice_amount, invoiceFilePath: r.invoice_file_path, invoiceFileName: r.invoice_file_name, market: r.market || 'USA', country: r.country || '' }));
@@ -1008,7 +1011,7 @@ async function saveCatalogRow(row){
   return result;
 }
 async function saveMfgRow(row){
-  const payload = { client_id: CLIENT_ID, sku: row.sku, mfg_cost: row.mfgCost, updated_at: new Date().toISOString() };
+  const payload = { client_id: CLIENT_ID, sku: row.sku, mfg_cost: row.mfgCost, market_group: row.marketGroup || 'USA_CA', updated_at: new Date().toISOString() };
   const result = await upsertRow('manufacturing_costs', row, payload);
   row.id = result.id;
   return result;
@@ -1016,7 +1019,7 @@ async function saveMfgRow(row){
 async function saveLogisticsRow(row){
   const payload = {
     client_id: CLIENT_ID, sku: row.sku, carton_l: row.l, carton_w: row.w, carton_h: row.h,
-    weight_kg: row.weight, units_per_carton: row.unitsPerCarton, updated_at: new Date().toISOString(),
+    weight_kg: row.weight, units_per_carton: row.unitsPerCarton, market_group: row.marketGroup || 'USA_CA', updated_at: new Date().toISOString(),
   };
   const result = await upsertRow('logistics', row, payload);
   row.id = result.id;
@@ -1047,8 +1050,9 @@ function onEuCountryChange(){
   refreshAllMarketScopedPages();
 }
 function refreshAllMarketScopedPages(){
-  // Catalog is now market-scoped too — Manufacturing Costs and Logistics dimensions remain shared and don't depend on market.
   renderCatalog();
+  renderMfg();
+  renderLogistics();
   renderShipments();
   renderWarehouse();
   renderSku();
@@ -1506,6 +1510,14 @@ function catalogRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
   return state.catalog.find(r=>r.sku===sku && r.marketGroup===marketGroup);
 }
+function mfgRowForSku(sku){
+  const marketGroup = currentCatalogMarketGroup();
+  return state.mfg.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+}
+function logisticsRowForSku(sku){
+  const marketGroup = currentCatalogMarketGroup();
+  return state.logistics.items.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+}
 function catalogNameForSku(sku){
   const cat = catalogRowForSku(sku);
   return cat ? (cat.name||'') : '';
@@ -1797,7 +1809,9 @@ function renderMfg(){
     `;
   }
 
+  const currentMfgMarketGroup = currentCatalogMarketGroup();
   const visibleEntries = state.mfg.map((row, idx)=>({row, idx})).filter(({row})=>{
+    if((row.marketGroup||'USA_CA') !== currentMfgMarketGroup) return false;
     const asin = catalogAsinForSku(row.sku);
     const parentAsin = catalogParentAsinForSku(row.sku);
     const family = catalogFamilyForSku(row.sku);
@@ -1878,7 +1892,7 @@ function renderMfg(){
 }
 function addMfgRow(){
   if(!editModeState.mfg){ enterEditMode('mfg'); }
-  state.mfg.push({sku:'', mfgCost:null});
+  state.mfg.push({sku:'', mfgCost:null, marketGroup: currentCatalogMarketGroup()});
   renderMfg();
 }
 function updateMfg(idx, field, value){
@@ -1934,30 +1948,32 @@ function buildCatalogSheet(){
   return ws;
 }
 
-function buildMfgSheet(){
+function buildMfgSheet(catalogSheetName){
+  catalogSheetName = catalogSheetName || 'Catalog';
   const ws = {};
-  setCell(ws, 1, 1, "SKU, ASIN, and Product Name pull automatically from the Catalog sheet — don't edit those columns here. Enter the Manufacturing Cost per Unit (USD) in the COST column.");
+  setCell(ws, 1, 1, `SKU, ASIN, and Product Name pull automatically from the '${catalogSheetName}' sheet — don't edit those columns here. Enter the Manufacturing Cost per Unit (USD) in the COST column.`);
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:3}}];
   ["SKU","ASIN","PRODUCT NAME","COST"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
   for(let r=TPL_EXAMPLE_ROW; r<=TPL_DATA_END; r++){
-    setFormula(ws, r, 1, `IF(Catalog!A${r}="","",Catalog!A${r})`);
-    setFormula(ws, r, 2, `IF(Catalog!B${r}="","",Catalog!B${r})`);
-    setFormula(ws, r, 3, `IF(Catalog!D${r}="","",Catalog!D${r})`);
+    setFormula(ws, r, 1, `IF('${catalogSheetName}'!A${r}="","",'${catalogSheetName}'!A${r})`);
+    setFormula(ws, r, 2, `IF('${catalogSheetName}'!B${r}="","",'${catalogSheetName}'!B${r})`);
+    setFormula(ws, r, 3, `IF('${catalogSheetName}'!D${r}="","",'${catalogSheetName}'!D${r})`);
   }
-  setCell(ws, TPL_EXAMPLE_ROW, 5, "<- example SKU (from Catalog); enter its cost here, or delete the example in Catalog");
+  setCell(ws, TPL_EXAMPLE_ROW, 5, `<- example SKU (from ${catalogSheetName}); enter its cost here, or delete the example in ${catalogSheetName}`);
   extendRange(ws, TPL_DATA_END, 5);
   ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:14},{wch:44}];
   return ws;
 }
 
-function buildLogisticsSheet(){
+function buildLogisticsSheet(catalogSheetName){
+  catalogSheetName = catalogSheetName || 'Catalog';
   const ws = {};
-  setCell(ws, 1, 1, "SKU and ASIN pull automatically from the Catalog sheet. Enter master carton dimensions, weight, and units per carton — CBM calculates itself. (Avg Price per CBM is set separately, inside the tool.)");
+  setCell(ws, 1, 1, `SKU and ASIN pull automatically from the '${catalogSheetName}' sheet. Enter master carton dimensions, weight, and units per carton — CBM calculates itself. (Avg Price per CBM is set separately, inside the tool.)`);
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:7}}];
   ["SKU","ASIN","CARTON L (CM)","CARTON W (CM)","CARTON H (CM)","WEIGHT (KG)","UNITS / CARTON","CBM (M3)"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
   for(let r=TPL_EXAMPLE_ROW; r<=TPL_DATA_END; r++){
-    setFormula(ws, r, 1, `IF(Catalog!A${r}="","",Catalog!A${r})`);
-    setFormula(ws, r, 2, `IF(Catalog!B${r}="","",Catalog!B${r})`);
+    setFormula(ws, r, 1, `IF('${catalogSheetName}'!A${r}="","",'${catalogSheetName}'!A${r})`);
+    setFormula(ws, r, 2, `IF('${catalogSheetName}'!B${r}="","",'${catalogSheetName}'!B${r})`);
     setFormula(ws, r, 8, `IF(OR(C${r}="",D${r}="",E${r}=""),"",C${r}*D${r}*E${r}/1000000)`);
   }
   setCell(ws, TPL_EXAMPLE_ROW, 9, "<- CBM calculates automatically once L / W / H are filled in");
@@ -1971,12 +1987,16 @@ function buildInstructionsSheet(){
   const lines = [
     "HOW THIS TEMPLATE WORKS",
     "",
-    "Catalog, Manufacturing Costs, and Logistics & Freight are SHARED across USA and Canada — fill in the",
-    "Catalog sheet once and it applies to both markets automatically.",
+    "Catalog, Manufacturing Costs, and Logistics & Freight are SHARED across USA and Canada — fill in",
+    "the regular sheets once and they apply to both markets automatically.",
     "",
-    "EU (Germany / Italy / France / Spain) uses different ASINs, so it has its OWN separate sheet:",
-    "'Catalog EU' — same columns as Catalog, just for EU listings. Manufacturing Costs and Logistics",
-    "still apply to EU too (those are shared across every market — no separate EU sheet needed there).",
+    "EU (Germany / Italy / France / Spain) uses different ASINs, costs, and dimensions in some cases,",
+    "so it has its OWN separate sheets: 'Catalog EU', 'Manufacturing Costs EU', and 'Logistics & Freight",
+    "EU' — same columns as their USA/Canada counterparts, just for EU listings.",
+    "",
+    "Before uploading this file, set the tool's sidebar Market dropdown to whichever one you're updating",
+    "(USA/Canada share one setting; EU is separate) — that determines which sheets get applied to which",
+    "market's data.",
     "",
     "For SHIPMENT COSTS and WAREHOUSE INVOICES (uploaded separately, not part of this file):",
     "1. In the tool's sidebar, set the Market dropdown to the correct one BEFORE uploading",
@@ -1992,13 +2012,96 @@ function buildInstructionsSheet(){
   return ws;
 }
 
+// --- "With data" variants: same layout, pre-filled with everything currently in the tool ---
+function buildCatalogSheetWithData(marketGroup){
+  const ws = {};
+  setCell(ws, 1, 1, "Your existing data — add new SKUs at the bottom, or edit values directly, then re-upload.");
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:6}}];
+  const headers = ["SKU","ASIN","PARENT ASIN","PRODUCT NAME","BRAND","PRODUCT FAMILY","STATUS"];
+  headers.forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
+  const rows = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  rows.forEach((r, idx)=>{
+    const rowNum = TPL_EXAMPLE_ROW + idx;
+    setCell(ws, rowNum, 1, r.sku||'');
+    setCell(ws, rowNum, 2, r.asin||'');
+    setCell(ws, rowNum, 3, r.parentAsin||'');
+    setCell(ws, rowNum, 4, r.name||'');
+    setCell(ws, rowNum, 5, r.brand||'');
+    setCell(ws, rowNum, 6, r.family||'');
+    setCell(ws, rowNum, 7, r.status||'Active');
+  });
+  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + rows.length + 20), 7);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:14},{wch:30},{wch:14},{wch:18},{wch:14}];
+  return ws;
+}
+function buildMfgSheetWithData(marketGroup, catalogSheetName){
+  const ws = {};
+  setCell(ws, 1, 1, `Your existing data — add new SKUs at the bottom (matching '${catalogSheetName}'), or edit costs directly, then re-upload.`);
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:3}}];
+  ["SKU","ASIN","PRODUCT NAME","COST"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
+  const rows = state.mfg.filter(r=>r.marketGroup===marketGroup);
+  rows.forEach((r, idx)=>{
+    const rowNum = TPL_EXAMPLE_ROW + idx;
+    setCell(ws, rowNum, 1, r.sku||'');
+    setCell(ws, rowNum, 2, catalogAsinForSkuInGroup(r.sku, marketGroup)||'');
+    setCell(ws, rowNum, 3, catalogNameForSkuInGroup(r.sku, marketGroup)||'');
+    setCell(ws, rowNum, 4, r.mfgCost!==null && r.mfgCost!==undefined ? r.mfgCost : '');
+  });
+  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + rows.length + 20), 4);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:14}];
+  return ws;
+}
+function buildLogisticsSheetWithData(marketGroup, catalogSheetName){
+  const ws = {};
+  setCell(ws, 1, 1, `Your existing data — add new SKUs at the bottom (matching '${catalogSheetName}'), or edit values directly, then re-upload.`);
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:7}}];
+  ["SKU","ASIN","CARTON L (CM)","CARTON W (CM)","CARTON H (CM)","WEIGHT (KG)","UNITS / CARTON","CBM (M3)"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
+  const rows = state.logistics.items.filter(r=>r.marketGroup===marketGroup);
+  rows.forEach((r, idx)=>{
+    const rowNum = TPL_EXAMPLE_ROW + idx;
+    setCell(ws, rowNum, 1, r.sku||'');
+    setCell(ws, rowNum, 2, catalogAsinForSkuInGroup(r.sku, marketGroup)||'');
+    setCell(ws, rowNum, 3, r.l??'');
+    setCell(ws, rowNum, 4, r.w??'');
+    setCell(ws, rowNum, 5, r.h??'');
+    setCell(ws, rowNum, 6, r.weight??'');
+    setCell(ws, rowNum, 7, r.unitsPerCarton??'');
+    const cbm = computeCbm(r.l, r.w, r.h);
+    setCell(ws, rowNum, 8, cbm!==null ? cbm : '');
+  });
+  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + rows.length + 20), 8);
+  ws['!cols'] = [{wch:16},{wch:14},{wch:13},{wch:13},{wch:13},{wch:13},{wch:14},{wch:12}];
+  return ws;
+}
+function catalogAsinForSkuInGroup(sku, marketGroup){
+  const row = state.catalog.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+  return row ? row.asin : '';
+}
+function catalogNameForSkuInGroup(sku, marketGroup){
+  const row = state.catalog.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+  return row ? row.name : '';
+}
+function downloadFullTemplateWithData(){
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildInstructionsSheet(), "Instructions");
+  XLSX.utils.book_append_sheet(wb, buildCatalogSheetWithData('USA_CA'), "Catalog");
+  XLSX.utils.book_append_sheet(wb, buildCatalogSheetWithData('EU'), "Catalog EU");
+  XLSX.utils.book_append_sheet(wb, buildMfgSheetWithData('USA_CA','Catalog'), "Manufacturing Costs");
+  XLSX.utils.book_append_sheet(wb, buildMfgSheetWithData('EU','Catalog EU'), "Manufacturing Costs EU");
+  XLSX.utils.book_append_sheet(wb, buildLogisticsSheetWithData('USA_CA','Catalog'), "Logistics & Freight");
+  XLSX.utils.book_append_sheet(wb, buildLogisticsSheetWithData('EU','Catalog EU'), "Logistics & Freight EU");
+  XLSX.writeFile(wb, "Yankee_Data_Template_Current_Data.xlsx");
+}
+
 function downloadFullTemplate(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, buildInstructionsSheet(), "Instructions");
   XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog");
   XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog EU");
-  XLSX.utils.book_append_sheet(wb, buildMfgSheet(), "Manufacturing Costs");
-  XLSX.utils.book_append_sheet(wb, buildLogisticsSheet(), "Logistics & Freight");
+  XLSX.utils.book_append_sheet(wb, buildMfgSheet('Catalog'), "Manufacturing Costs");
+  XLSX.utils.book_append_sheet(wb, buildMfgSheet('Catalog EU'), "Manufacturing Costs EU");
+  XLSX.utils.book_append_sheet(wb, buildLogisticsSheet('Catalog'), "Logistics & Freight");
+  XLSX.utils.book_append_sheet(wb, buildLogisticsSheet('Catalog EU'), "Logistics & Freight EU");
   XLSX.writeFile(wb, "Yankee_Data_Template.xlsx");
 }
 
@@ -2033,21 +2136,38 @@ function handleFullTemplateUpload(event){
       statusEl.textContent = 'Importing Manufacturing Costs...';
       const mfgWs = findSheet(wb, 'Manufacturing Costs');
       const mfgRows = XLSX.utils.sheet_to_json(mfgWs, {header:1, defval:null});
-      const mfgResult = await parseAndSaveMfgRows(mfgRows, null);
+      const mfgResult = await parseAndSaveMfgRows(mfgRows, null, 'USA_CA');
+
+      let mfgEuResult = { success: true, rowsImported: 0, rowsSkipped: 0 };
+      const mfgEuWs = findSheetOptional(wb, 'Manufacturing Costs EU');
+      if(mfgEuWs){
+        statusEl.textContent = 'Importing Manufacturing Costs (EU)...';
+        const mfgEuRows = XLSX.utils.sheet_to_json(mfgEuWs, {header:1, defval:null});
+        mfgEuResult = await parseAndSaveMfgRows(mfgEuRows, null, 'EU');
+      }
 
       statusEl.textContent = 'Importing Logistics & Freight...';
       const logWs = findSheet(wb, 'Logistics & Freight');
       const logRows = XLSX.utils.sheet_to_json(logWs, {header:1, defval:null});
-      const logResult = await parseAndSaveLogisticsRows(logRows, null);
+      const logResult = await parseAndSaveLogisticsRows(logRows, null, 'USA_CA');
 
-      const allSucceeded = [catalogResult, catalogEuResult, mfgResult, logResult].every(r => r && r.success);
-      const totalImported = [catalogResult, catalogEuResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
-      const totalSkipped = [catalogResult, catalogEuResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
+      let logEuResult = { success: true, rowsImported: 0, rowsSkipped: 0 };
+      const logEuWs = findSheetOptional(wb, 'Logistics & Freight EU');
+      if(logEuWs){
+        statusEl.textContent = 'Importing Logistics & Freight (EU)...';
+        const logEuRows = XLSX.utils.sheet_to_json(logEuWs, {header:1, defval:null});
+        logEuResult = await parseAndSaveLogisticsRows(logEuRows, null, 'EU');
+      }
+
+      const allResults = [catalogResult, catalogEuResult, mfgResult, mfgEuResult, logResult, logEuResult];
+      const allSucceeded = allResults.every(r => r && r.success);
+      const totalImported = allResults.reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
+      const totalSkipped = allResults.reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
       await updateRawFileStats(fileId, { success: allSucceeded, rowsImported: totalImported, rowsSkipped: totalSkipped });
 
       const euNote = catalogEuWs ? `, Catalog EU (${state.catalog.filter(r=>r.marketGroup==='EU').length} SKUs)` : ' (no "Catalog EU" sheet found — EU catalog unchanged)';
       statusEl.style.color = 'var(--green)';
-      statusEl.textContent = `Done — imported Catalog (${state.catalog.filter(r=>r.marketGroup==='USA_CA').length} SKUs)${euNote}, Manufacturing Costs (${state.mfg.length} SKUs), and Logistics (${state.logistics.items.length} SKUs).`;
+      statusEl.textContent = `Done — imported Catalog (${state.catalog.filter(r=>r.marketGroup==='USA_CA').length} SKUs)${euNote}, Manufacturing Costs (${state.mfg.filter(r=>r.marketGroup==='USA_CA').length} SKUs${mfgEuWs?`, +${state.mfg.filter(r=>r.marketGroup==='EU').length} EU`:''}), and Logistics (${state.logistics.items.filter(r=>r.marketGroup==='USA_CA').length} SKUs${logEuWs?`, +${state.logistics.items.filter(r=>r.marketGroup==='EU').length} EU`:''}).`;
     }catch(err){
       console.error(err);
       statusEl.style.color = 'var(--red)';
@@ -2059,7 +2179,8 @@ function handleFullTemplateUpload(event){
 }
 
 // --- Bulk import: upload filled template ---
-async function parseAndSaveMfgRows(rows, statusEl){
+async function parseAndSaveMfgRows(rows, statusEl, marketGroup){
+  marketGroup = marketGroup || 'USA_CA';
   let headerRowIdx = -1, headerMap = {};
   for(let i=0; i<Math.min(rows.length,10); i++){
     const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
@@ -2089,13 +2210,13 @@ async function parseAndSaveMfgRows(rows, statusEl){
     if(!sku || costNum===null){ skipped++; continue; }
 
     const skuStr = String(sku).trim();
-    const existing = state.mfg.find(r=>r.sku===skuStr);
+    const existing = state.mfg.find(r=>r.sku===skuStr && (r.marketGroup||'USA_CA')===marketGroup);
     if(existing){
       existing.mfgCost = costNum;
       rowsToSave.push(existing);
       updated++;
     } else {
-      const newRow = {sku: skuStr, mfgCost: costNum};
+      const newRow = {sku: skuStr, mfgCost: costNum, marketGroup};
       state.mfg.push(newRow);
       rowsToSave.push(newRow);
       added++;
@@ -2134,7 +2255,7 @@ function handleMfgUpload(event){
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Manufacturing Costs');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      const result = await parseAndSaveMfgRows(rows, statusEl);
+      const result = await parseAndSaveMfgRows(rows, statusEl, currentCatalogMarketGroup());
       await updateRawFileStats(fileId, result);
     }catch(err){
       statusEl.style.color = 'var(--red)';
@@ -2170,6 +2291,7 @@ function toggleLogisticsSort(column){
 function renderLogistics(){
   const level = document.getElementById('logistics-level').value;
   const ls = logisticsSortState;
+  const currentLogMarketGroup = currentCatalogMarketGroup();
   const headerRow = document.getElementById('logistics-header-row');
   const tbody = document.querySelector('#logistics-table tbody');
   tbody.innerHTML = '';
@@ -2225,6 +2347,7 @@ function renderLogistics(){
     ].join('');
 
     const visibleEntries = state.logistics.items.map((row, idx)=>({row, idx})).filter(({row})=>{
+      if((row.marketGroup||'USA_CA') !== currentLogMarketGroup) return false;
       const asin = catalogAsinForSku(row.sku);
       const parentAsin = catalogParentAsinForSku(row.sku);
       const family = catalogFamilyForSku(row.sku);
@@ -2316,6 +2439,7 @@ function renderLogistics(){
     ].join('');
 
     let visibleEntries = state.logistics.items.map((row, idx)=>({row, idx})).filter(({row})=>{
+      if((row.marketGroup||'USA_CA') !== currentLogMarketGroup) return false;
       const asin = catalogAsinForSku(row.sku);
       const parentAsin = catalogParentAsinForSku(row.sku);
       const family = catalogFamilyForSku(row.sku);
@@ -2348,7 +2472,7 @@ function renderLogistics(){
 }
 function addLogisticsRow(){
   if(!editModeState.logistics){ enterEditMode('logistics'); }
-  state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null});
+  state.logistics.items.push({sku:'', l:null, w:null, h:null, weight:null, unitsPerCarton:null, marketGroup: currentCatalogMarketGroup()});
   renderLogistics();
 }
 function updateLogistics(idx, field, value){
@@ -2366,7 +2490,8 @@ function deleteLogistics(idx){
   renderLogistics();
   deleteRow('logistics', row.id);
 }
-async function parseAndSaveLogisticsRows(rows, statusEl){
+async function parseAndSaveLogisticsRows(rows, statusEl, marketGroup){
+  marketGroup = marketGroup || 'USA_CA';
   let headerRowIdx = -1, headerMap = {};
   for(let i=0; i<Math.min(rows.length,10); i++){
     const cells = (rows[i]||[]).map(c => c===null ? '' : String(c).trim().toUpperCase());
@@ -2405,8 +2530,9 @@ async function parseAndSaveLogisticsRows(rows, statusEl){
       l, w, h,
       weight: wt,
       unitsPerCarton: u,
+      marketGroup,
     };
-    const existing = state.logistics.items.find(r=>r.sku===skuStr);
+    const existing = state.logistics.items.find(r=>r.sku===skuStr && (r.marketGroup||'USA_CA')===marketGroup);
     if(existing){
       Object.assign(existing, rowData);
       rowsToSave.push(existing);
@@ -2450,7 +2576,7 @@ function handleLogisticsUpload(event){
       const wb = XLSX.read(data, {type:'array'});
       const ws = findSheet(wb, 'Logistics & Freight');
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      const result = await parseAndSaveLogisticsRows(rows, statusEl);
+      const result = await parseAndSaveLogisticsRows(rows, statusEl, currentCatalogMarketGroup());
       await updateRawFileStats(fileId, result);
     }catch(err){
       statusEl.style.color = 'var(--red)';
@@ -2495,7 +2621,7 @@ function totalCartonsHandled(){
   const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
   let total = 0;
   skusWithShipments.forEach(sku=>{
-    const logRow = state.logistics.items.find(r=>r.sku===sku);
+    const logRow = logisticsRowForSku(sku);
     if(!logRow || !logRow.unitsPerCarton) return;
     const units = unitsShippedToWhForSku(sku);
     if(units > 0) total += units / logRow.unitsPerCarton;
@@ -2512,7 +2638,7 @@ function warehouseCostPerUnitForSku(sku){
   if(isWarehouseExcludedForSku(sku)) return null;
   const cpc = costPerCarton();
   if(cpc === null) return null;
-  const logRow = state.logistics.items.find(r=>r.sku===sku);
+  const logRow = logisticsRowForSku(sku);
   if(!logRow || !logRow.unitsPerCarton) return null;
   return cpc / logRow.unitsPerCarton;
 }
@@ -2643,7 +2769,7 @@ function renderWarehouse(){
         pr.skus.slice().sort().forEach(sku=>{
           const units = unitsShippedToWhForSku(sku);
           if(!units) return;
-          const logRow = state.logistics.items.find(r=>r.sku===sku);
+          const logRow = logisticsRowForSku(sku);
           const cost = warehouseCostPerUnitForSku(sku);
           const childTr = document.createElement('tr');
           childTr.style.background = '#FAFBFC';
@@ -2667,7 +2793,7 @@ function renderWarehouse(){
     ].join('');
 
     let rows = skusWithShipments.map(sku=>{
-      const logRow = state.logistics.items.find(r=>r.sku===sku);
+      const logRow = logisticsRowForSku(sku);
       const units = unitsShippedToWhForSku(sku);
       return {
         sku,
@@ -2983,7 +3109,7 @@ function shipmentFreightDataForSku(sku){
   if(!totalUnits) return null;
 
   const weightedAvgCostPerCbm = weightedCostPerCbmSum / totalUnits;
-  const logRow = state.logistics.items.find(r=>r.sku===sku);
+  const logRow = logisticsRowForSku(sku);
   const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
   const cbmPerUnit = (cbm && logRow.unitsPerCarton) ? (cbm / logRow.unitsPerCarton) : null;
   const freightPerUnit = cbmPerUnit!==null ? weightedAvgCostPerCbm * cbmPerUnit : null;
@@ -4306,7 +4432,7 @@ async function handleSkuEconomicsReportUpload(event){
 
 // ---------------- SUMMARY ----------------
 function landedCostForSku(sku){
-  const mfgRow = state.mfg.find(r=>r.sku===sku);
+  const mfgRow = mfgRowForSku(sku);
   const mfgCost = mfgRow ? mfgRow.mfgCost : null;
 
   // Freight cost now comes exclusively from real shipment data (Shipment Costs page) —
@@ -4498,7 +4624,7 @@ function showCogsBreakdown(key, level){
   const skuRowsHtml = Object.keys(bySku).sort().map(sku=>{
     const skuRows = bySku[sku];
     const units = skuRows.reduce((s,r)=>s+(r.units||0),0);
-    const mfgRow = state.mfg.find(r=>r.sku===sku);
+    const mfgRow = mfgRowForSku(sku);
     const mfgCost = mfgRow ? mfgRow.mfgCost : null;
     const shipmentData = shipmentFreightDataForSku(sku);
     const freight = shipmentData ? shipmentData.freightPerUnit : null;
@@ -5174,8 +5300,8 @@ async function reparseRawFile(id, opts){
 
     let result;
     if(fileRow.screen === 'catalog') result = await parseAndSaveCatalogRows(rows, null);
-    else if(fileRow.screen === 'manufacturing_costs') result = await parseAndSaveMfgRows(rows, null);
-    else if(fileRow.screen === 'logistics') result = await parseAndSaveLogisticsRows(rows, null);
+    else if(fileRow.screen === 'manufacturing_costs') result = await parseAndSaveMfgRows(rows, null, (fileRow.market||'USA')==='EU' ? 'EU' : 'USA_CA');
+    else if(fileRow.screen === 'logistics') result = await parseAndSaveLogisticsRows(rows, null, (fileRow.market||'USA')==='EU' ? 'EU' : 'USA_CA');
     else if(fileRow.screen === 'sku_economics') result = await parseAmazonSkuEconomicsReport(rows, null, fileRow.market || 'USA', fileRow.country || '');
 
     if(fileRow.screen === 'sku_economics' && result){
