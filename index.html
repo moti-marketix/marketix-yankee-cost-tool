@@ -2008,18 +2008,26 @@ function buildInstructionsSheet(){
     "   never overwrite another market's data.",
   ];
   lines.forEach((line,i)=> setCell(ws, i+1, 1, line));
+  extendRange(ws, lines.length, 1);
   ws['!cols'] = [{wch:100}];
   return ws;
 }
 
 // --- "With data" variants: same layout, pre-filled with everything currently in the tool ---
+function sortCatalogRowsByFamily(rows){
+  return rows.slice().sort((a,b)=>{
+    const fa = (a.family||'').toLowerCase(), fb = (b.family||'').toLowerCase();
+    if(fa !== fb) return fa.localeCompare(fb);
+    return (a.sku||'').localeCompare(b.sku||'');
+  });
+}
 function buildCatalogSheetWithData(marketGroup){
   const ws = {};
   setCell(ws, 1, 1, "Your existing data — add new SKUs at the bottom, or edit values directly, then re-upload.");
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:6}}];
   const headers = ["SKU","ASIN","PARENT ASIN","PRODUCT NAME","BRAND","PRODUCT FAMILY","STATUS"];
   headers.forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
-  const rows = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  const rows = sortCatalogRowsByFamily(state.catalog.filter(r=>r.marketGroup===marketGroup));
   rows.forEach((r, idx)=>{
     const rowNum = TPL_EXAMPLE_ROW + idx;
     setCell(ws, rowNum, 1, r.sku||'');
@@ -2034,12 +2042,23 @@ function buildCatalogSheetWithData(marketGroup){
   ws['!cols'] = [{wch:16},{wch:14},{wch:14},{wch:30},{wch:14},{wch:18},{wch:14}];
   return ws;
 }
+function familyForSkuInGroup(sku, marketGroup){
+  const row = state.catalog.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+  return row ? (row.family||'') : '';
+}
+function sortRowsBySkuFamily(rows, marketGroup){
+  return rows.slice().sort((a,b)=>{
+    const fa = familyForSkuInGroup(a.sku, marketGroup).toLowerCase(), fb = familyForSkuInGroup(b.sku, marketGroup).toLowerCase();
+    if(fa !== fb) return fa.localeCompare(fb);
+    return (a.sku||'').localeCompare(b.sku||'');
+  });
+}
 function buildMfgSheetWithData(marketGroup, catalogSheetName){
   const ws = {};
   setCell(ws, 1, 1, `Your existing data — add new SKUs at the bottom (matching '${catalogSheetName}'), or edit costs directly, then re-upload.`);
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:3}}];
   ["SKU","ASIN","PRODUCT NAME","COST"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
-  const rows = state.mfg.filter(r=>r.marketGroup===marketGroup);
+  const rows = sortRowsBySkuFamily(state.mfg.filter(r=>r.marketGroup===marketGroup), marketGroup);
   rows.forEach((r, idx)=>{
     const rowNum = TPL_EXAMPLE_ROW + idx;
     setCell(ws, rowNum, 1, r.sku||'');
@@ -2056,7 +2075,7 @@ function buildLogisticsSheetWithData(marketGroup, catalogSheetName){
   setCell(ws, 1, 1, `Your existing data — add new SKUs at the bottom (matching '${catalogSheetName}'), or edit values directly, then re-upload.`);
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:7}}];
   ["SKU","ASIN","CARTON L (CM)","CARTON W (CM)","CARTON H (CM)","WEIGHT (KG)","UNITS / CARTON","CBM (M3)"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
-  const rows = state.logistics.items.filter(r=>r.marketGroup===marketGroup);
+  const rows = sortRowsBySkuFamily(state.logistics.items.filter(r=>r.marketGroup===marketGroup), marketGroup);
   rows.forEach((r, idx)=>{
     const rowNum = TPL_EXAMPLE_ROW + idx;
     setCell(ws, rowNum, 1, r.sku||'');
