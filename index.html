@@ -418,7 +418,7 @@
 
       <div class="card">
         <h2>Upload Shipment Cost File</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the shipment file — either the classic 2-sheet format, or the multi-brand format (a "{Brand}" sheet paired with a "{Brand} Shipment content" sheet, for each brand). Re-uploading replaces all shipment data with this file's contents.</p>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the shipment file — either the classic 2-sheet format, or the multi-brand format (a "{Brand}" sheet paired with a "{Brand} Shipment content" sheet, for each brand). Re-uploading replaces shipment data <strong>only for the Market (and, for EU, Country) currently selected in the sidebar</strong> — set that first. For EU, upload one country at a time (Germany, Italy, France, Spain separately).</p>
         <div class="btn-row" style="margin-top:0;">
           <button class="btn btn-primary" onclick="document.getElementById('shipments-upload').click()">&#8679; Upload Shipment File</button>
           <input type="file" id="shipments-upload" accept=".xlsx,.xls" style="display:none;" onchange="handleShipmentsUpload(event)">
@@ -486,7 +486,7 @@
     <!-- ===================== TAB 3: WAREHOUSE ===================== -->
     <section id="tab-warehouse" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Warehouse Costs</h1><div id="warehouse-lock-bar" class="lock-bar"></div></div>
-      <p class="subtitle">Real invoice total, normalized by carton size — items packed 1-per-box carry more of the handling cost per unit than items packed 10 or 20-per-box.</p>
+      <p class="subtitle">Real invoice total, normalized by carton size — items packed 1-per-box carry more of the handling cost per unit than items packed 10 or 20-per-box. <strong>Set the Market (and, for EU, Country) in the sidebar first</strong> — invoices you add or upload here are tagged to whichever one is currently selected.</p>
 
       <div class="kpi-grid" id="warehouse-kpis"></div>
 
@@ -1966,8 +1966,35 @@ function buildLogisticsSheet(){
   return ws;
 }
 
+function buildInstructionsSheet(){
+  const ws = {};
+  const lines = [
+    "HOW THIS TEMPLATE WORKS",
+    "",
+    "Catalog, Manufacturing Costs, and Logistics & Freight are SHARED across USA and Canada — fill in the",
+    "Catalog sheet once and it applies to both markets automatically.",
+    "",
+    "EU (Germany / Italy / France / Spain) uses different ASINs, so it has its OWN separate sheet:",
+    "'Catalog EU' — same columns as Catalog, just for EU listings. Manufacturing Costs and Logistics",
+    "still apply to EU too (those are shared across every market — no separate EU sheet needed there).",
+    "",
+    "For SHIPMENT COSTS and WAREHOUSE INVOICES (uploaded separately, not part of this file):",
+    "1. In the tool's sidebar, set the Market dropdown to the correct one BEFORE uploading",
+    "   (USA / Canada / EU).",
+    "2. If EU, also pick the specific country (Germany / Italy / France / Spain) — each country's",
+    "   shipment or warehouse file is uploaded ONE AT A TIME, tagged to whichever country is",
+    "   currently selected.",
+    "3. Uploading a new file only replaces data for the market/country you have selected — it will",
+    "   never overwrite another market's data.",
+  ];
+  lines.forEach((line,i)=> setCell(ws, i+1, 1, line));
+  ws['!cols'] = [{wch:100}];
+  return ws;
+}
+
 function downloadFullTemplate(){
   const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildInstructionsSheet(), "Instructions");
   XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog");
   XLSX.utils.book_append_sheet(wb, buildCatalogSheet(), "Catalog EU");
   XLSX.utils.book_append_sheet(wb, buildMfgSheet(), "Manufacturing Costs");
