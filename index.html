@@ -4340,6 +4340,7 @@ async function handleAdvertisingReportUpload(event){
   const reader = new FileReader();
   reader.onload = async function(e){
     try{
+      const fileId = await uploadRawFile(file, 'advertising_report');
       let text = e.target.result;
       if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
       const wb = XLSX.read(text, {type:'string'});
@@ -4348,6 +4349,7 @@ async function handleAdvertisingReportUpload(event){
       const header = (rows[0]||[]).map(c=>c===null?'':String(c).trim());
 
       const plan = planAdvertisingReportSpend(rows, header, year);
+      plan.fileId = fileId;
       pendingAdReportPlan = plan;
 
       const famList = Object.keys(plan.familyMatchesFound);
@@ -4420,6 +4422,9 @@ async function applyPendingAdReportPlan(){
 
   await Promise.all(rowsToSave.map(r=>saveSkuRow(r)));
   renderSku();
+  if(pendingAdReportPlan.fileId){
+    await updateRawFileStats(pendingAdReportPlan.fileId, { success: true, rowsImported: updated+created, rowsSkipped: pendingAdReportPlan.tierCounts.unmatched });
+  }
   statusEl.style.color = 'var(--green)';
   statusEl.textContent = `Done — Ad Spend updated for ${updated} row(s), ${created} new row(s) created.`;
   pendingAdReportPlan = null;
@@ -4912,6 +4917,7 @@ const SCREEN_LABELS = {
   logistics: 'Logistics & Freight',
   shipment_costs: 'Shipment Costs',
   sku_economics: 'SKU Economics',
+  advertising_report: 'Advertising Report',
 };
 
 async function loadRawFiles(){
@@ -4984,7 +4990,7 @@ function renderRawFiles(){
   });
   document.getElementById('files-empty').style.display = visibleFiles.length ? 'none' : 'block';
 
-  const screens = ['full_template', 'catalog', 'manufacturing_costs', 'logistics', 'shipment_costs', 'sku_economics'];
+  const screens = ['full_template', 'catalog', 'manufacturing_costs', 'logistics', 'shipment_costs', 'sku_economics', 'advertising_report'];
   screens.forEach(screen=>{
     const files = visibleFiles.filter(f=>f.screen===screen);
     if(!files.length) return;
