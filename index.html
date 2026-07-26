@@ -2055,40 +2055,42 @@ function sortRowsBySkuFamily(rows, marketGroup){
 }
 function buildMfgSheetWithData(marketGroup, catalogSheetName){
   const ws = {};
-  setCell(ws, 1, 1, `Your existing data — add new SKUs at the bottom (matching '${catalogSheetName}'), or edit costs directly, then re-upload.`);
+  setCell(ws, 1, 1, `Every SKU from '${catalogSheetName}' is listed here — fill in blank costs, or edit existing ones, then re-upload.`);
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:3}}];
   ["SKU","ASIN","PRODUCT NAME","COST"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
-  const rows = sortRowsBySkuFamily(state.mfg.filter(r=>r.marketGroup===marketGroup), marketGroup);
-  rows.forEach((r, idx)=>{
+  const catalogRows = sortCatalogRowsByFamily(state.catalog.filter(r=>r.marketGroup===marketGroup));
+  catalogRows.forEach((catRow, idx)=>{
     const rowNum = TPL_EXAMPLE_ROW + idx;
-    setCell(ws, rowNum, 1, r.sku||'');
-    setCell(ws, rowNum, 2, catalogAsinForSkuInGroup(r.sku, marketGroup)||'');
-    setCell(ws, rowNum, 3, catalogNameForSkuInGroup(r.sku, marketGroup)||'');
-    setCell(ws, rowNum, 4, r.mfgCost!==null && r.mfgCost!==undefined ? r.mfgCost : '');
+    const mfgRow = state.mfg.find(r=>r.sku===catRow.sku && r.marketGroup===marketGroup);
+    setCell(ws, rowNum, 1, catRow.sku||'');
+    setCell(ws, rowNum, 2, catRow.asin||'');
+    setCell(ws, rowNum, 3, catRow.name||'');
+    setCell(ws, rowNum, 4, (mfgRow && mfgRow.mfgCost!==null && mfgRow.mfgCost!==undefined) ? mfgRow.mfgCost : '');
   });
-  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + rows.length + 20), 4);
+  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + catalogRows.length + 20), 4);
   ws['!cols'] = [{wch:16},{wch:14},{wch:30},{wch:14}];
   return ws;
 }
 function buildLogisticsSheetWithData(marketGroup, catalogSheetName){
   const ws = {};
-  setCell(ws, 1, 1, `Your existing data — add new SKUs at the bottom (matching '${catalogSheetName}'), or edit values directly, then re-upload.`);
+  setCell(ws, 1, 1, `Every SKU from '${catalogSheetName}' is listed here — fill in blank dimensions, or edit existing ones, then re-upload.`);
   ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:7}}];
   ["SKU","ASIN","CARTON L (CM)","CARTON W (CM)","CARTON H (CM)","WEIGHT (KG)","UNITS / CARTON","CBM (M3)"].forEach((h,i)=> setCell(ws, TPL_HEADER_ROW, i+1, h));
-  const rows = sortRowsBySkuFamily(state.logistics.items.filter(r=>r.marketGroup===marketGroup), marketGroup);
-  rows.forEach((r, idx)=>{
+  const catalogRows = sortCatalogRowsByFamily(state.catalog.filter(r=>r.marketGroup===marketGroup));
+  catalogRows.forEach((catRow, idx)=>{
     const rowNum = TPL_EXAMPLE_ROW + idx;
-    setCell(ws, rowNum, 1, r.sku||'');
-    setCell(ws, rowNum, 2, catalogAsinForSkuInGroup(r.sku, marketGroup)||'');
-    setCell(ws, rowNum, 3, r.l??'');
-    setCell(ws, rowNum, 4, r.w??'');
-    setCell(ws, rowNum, 5, r.h??'');
-    setCell(ws, rowNum, 6, r.weight??'');
-    setCell(ws, rowNum, 7, r.unitsPerCarton??'');
-    const cbm = computeCbm(r.l, r.w, r.h);
+    const logRow = state.logistics.items.find(r=>r.sku===catRow.sku && r.marketGroup===marketGroup);
+    setCell(ws, rowNum, 1, catRow.sku||'');
+    setCell(ws, rowNum, 2, catRow.asin||'');
+    setCell(ws, rowNum, 3, logRow ? (logRow.l??'') : '');
+    setCell(ws, rowNum, 4, logRow ? (logRow.w??'') : '');
+    setCell(ws, rowNum, 5, logRow ? (logRow.h??'') : '');
+    setCell(ws, rowNum, 6, logRow ? (logRow.weight??'') : '');
+    setCell(ws, rowNum, 7, logRow ? (logRow.unitsPerCarton??'') : '');
+    const cbm = logRow ? computeCbm(logRow.l, logRow.w, logRow.h) : null;
     setCell(ws, rowNum, 8, cbm!==null ? cbm : '');
   });
-  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + rows.length + 20), 8);
+  extendRange(ws, Math.max(TPL_DATA_END, TPL_EXAMPLE_ROW + catalogRows.length + 20), 8);
   ws['!cols'] = [{wch:16},{wch:14},{wch:13},{wch:13},{wch:13},{wch:13},{wch:14},{wch:12}];
   return ws;
 }
