@@ -729,10 +729,10 @@
     <!-- ===================== EXECUTIVE SUMMARY ===================== -->
     <section id="tab-execsummary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Executive Summary</h1></div>
-      <p class="subtitle">A bright, at-a-glance view of how each product family is performing — grouped two levels deep.</p>
+      <p class="subtitle">Pick a Parent ASIN or Product Family below to see its key numbers.</p>
 
       <div class="card">
-        <div class="row-inline">
+        <div class="filter-bar">
           <div class="field">
             <label>Period</label>
             <select id="exec-period-type" onchange="onExecPeriodTypeChange()">
@@ -747,18 +747,45 @@
             <select id="exec-period-value" onchange="renderExecSummary()"></select>
           </div>
           <div class="field">
+            <label>ASIN</label>
+            <input type="text" id="exec-filter-asin" list="exec-filter-asin-list" placeholder="Search ASIN..." oninput="onExecFilterChange()"><datalist id="exec-filter-asin-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Parent ASIN</label>
+            <input type="text" id="exec-filter-parent" list="exec-filter-parent-list" placeholder="Search Parent ASIN..." oninput="onExecFilterChange()"><datalist id="exec-filter-parent-list"></datalist>
+          </div>
+          <div class="field">
+            <label>Product Family</label>
+            <input type="text" id="exec-filter-family" list="exec-filter-family-list" placeholder="Search Product Family..." oninput="onExecFilterChange()"><datalist id="exec-filter-family-list"></datalist>
+          </div>
+          <div class="field">
             <label>Brand</label>
-            <input type="text" id="exec-filter-brand" list="exec-filter-brand-list" placeholder="Search Brand..." oninput="renderExecSummary()"><datalist id="exec-filter-brand-list"></datalist>
+            <input type="text" id="exec-filter-brand" list="exec-filter-brand-list" placeholder="Search Brand..." oninput="onExecFilterChange()"><datalist id="exec-filter-brand-list"></datalist>
+          </div>
+        </div>
+        <div class="filter-bar" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+          <div class="field">
+            <label>Choose By</label>
+            <select id="exec-group-by" onchange="onExecGroupByChange()">
+              <option value="parentAsin">Parent ASIN</option>
+              <option value="family">Product Family</option>
+            </select>
+          </div>
+          <div class="field" style="flex:2;">
+            <label id="exec-selection-label">Choose a Parent ASIN</label>
+            <select id="exec-selection" onchange="renderExecSummary()">
+              <option value="">— Select —</option>
+            </select>
           </div>
         </div>
       </div>
 
       <div id="exec-summary-cards"></div>
-      <div id="exec-summary-empty" class="empty" style="display:none;">No data yet for this period — add Manufacturing, Logistics, Warehouse, and SKU Economics data to see family performance here.</div>
+      <div id="exec-summary-empty" class="empty">Choose a Parent ASIN or Product Family above to see its key numbers.</div>
 
       <div class="card">
         <h2>Family Grouping</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Assign each existing Product Family to a High-Level Family — a one-time setup. Families left unassigned show under "Ungrouped" below so nothing is hidden.</p>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Assign each existing Product Family to a High-Level Family — a one-time setup, used by the Advertising Report fallback matching. Families left unassigned show under "Ungrouped".</p>
         <div id="family-group-mapping"></div>
       </div>
     </section>
@@ -1541,6 +1568,16 @@ function execMonthsInScope(){
   const value = document.getElementById('exec-period-value').value;
   return computeMonthsInScope(periodType, value);
 }
+function onExecFilterChange(){
+  populateExecSelectionDropdown();
+  renderExecSummary();
+}
+function onExecGroupByChange(){
+  const groupBy = document.getElementById('exec-group-by').value;
+  document.getElementById('exec-selection-label').textContent = groupBy === 'family' ? 'Choose a Product Family' : 'Choose a Parent ASIN';
+  populateExecSelectionDropdown();
+  renderExecSummary();
+}
 
 function healthColor(margin){
   if(margin===null || margin===undefined) return { bg:'#F3F4F6', border:'#9CA3AF', text:'#6B7280' };
@@ -1549,84 +1586,116 @@ function healthColor(margin){
   return { bg:'#FDEAEA', border:'#D9453D', text:'#A32B25' };
 }
 
-function familyCardHtml(label, agg, indentLevel){
-  const colors = healthColor(agg.margin);
-  const indent = indentLevel ? indentLevel * 22 : 0;
+function execKpiCard(label, value, color){
   return `
-    <div style="background:${colors.bg}; border:1.5px solid ${colors.border}; border-radius:12px; padding:18px 22px; margin-bottom:${indentLevel ? '10px' : '14px'}; margin-left:${indent}px;">
-      <div style="font-size:${indentLevel ? '15px' : '18px'}; font-weight:800; color:var(--navy); margin-bottom:10px;">${label}</div>
-      <div style="display:flex; gap:32px; flex-wrap:wrap;">
-        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">Revenue</div><div style="font-size:20px; font-weight:700; color:var(--navy);">${fmtWhole(agg.revenue)}</div></div>
-        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">Net Profit</div><div style="font-size:20px; font-weight:700; color:var(--navy);">${fmtWhole(agg.netProfit)}</div></div>
-        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">Margin %</div><div style="font-size:20px; font-weight:800; color:${colors.text};">${agg.margin!==null ? Math.round(agg.margin)+'%' : '—'}</div></div>
-        <div><div style="font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.4px;">ROI %</div><div style="font-size:20px; font-weight:700; color:var(--navy);">${agg.roi!==null ? Math.round(agg.roi)+'%' : '—'}</div></div>
-      </div>
+    <div class="kpi" ${color ? `style="border-color:${color}; background:${color}0D;"` : ''}>
+      <div class="label">${label}</div>
+      <div class="value" ${color ? `style="color:${color};"` : ''}>${value}</div>
     </div>
   `;
 }
 
-const expandedExecFamilies = new Set();
-function toggleExecFamily(name){
-  if(expandedExecFamilies.has(name)) expandedExecFamilies.delete(name);
-  else expandedExecFamilies.add(name);
-  renderExecSummary();
+function skusForExecSelection(groupBy, value, marketGroup){
+  if(groupBy === 'family'){
+    return state.catalog.filter(r=>r.family===value && r.marketGroup===marketGroup).map(r=>r.sku);
+  }
+  return state.catalog.filter(r=>r.parentAsin===value && r.marketGroup===marketGroup).map(r=>r.sku);
+}
+
+function populateExecSelectionDropdown(){
+  const marketGroup = currentCatalogMarketGroup();
+  const groupBy = document.getElementById('exec-group-by').value;
+  const asinFilter = document.getElementById('exec-filter-asin').value;
+  const parentFilter = document.getElementById('exec-filter-parent').value;
+  const familyFilter = document.getElementById('exec-filter-family').value;
+  const brandFilter = document.getElementById('exec-filter-brand').value;
+
+  const filteredCatalog = state.catalog.filter(r=>{
+    if(r.marketGroup !== marketGroup) return false;
+    if(!matchesFilter(r.asin, asinFilter)) return false;
+    if(!matchesFilter(r.parentAsin, parentFilter)) return false;
+    if(!matchesFilter(r.family, familyFilter)) return false;
+    if(!matchesFilter(r.brand, brandFilter)) return false;
+    return true;
+  });
+
+  const values = groupBy === 'family'
+    ? Array.from(new Set(filteredCatalog.map(r=>r.family).filter(Boolean))).sort()
+    : Array.from(new Set(filteredCatalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+
+  const select = document.getElementById('exec-selection');
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">— Select —</option>' + values.map(v=>`<option value="${v}">${v}</option>`).join('');
+  if(values.includes(currentValue)) select.value = currentValue; // keep selection if it's still valid after filter change
 }
 
 function renderExecSummary(){
   const valueSelect = document.getElementById('exec-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
-  if(!document.getElementById('exec-filter-brand-list').options.length){
-    const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+
+  const marketGroup = currentCatalogMarketGroup();
+  if(!document.getElementById('exec-filter-asin-list').options.length){
+    const asins = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.asin).filter(Boolean))).sort();
+    document.getElementById('exec-filter-asin-list').innerHTML = asins.map(a=>`<option value="${a}">`).join('');
+    const parents = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.parentAsin).filter(Boolean))).sort();
+    document.getElementById('exec-filter-parent-list').innerHTML = parents.map(p=>`<option value="${p}">`).join('');
+    const families = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.family).filter(Boolean))).sort();
+    document.getElementById('exec-filter-family-list').innerHTML = families.map(f=>`<option value="${f}">`).join('');
+    const brands = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.brand).filter(Boolean))).sort();
     document.getElementById('exec-filter-brand-list').innerHTML = brands.map(b=>`<option value="${b}">`).join('');
   }
+  if(!document.getElementById('exec-selection').options.length || document.getElementById('exec-selection').options.length===1){
+    populateExecSelectionDropdown();
+  }
 
-  const months = execMonthsInScope();
-  const brandFilter = document.getElementById('exec-filter-brand').value;
-
-  const scopedRows = state.sku.filter(r=>{
-    if(!r.sku || !r.month || !months.includes(r.month)) return false;
-    if(!matchesCurrentMarketScope(r.market||'USA', r.country||'')) return false;
-    if(!matchesFilter(catalogBrandForSku(r.sku), brandFilter)) return false;
-    return true;
-  });
-
+  const groupBy = document.getElementById('exec-group-by').value;
+  const selection = document.getElementById('exec-selection').value;
   const container = document.getElementById('exec-summary-cards');
-  document.getElementById('exec-summary-empty').style.display = scopedRows.length ? 'none' : 'block';
+  const emptyEl = document.getElementById('exec-summary-empty');
 
-  // Group by high-level family -> internal (product) family
-  const byHighLevel = {};
-  scopedRows.forEach(row=>{
-    const productFamily = catalogFamilyForSku(row.sku) || '(no family)';
-    const highLevel = highLevelFamilyForProductFamily(productFamily) || 'Ungrouped';
-    if(!byHighLevel[highLevel]) byHighLevel[highLevel] = {};
-    if(!byHighLevel[highLevel][productFamily]) byHighLevel[highLevel][productFamily] = [];
-    byHighLevel[highLevel][productFamily].push(row);
-  });
-
-  const highLevelNames = Object.keys(byHighLevel).sort((a,b)=> a==='Ungrouped' ? 1 : b==='Ungrouped' ? -1 : a.localeCompare(b));
-
-  if(!highLevelNames.length){
+  if(!selection){
     container.innerHTML = '';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Choose a Parent ASIN or Product Family above to see its key numbers.';
     renderFamilyGroupMapping();
     return;
   }
 
-  container.innerHTML = highLevelNames.map(highLevel=>{
-    const internalFamilies = byHighLevel[highLevel];
-    const allRowsForHighLevel = Object.values(internalFamilies).flat();
-    const agg = aggregateRows(allRowsForHighLevel);
-    const isExpanded = expandedExecFamilies.has(highLevel);
-    const internalNames = Object.keys(internalFamilies).sort();
+  const skus = skusForExecSelection(groupBy, selection, marketGroup);
+  const months = execMonthsInScope();
+  const scopedRows = state.sku.filter(r=>
+    skus.includes(r.sku) && r.month && months.includes(r.month) && matchesCurrentMarketScope(r.market||'USA', r.country||'')
+  );
 
-    let html = `<div onclick="toggleExecFamily('${highLevel.replace(/'/g,"\\'")}')" style="cursor:pointer;">${familyCardHtml((isExpanded?'&#9662; ':'&#9656; ')+highLevel, agg, 0)}</div>`;
-    if(isExpanded){
-      html += internalNames.map(pf=>{
-        const pfAgg = aggregateRows(internalFamilies[pf]);
-        return familyCardHtml(pf, pfAgg, 1);
-      }).join('');
-    }
-    return html;
-  }).join('');
+  if(!scopedRows.length){
+    container.innerHTML = '';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = `No SKU Economics data for "${selection}" in this period/market.`;
+    renderFamilyGroupMapping();
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  const agg = aggregateRows(scopedRows);
+  const marginColors = healthColor(agg.margin);
+
+  container.innerHTML = `
+    <div style="background:${marginColors.bg}; border:2px solid ${marginColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
+      <div style="font-size:20px; font-weight:800; color:var(--navy); margin-bottom:16px;">${selection}</div>
+      <div class="kpi-grid">
+        ${execKpiCard('Units Sold', agg.units.toLocaleString())}
+        ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
+        ${execKpiCard('Net Proceeds', fmtWhole(agg.netProceedsTotal))}
+        ${execKpiCard('COGS', fmtWhole(agg.cogs))}
+        ${execKpiCard('Warehouse Cost', fmtWhole(agg.wh))}
+        ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
+        ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
+        ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
+        ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—', marginColors.text)}
+        ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—')}
+      </div>
+    </div>
+  `;
 
   renderFamilyGroupMapping();
 }
@@ -4563,7 +4632,7 @@ function onSummaryPeriodTypeChange(){
 
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows){
-  let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0;
+  let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0, adSpend=0;
   let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
   rows.forEach(row=>{
     const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only
@@ -4576,6 +4645,7 @@ function aggregateRows(rows){
     revenue += (row.revenue||0);
     cogs += rowCogs;
     wh += rowWh;
+    adSpend += (row.adSpend||0);
 
     const shippedQty = row.inboundTransportationFeeQty || 0;
     unitsShipped += shippedQty;
@@ -4595,6 +4665,7 @@ function aggregateRows(rows){
   const margin = revenue ? (netProfit/revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
   const netProceedsPct = revenue ? (netProceedsTotal/revenue*100) : null;
+  const tacos = revenue ? (adSpend/revenue*100) : null;
 
   // Normalized Profitability: add back Inbound Transportation Fee paid on units still sitting in stock
   const unitsInStock = Math.max(0, unitsShipped - units);
@@ -4606,7 +4677,7 @@ function aggregateRows(rows){
   const normalizedRoi = cogs ? (normalizedNetProfit/cogs*100) : null;
 
   return {
-    units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds,
+    units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds, adSpend, tacos,
     unitsShipped, unitsInStock, weightedAvgFeePerUnit, addBack, normalizedNetProceedsTotal, normalizedNetProfit, normalizedMargin, normalizedRoi,
   };
 }
