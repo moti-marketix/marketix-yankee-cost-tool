@@ -4452,7 +4452,7 @@ function aggregateRows(rows){
 
 function summaryRowHtml(label, agg, indent, rawKey, level){
   const indentStyle = indent ? `style="padding-left:${indent}px; color:var(--grey);"` : '';
-  const missingNote = agg.rowsMissingNetProceeds ? ` <span style="color:var(--red); font-size:11px;">(${agg.rowsMissingNetProceeds} missing Net Proceeds)</span>` : '';
+  const missingNote = '';
   const cogsClickable = rawKey ? `onclick="event.stopPropagation(); showCogsBreakdown('${String(rawKey).replace(/'/g,"\\'")}','${level||'child'}')" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Click for breakdown"` : '';
   let html = `
     <td ${indentStyle}>${label}${missingNote}</td>
