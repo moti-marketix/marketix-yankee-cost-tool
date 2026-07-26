@@ -729,7 +729,7 @@
     <!-- ===================== EXECUTIVE SUMMARY ===================== -->
     <section id="tab-execsummary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Executive Summary</h1></div>
-      <p class="subtitle">Pick a Parent ASIN or Product Family below to see its key numbers.</p>
+      <p class="subtitle">Pick one or more Parent ASINs or Product Families below to see their combined key numbers.</p>
 
       <div class="card">
         <div class="filter-bar">
@@ -747,24 +747,6 @@
             <select id="exec-period-value" onchange="renderExecSummary()"></select>
           </div>
           <div class="field">
-            <label>ASIN</label>
-            <input type="text" id="exec-filter-asin" list="exec-filter-asin-list" placeholder="Search ASIN..." oninput="onExecFilterChange()"><datalist id="exec-filter-asin-list"></datalist>
-          </div>
-          <div class="field">
-            <label>Parent ASIN</label>
-            <input type="text" id="exec-filter-parent" list="exec-filter-parent-list" placeholder="Search Parent ASIN..." oninput="onExecFilterChange()"><datalist id="exec-filter-parent-list"></datalist>
-          </div>
-          <div class="field">
-            <label>Product Family</label>
-            <input type="text" id="exec-filter-family" list="exec-filter-family-list" placeholder="Search Product Family..." oninput="onExecFilterChange()"><datalist id="exec-filter-family-list"></datalist>
-          </div>
-          <div class="field">
-            <label>Brand</label>
-            <input type="text" id="exec-filter-brand" list="exec-filter-brand-list" placeholder="Search Brand..." oninput="onExecFilterChange()"><datalist id="exec-filter-brand-list"></datalist>
-          </div>
-        </div>
-        <div class="filter-bar" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
-          <div class="field">
             <label>Choose By</label>
             <select id="exec-group-by" onchange="onExecGroupByChange()">
               <option value="parentAsin">Parent ASIN</option>
@@ -772,21 +754,16 @@
             </select>
           </div>
           <div class="field" style="flex:2;">
-            <label id="exec-selection-label">Choose a Parent ASIN</label>
-            <input type="text" id="exec-selection" list="exec-selection-list" placeholder="Type to search or pick from the list..." oninput="renderExecSummary()">
+            <label id="exec-selection-label">Add a Parent ASIN</label>
+            <input type="text" id="exec-selection" list="exec-selection-list" placeholder="Type to search, then select to add..." oninput="onExecSelectionInput()">
             <datalist id="exec-selection-list"></datalist>
           </div>
         </div>
+        <div id="exec-selection-chips" style="margin-top:12px; display:flex; flex-wrap:wrap; gap:8px;"></div>
       </div>
 
       <div id="exec-summary-cards"></div>
-      <div id="exec-summary-empty" class="empty">Choose a Parent ASIN or Product Family above to see its key numbers.</div>
-
-      <div class="card">
-        <h2>Family Grouping</h2>
-        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Assign each existing Product Family to a High-Level Family — a one-time setup, used by the Advertising Report fallback matching. Families left unassigned show under "Ungrouped".</p>
-        <div id="family-group-mapping"></div>
-      </div>
+      <div id="exec-summary-empty" class="empty">Add a Parent ASIN or Product Family above to see its key numbers.</div>
     </section>
 
     <!-- ===================== UPLOADED FILES ===================== -->
@@ -1567,13 +1544,29 @@ function execMonthsInScope(){
   const value = document.getElementById('exec-period-value').value;
   return computeMonthsInScope(periodType, value);
 }
-function onExecFilterChange(){
+let selectedExecItems = [];
+
+function onExecGroupByChange(){
+  const groupBy = document.getElementById('exec-group-by').value;
+  document.getElementById('exec-selection-label').textContent = groupBy === 'family' ? 'Add a Product Family' : 'Add a Parent ASIN';
+  selectedExecItems = []; // switching modes clears the current selection — mixing Parent ASINs and Families in one combined total wouldn't make sense
+  document.getElementById('exec-selection').value = '';
   populateExecSelectionDropdown();
   renderExecSummary();
 }
-function onExecGroupByChange(){
-  const groupBy = document.getElementById('exec-group-by').value;
-  document.getElementById('exec-selection-label').textContent = groupBy === 'family' ? 'Choose a Product Family' : 'Choose a Parent ASIN';
+function onExecSelectionInput(){
+  const input = document.getElementById('exec-selection');
+  const value = input.value.trim();
+  const options = Array.from(document.getElementById('exec-selection-list').options).map(o=>o.value);
+  if(options.includes(value) && !selectedExecItems.includes(value)){
+    selectedExecItems.push(value);
+    input.value = '';
+    populateExecSelectionDropdown();
+  }
+  renderExecSummary();
+}
+function removeExecChip(value){
+  selectedExecItems = selectedExecItems.filter(v=>v!==value);
   populateExecSelectionDropdown();
   renderExecSummary();
 }
@@ -1604,28 +1597,23 @@ function skusForExecSelection(groupBy, value, marketGroup){
 function populateExecSelectionDropdown(){
   const marketGroup = currentCatalogMarketGroup();
   const groupBy = document.getElementById('exec-group-by').value;
-  const asinFilter = document.getElementById('exec-filter-asin').value;
-  const parentFilter = document.getElementById('exec-filter-parent').value;
-  const familyFilter = document.getElementById('exec-filter-family').value;
-  const brandFilter = document.getElementById('exec-filter-brand').value;
 
-  const filteredCatalog = state.catalog.filter(r=>{
-    if(r.marketGroup !== marketGroup) return false;
-    if(!matchesFilter(r.asin, asinFilter)) return false;
-    if(!matchesFilter(r.parentAsin, parentFilter)) return false;
-    if(!matchesFilter(r.family, familyFilter)) return false;
-    if(!matchesFilter(r.brand, brandFilter)) return false;
-    return true;
-  });
+  const values = (groupBy === 'family'
+    ? Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.family).filter(Boolean)))
+    : Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.parentAsin).filter(Boolean)))
+  ).filter(v=>!selectedExecItems.includes(v)).sort(); // hide already-added items from the suggestions
 
-  const values = groupBy === 'family'
-    ? Array.from(new Set(filteredCatalog.map(r=>r.family).filter(Boolean))).sort()
-    : Array.from(new Set(filteredCatalog.map(r=>r.parentAsin).filter(Boolean))).sort();
-
-  const input = document.getElementById('exec-selection');
-  const currentValue = input.value;
   document.getElementById('exec-selection-list').innerHTML = values.map(v=>`<option value="${v}">`).join('');
-  if(!values.includes(currentValue)) input.value = ''; // clear if the typed/selected value is no longer valid after filter change
+}
+
+function renderExecChips(){
+  const container = document.getElementById('exec-selection-chips');
+  container.innerHTML = selectedExecItems.map(v=>`
+    <span style="display:inline-flex; align-items:center; gap:6px; background:var(--blue-light); color:var(--navy); padding:5px 10px; border-radius:14px; font-size:13px; font-weight:600;">
+      ${v}
+      <span onclick="removeExecChip('${v.replace(/'/g,"\\'")}')" style="cursor:pointer; font-weight:800; color:var(--red);">&times;</span>
+    </span>
+  `).join('');
 }
 
 function renderExecSummary(){
@@ -1633,44 +1621,33 @@ function renderExecSummary(){
   if(!valueSelect.options.length) populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
 
   const marketGroup = currentCatalogMarketGroup();
-  if(!document.getElementById('exec-filter-asin-list').options.length){
-    const asins = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.asin).filter(Boolean))).sort();
-    document.getElementById('exec-filter-asin-list').innerHTML = asins.map(a=>`<option value="${a}">`).join('');
-    const parents = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.parentAsin).filter(Boolean))).sort();
-    document.getElementById('exec-filter-parent-list').innerHTML = parents.map(p=>`<option value="${p}">`).join('');
-    const families = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.family).filter(Boolean))).sort();
-    document.getElementById('exec-filter-family-list').innerHTML = families.map(f=>`<option value="${f}">`).join('');
-    const brands = Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.brand).filter(Boolean))).sort();
-    document.getElementById('exec-filter-brand-list').innerHTML = brands.map(b=>`<option value="${b}">`).join('');
-  }
-  if(!document.getElementById('exec-selection-list').options.length){
+  if(!document.getElementById('exec-selection-list').options.length && !selectedExecItems.length){
     populateExecSelectionDropdown();
   }
+  renderExecChips();
 
   const groupBy = document.getElementById('exec-group-by').value;
-  const selection = document.getElementById('exec-selection').value;
   const container = document.getElementById('exec-summary-cards');
   const emptyEl = document.getElementById('exec-summary-empty');
 
-  if(!selection){
+  if(!selectedExecItems.length){
     container.innerHTML = '';
     emptyEl.style.display = 'block';
-    emptyEl.textContent = 'Choose a Parent ASIN or Product Family above to see its key numbers.';
-    renderFamilyGroupMapping();
+    emptyEl.textContent = 'Add a Parent ASIN or Product Family above to see its key numbers.';
     return;
   }
 
-  const skus = skusForExecSelection(groupBy, selection, marketGroup);
+  const skus = Array.from(new Set(selectedExecItems.flatMap(item=>skusForExecSelection(groupBy, item, marketGroup))));
   const months = execMonthsInScope();
   const scopedRows = state.sku.filter(r=>
     skus.includes(r.sku) && r.month && months.includes(r.month) && matchesCurrentMarketScope(r.market||'USA', r.country||'')
   );
 
+  const label = selectedExecItems.join(' + ');
   if(!scopedRows.length){
     container.innerHTML = '';
     emptyEl.style.display = 'block';
-    emptyEl.textContent = `No SKU Economics data for "${selection}" in this period/market.`;
-    renderFamilyGroupMapping();
+    emptyEl.textContent = `No SKU Economics data for "${label}" in this period/market.`;
     return;
   }
   emptyEl.style.display = 'none';
@@ -1680,7 +1657,7 @@ function renderExecSummary(){
 
   container.innerHTML = `
     <div style="background:${marginColors.bg}; border:2px solid ${marginColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
-      <div style="font-size:20px; font-weight:800; color:var(--navy); margin-bottom:16px;">${selection}</div>
+      <div style="font-size:20px; font-weight:800; color:var(--navy); margin-bottom:16px;">${label}</div>
       <div class="kpi-grid">
         ${execKpiCard('Units Sold', agg.units.toLocaleString())}
         ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
@@ -1695,8 +1672,6 @@ function renderExecSummary(){
       </div>
     </div>
   `;
-
-  renderFamilyGroupMapping();
 }
 
 
