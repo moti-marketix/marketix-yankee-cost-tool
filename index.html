@@ -4031,10 +4031,11 @@ function planAdvertisingReportSpend(rows, header, year){
   const highLevelFamilies = Array.from(new Set(state.familyGroups.map(g=>g.highLevelFamily).filter(Boolean)));
 
   const spendPerSku = {}; // key: sku|month|market|country -> amount
-  const tierCounts = { direct: 0, parent: 0, family: 0, highLevel: 0, unmatched: 0 };
-  const tierAmounts = { direct: 0, parent: 0, family: 0, highLevel: 0, unmatched: 0 };
+  const tierCounts = { direct: 0, parent: 0, family: 0, highLevel: 0, fallback: 0, unmatched: 0 };
+  const tierAmounts = { direct: 0, parent: 0, family: 0, highLevel: 0, fallback: 0, unmatched: 0 };
   const familyMatchesFound = {}; // family -> {amount, campaignNames:Set}
   const highLevelMatchesFound = {}; // high-level family -> {amount, campaignNames:Set}
+  const fallbackMatchesFound = {}; // Solar/Sapphire catch-all -> {amount, campaignNames:Set}
   const unmatchedCampaigns = {}; // campaignName -> amount
 
   function addSpend(sku, month, market, country, amount, tier){
@@ -4090,12 +4091,54 @@ function planAdvertisingReportSpend(rows, header, year){
         continue;
       }
     }
+
+    // Tier 5 — named catch-alls, requested explicitly: unlabeled Solar campaigns default to Round Solar
+    // (unless a different shape is named), and unlabeled generic "Pool Cover" campaigns default to Sapphire.
+    const nameLower = (name||'').toLowerCase();
+    const hasOtherShape = /\b(oval|rect|square)/.test(nameLower);
+    if(/\bsolar/.test(nameLower) && !hasOtherShape){
+      const roundSolarFamily = families.find(f=>/round/i.test(f) && /solar/i.test(f));
+      const skus = roundSolarFamily ? skusForFamilyInMarketGroup(roundSolarFamily, marketGroup) : [];
+      if(skus.length){
+        const share = cost / skus.length;
+        skus.forEach(sku=>addSpend(sku, monthStr, mapping.market, mapping.country, share, 'fallback'));
+        if(!fallbackMatchesFound[roundSolarFamily]) fallbackMatchesFound[roundSolarFamily] = { amount:0, campaignNames:new Set() };
+        fallbackMatchesFound[roundSolarFamily].amount += cost;
+        fallbackMatchesFound[roundSolarFamily].campaignNames.add(name);
+        continue;
+      }
+    }
+    const hasOtherIdentifier = /leaf\s*net|tarp|emerald|diamond|pillow|fence|safety|weight\s*tube|liner|solar/.test(nameLower);
+    if(/pool\s*cover/.test(nameLower) && !hasOtherIdentifier){
+      let sapphireTarget = null, sapphireSkus = [];
+      const shapeWord = /round/.test(nameLower) ? 'round' : /oval/.test(nameLower) ? 'oval' : /rect/.test(nameLower) ? 'rect' : null;
+      if(shapeWord){
+        const shapeFamily = families.find(f=>new RegExp(shapeWord,'i').test(f) && /sapphire/i.test(f));
+        if(shapeFamily){ sapphireTarget = shapeFamily; sapphireSkus = skusForFamilyInMarketGroup(shapeFamily, marketGroup); }
+      }
+      if(!sapphireSkus.length){
+        const sapphireHL = highLevelFamilies.find(hl=>/sapphire/i.test(hl)) || families.find(f=>/sapphire/i.test(f));
+        if(sapphireHL){
+          sapphireTarget = sapphireHL;
+          sapphireSkus = highLevelFamilies.includes(sapphireHL) ? skusForHighLevelFamilyInMarketGroup(sapphireHL, marketGroup) : skusForFamilyInMarketGroup(sapphireHL, marketGroup);
+        }
+      }
+      if(sapphireSkus.length){
+        const share = cost / sapphireSkus.length;
+        sapphireSkus.forEach(sku=>addSpend(sku, monthStr, mapping.market, mapping.country, share, 'fallback'));
+        if(!fallbackMatchesFound[sapphireTarget]) fallbackMatchesFound[sapphireTarget] = { amount:0, campaignNames:new Set() };
+        fallbackMatchesFound[sapphireTarget].amount += cost;
+        fallbackMatchesFound[sapphireTarget].campaignNames.add(name);
+        continue;
+      }
+    }
+
     tierCounts.unmatched++;
     tierAmounts.unmatched += cost;
     unmatchedCampaigns[name] = (unmatchedCampaigns[name]||0) + cost;
   }
 
-  return { spendPerSku, tierCounts, tierAmounts, familyMatchesFound, highLevelMatchesFound, unmatchedCampaigns };
+  return { spendPerSku, tierCounts, tierAmounts, familyMatchesFound, highLevelMatchesFound, fallbackMatchesFound, unmatchedCampaigns };
 }
 
 async function handleAdvertisingReportUpload(event){
@@ -4133,6 +4176,7 @@ async function handleAdvertisingReportUpload(event){
           Parent ASIN match (split across siblings): ${plan.tierCounts.parent} rows, ${fmt(plan.tierAmounts.parent)}<br>
           Product Family match (split across family): ${plan.tierCounts.family} rows, ${fmt(plan.tierAmounts.family)}<br>
           Single-keyword → High-Level Family match (split across whole family): ${plan.tierCounts.highLevel} rows, ${fmt(plan.tierAmounts.highLevel)}<br>
+          Catch-all fallback (Solar/Sapphire default): ${plan.tierCounts.fallback} rows, ${fmt(plan.tierAmounts.fallback)}<br>
           Still unmatched: ${plan.tierCounts.unmatched} rows, ${fmt(plan.tierAmounts.unmatched)}
       `;
       if(famList.length){
@@ -4146,6 +4190,14 @@ async function handleAdvertisingReportUpload(event){
         html += `<br><strong>High-Level Family matches found (single keyword):</strong><br>`;
         hlList.forEach(f=>{
           const info = plan.highLevelMatchesFound[f];
+          html += `${f}: ${fmt(info.amount)} — from "${Array.from(info.campaignNames).slice(0,2).join('", "')}${info.campaignNames.size>2?'...':''}"<br>`;
+        });
+      }
+      const fbList = Object.keys(plan.fallbackMatchesFound);
+      if(fbList.length){
+        html += `<br><strong>Catch-all fallback (Solar→Round Solar, generic Pool Cover→Sapphire):</strong><br>`;
+        fbList.forEach(f=>{
+          const info = plan.fallbackMatchesFound[f];
           html += `${f}: ${fmt(info.amount)} — from "${Array.from(info.campaignNames).slice(0,2).join('", "')}${info.campaignNames.size>2?'...':''}"<br>`;
         });
       }
