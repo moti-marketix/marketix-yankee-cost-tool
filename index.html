@@ -3329,10 +3329,11 @@ function renderShipments(){
   const brandFilter = document.getElementById('shipments-filter-brand').value;
 
   // KPIs
-  const totalShipments = state.shipments.length;
-  const totalUnitsShipped = state.shipments.reduce((s,sh)=>s+(sh.totalUnits||0),0);
-  const totalShippingCost = state.shipments.reduce((s,sh)=>s+(sh.totalShippingCost||0),0);
-  const weightedCbmSum = state.shipments.reduce((s,sh)=>s+((sh.totalUnits||0)*(sh.costPerCbm||0)),0);
+  const marketScopedShipments = state.shipments.filter(s=>matchesCurrentMarketScope(s.market||'USA', s.country||''));
+  const totalShipments = marketScopedShipments.length;
+  const totalUnitsShipped = marketScopedShipments.reduce((s,sh)=>s+(sh.totalUnits||0),0);
+  const totalShippingCost = marketScopedShipments.reduce((s,sh)=>s+(sh.totalShippingCost||0),0);
+  const weightedCbmSum = marketScopedShipments.reduce((s,sh)=>s+((sh.totalUnits||0)*(sh.costPerCbm||0)),0);
   const blendedAvgCostPerCbm = totalUnitsShipped ? weightedCbmSum/totalUnitsShipped : null;
   document.getElementById('shipments-kpis').innerHTML = `
     <div class="kpi"><div class="label">Total Shipments</div><div class="value">${totalShipments}</div></div>
@@ -3488,7 +3489,7 @@ function renderShipments(){
     '<th></th>',
   ].join('');
 
-  let sortedShipments = state.shipments.slice();
+  let sortedShipments = state.shipments.filter(s=>matchesCurrentMarketScope(s.market||'USA', s.country||''));
   if(rs.column === 'key'){
     sortedShipments.sort((a,b)=>{
       const ak = a.patent||a.container||a.fbaShipmentId||'', bk = b.patent||b.container||b.fbaShipmentId||'';
