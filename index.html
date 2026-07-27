@@ -3018,13 +3018,26 @@ function parseShipmentWorkbook(wb){
     }
   });
 
+  // De-duplicate exact-same shipments that appear more than once across sheets (e.g. the same EU
+  // shipment listed both in a brand's main sheet and its region-specific sheet) — otherwise the same
+  // cost and units would be counted twice, and the shared identifier would look ambiguous to the
+  // matching step below. Identity = brand + region + whichever of patent/container/shipment-id exists.
+  const seenShipmentKeys = new Set();
+  const dedupedShipments = [];
+  allShipments.forEach(s=>{
+    const identity = `${s.brand}|${s.region}|${s.patent || s.container || s.fbaShipmentId}`;
+    if(seenShipmentKeys.has(identity)) return; // drop the duplicate
+    seenShipmentKeys.add(identity);
+    dedupedShipments.push(s);
+  });
+
   // --- For each content sheet, resolve the shipment pool it's allowed to reference: same brand, and if
   // the content sheet's name specifies a region, only shipments explicitly tagged with that same region.
   const allContents = [];
   const allUnmatchedKeys = [];
 
   contentSheetInfos.forEach(({sheetName: contentSheetName, brand: contentBrand, region: contentRegion})=>{
-    const applicableShipments = allShipments.filter(s=>{
+    const applicableShipments = dedupedShipments.filter(s=>{
       if(usingClassicFallback) return true;
       if(contentBrand && s.brand && s.brand.toLowerCase()!==contentBrand.toLowerCase()) return false;
       if(contentRegion){
@@ -3105,7 +3118,7 @@ function parseShipmentWorkbook(wb){
     allUnmatchedKeys.push(...unmatchedCols.map(k => contentBrand ? `${contentBrand}${contentRegion?' ('+contentRegion+')':''}: ${k}` : k));
   });
 
-  return { shipments: allShipments, contents: allContents, unmatchedKeys: allUnmatchedKeys };
+  return { shipments: dedupedShipments, contents: allContents, unmatchedKeys: allUnmatchedKeys };
 }
 
 async function handleShipmentsUpload(event){
