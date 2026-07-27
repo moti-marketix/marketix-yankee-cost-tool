@@ -5174,7 +5174,10 @@ function renderRawFiles(){
     headerBar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;';
     headerBar.innerHTML = `
       <h2 style="margin:0;">${SCREEN_LABELS[screen] || screen}</h2>
-      <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px;" onclick="bulkReparseGroup('${screen}')">&#8635; Re-parse Selected</button>
+      <div>
+        <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px;" onclick="bulkReparseGroup('${screen}')">&#8635; Re-parse Selected</button>
+        <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px; color:var(--red); border-color:var(--red);" onclick="bulkDeleteGroup('${screen}')">&times; Delete Selected</button>
+      </div>
     `;
     card.appendChild(headerBar);
     card.appendChild(table);
@@ -5190,6 +5193,33 @@ function toggleSelectAllInGroup(headerCheckbox, screen){
   document.querySelectorAll(`.reparse-checkbox[data-screen="${screen}"]`).forEach(cb=>{
     cb.checked = headerCheckbox.checked;
   });
+}
+
+async function bulkDeleteGroup(screen){
+  const checkboxes = Array.from(document.querySelectorAll(`.reparse-checkbox[data-screen="${screen}"]:checked`));
+  if(!checkboxes.length){
+    alert('Check at least one file first.');
+    return;
+  }
+  if(!confirm(`Delete ${checkboxes.length} file(s)? This only removes the archived files — data already imported from them stays as-is. This cannot be undone.`)) return;
+
+  const progressEl = document.getElementById(`bulk-reparse-progress-${screen}`);
+  const ids = checkboxes.map(cb=>cb.value);
+
+  for(let i=0; i<ids.length; i++){
+    progressEl.innerHTML = `&#8987; Deleting file ${i+1} of ${ids.length}...`;
+    const fileRow = state.rawFiles.find(f=>f.id===ids[i]);
+    if(!fileRow) continue;
+    try{
+      await sb.storage.from('raw-uploads').remove([fileRow.storage_path]);
+      await sb.from('raw_files').delete().eq('id', ids[i]);
+      state.rawFiles = state.rawFiles.filter(f=>f.id!==ids[i]);
+    }catch(err){
+      console.error(err);
+    }
+  }
+  progressEl.innerHTML = `&#10003; Done — deleted ${ids.length} file(s).`;
+  renderRawFiles();
 }
 
 async function bulkReparseGroup(screen){
