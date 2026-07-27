@@ -2958,40 +2958,54 @@ function deleteWarehouse(idx){
 // ================= SHIPMENT COSTS =================
 function parseShipmentWorkbook(wb){
   const sheetNames = wb.SheetNames;
-  const contentSuffix = /\s+shipments?\s+content$/i;
-  const contentSheetNames = sheetNames.filter(n => contentSuffix.test(n));
+  const REGION_WORDS = ['USA','CA','EU','DE','IT','FR','ES'];
+  const regionSuffix = new RegExp(`^(.+?)\\s+shipments?\\s+(${REGION_WORDS.join('|')})\\s+content$`, 'i');
+  const plainSuffix = /^(.+?)\s+shipments?\s+content$/i;
 
-  // Detect sheet pairs: either "{Brand}" + "{Brand} Shipment content" (new multi-brand format),
-  // or fall back to the first two sheets (old single-brand format with generic names).
-  let pairs = [];
-  if(contentSheetNames.length){
-    contentSheetNames.forEach(contentName=>{
-      const brandName = contentName.replace(contentSuffix, '').trim();
-      const match = sheetNames.find(n => n.trim().toLowerCase() === brandName.toLowerCase());
-      if(match) pairs.push({ shipmentSheet: match, contentSheet: contentName, brand: brandName });
-    });
-  } else if(sheetNames.length >= 2){
-    pairs.push({ shipmentSheet: sheetNames[0], contentSheet: sheetNames[1], brand: null });
+  // Content sheets can be named "{Brand} Shipment content" (one region per brand) or the newer
+  // "{Brand} Shipment {Region} content" (one brand split across several regions in the same file).
+  const contentSheetInfos = [];
+  sheetNames.forEach(name=>{
+    let m = name.match(regionSuffix);
+    if(m){ contentSheetInfos.push({ sheetName: name, brand: m[1].trim(), region: m[2].toUpperCase() }); return; }
+    m = name.match(plainSuffix);
+    if(m){ contentSheetInfos.push({ sheetName: name, brand: m[1].trim(), region: null }); }
+  });
+
+  let usingClassicFallback = false;
+  if(!contentSheetInfos.length && sheetNames.length >= 2){
+    contentSheetInfos.push({ sheetName: sheetNames[1], brand: null, region: null });
+    usingClassicFallback = true;
   }
 
+  const knownBrands = Array.from(new Set(contentSheetInfos.map(c=>c.brand).filter(Boolean)));
+  const contentSheetNameSet = new Set(contentSheetInfos.map(c=>c.sheetName));
+  const shipmentSheetNames = usingClassicFallback ? [sheetNames[0]] : sheetNames.filter(n=>!contentSheetNameSet.has(n));
+
+  function brandForShipmentSheet(sheetName){
+    if(usingClassicFallback) return null;
+    const matches = knownBrands.filter(b=>sheetName.trim().toLowerCase().startsWith(b.toLowerCase()));
+    matches.sort((a,b)=>b.length-a.length); // prefer the longest/most specific brand match
+    return matches[0] || sheetName.trim();
+  }
+
+  // --- Parse every shipment-level sheet into one combined pool, tagged with brand and (if present) region.
+  // A=Container#, B=Patent#, C=Destination, D=Shipment ID, E=Total units, F=Total boxes, G=Cost per CBM,
+  // H=Total Shipping cost, I=Placement Fee, and optionally a "Region" column (position detected by header).
   const allShipments = [];
-  const allContents = [];
-  const allUnmatchedKeys = [];
+  shipmentSheetNames.forEach(sheetName=>{
+    const ws = wb.Sheets[sheetName];
+    const sheetRows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    const brand = brandForShipmentSheet(sheetName);
+    const headerRow = (sheetRows[0]||[]).map(c=>c===null?'':String(c).trim().toLowerCase());
+    const regionColIdx = headerRow.indexOf('region');
 
-  pairs.forEach(({shipmentSheet, contentSheet, brand})=>{
-    const ws1 = wb.Sheets[shipmentSheet];
-    const ws2 = wb.Sheets[contentSheet];
-    const sheet1Rows = XLSX.utils.sheet_to_json(ws1, {header:1, defval:null});
-    const sheet2Rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null});
-
-    // --- Shipment-level sheet: one row per shipment ---
-    // A=Container#, B=Patent#, C=Destination, D=Shipment ID, E=Total units, F=Total boxes, G=Cost per CBM, H=Total Shipping cost, I=Placement Fee
-    const shipments = [];
-    for(let i=1; i<sheet1Rows.length; i++){
-      const row = sheet1Rows[i] || [];
+    for(let i=1; i<sheetRows.length; i++){
+      const row = sheetRows[i] || [];
       const container = row[0], patent = row[1], destination = row[2], fbaShipmentId = row[3];
       if(!container && !patent && !fbaShipmentId) continue; // truly empty row
-      shipments.push({
+      const regionVal = regionColIdx!==-1 ? row[regionColIdx] : null;
+      allShipments.push({
         container: container ? String(container).trim() : null,
         patent: patent ? String(patent).trim() : null,
         destination: destination ? String(destination).trim() : null,
@@ -2999,21 +3013,39 @@ function parseShipmentWorkbook(wb){
         totalUnits: num(row[4]), totalBoxes: num(row[5]), costPerCbm: num(row[6]),
         totalShippingCost: num(row[7]), placementFee: num(row[8]),
         brand,
+        region: regionVal ? String(regionVal).trim().toUpperCase() : null, // null = no Region column on this sheet (older format)
       });
     }
+  });
+
+  // --- For each content sheet, resolve the shipment pool it's allowed to reference: same brand, and if
+  // the content sheet's name specifies a region, only shipments explicitly tagged with that same region.
+  const allContents = [];
+  const allUnmatchedKeys = [];
+
+  contentSheetInfos.forEach(({sheetName: contentSheetName, brand: contentBrand, region: contentRegion})=>{
+    const applicableShipments = allShipments.filter(s=>{
+      if(usingClassicFallback) return true;
+      if(contentBrand && s.brand && s.brand.toLowerCase()!==contentBrand.toLowerCase()) return false;
+      if(contentRegion){
+        if(!s.region) return false; // content sheet is region-specific but this shipment has no region tag — don't guess
+        if(s.region !== contentRegion) return false;
+      }
+      return true;
+    });
 
     // Index every shipment by every reference it could plausibly be called by in the content sheet:
     // Patent#, Container#, and each individual token within Shipment ID (which can be a compound
     // value like "FBA198RD376Q and FBA198RDQB2G"). Some values (e.g. "LCL", a generic shipping term)
     // get reused as Container# across multiple unrelated shipments — those are ambiguous and must be
     // excluded, or a content-sheet reference could silently get matched to the wrong shipment.
-    const keyOwners = {}; // key -> Set of distinct shipment objects that use it
+    const keyOwners = {};
     function registerKey(key, shipment){
       if(!key) return;
       if(!keyOwners[key]) keyOwners[key] = new Set();
       keyOwners[key].add(shipment);
     }
-    shipments.forEach(s=>{
+    applicableShipments.forEach(s=>{
       registerKey(s.patent, s);
       registerKey(s.container, s);
       if(s.fbaShipmentId){
@@ -3023,22 +3055,24 @@ function parseShipmentWorkbook(wb){
     const shipmentsByKey = {};
     Object.keys(keyOwners).forEach(key=>{
       const owners = keyOwners[key];
-      if(owners.size === 1) shipmentsByKey[key] = Array.from(owners)[0]; // unambiguous — safe to use
-      // if owners.size > 1, this key is ambiguous (reused across shipments) — deliberately excluded
+      if(owners.size === 1) shipmentsByKey[key] = Array.from(owners)[0];
     });
-    const knownKeys = Object.keys(shipmentsByKey).filter(Boolean).sort((a,b)=>b.length-a.length); // longest/most-specific first
+    const knownKeys = Object.keys(shipmentsByKey).filter(Boolean).sort((a,b)=>b.length-a.length);
 
     // --- Content sheet: find the header row (the one with "SKU" in column B) — some files have a
     // leading title row above it (e.g. "USA", "DSW  US"), so don't assume a fixed row index.
     // That header row's cells from column F onward are messy multi-line reference text (may contain
     // PO numbers, ETAs, and notes alongside the actual patent/container/shipment-id) — search for any
     // known key as a substring rather than requiring an exact match. Data rows follow immediately after.
+    const ws2 = wb.Sheets[contentSheetName];
+    const sheet2Rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null});
+
     let headerRowIdx = -1;
     for(let i=0; i<Math.min(sheet2Rows.length,10); i++){
       const cell1 = sheet2Rows[i] && sheet2Rows[i][1];
       if(cell1 && String(cell1).trim().toUpperCase()==='SKU'){ headerRowIdx = i; break; }
     }
-    if(headerRowIdx === -1) headerRowIdx = 1; // fallback to the old assumed layout
+    if(headerRowIdx === -1) headerRowIdx = 1;
 
     const headerKeyRow = sheet2Rows[headerRowIdx] || [];
     const colResolution = {};
@@ -3055,7 +3089,6 @@ function parseShipmentWorkbook(wb){
       else { colResolution[c] = null; unmatchedCols.push(text.split('\n')[0].trim()); }
     }
 
-    const contents = [];
     for(let r=headerRowIdx+1; r<sheet2Rows.length; r++){
       const row = sheet2Rows[r] || [];
       const sku = row[1];
@@ -3065,13 +3098,11 @@ function parseShipmentWorkbook(wb){
         if(!shipment) return;
         const unitsNum = num(row[c]);
         if(!unitsNum) return;
-        contents.push({ sku: String(sku).trim(), shipment, units: unitsNum });
+        allContents.push({ sku: String(sku).trim(), shipment, units: unitsNum });
       });
     }
 
-    allShipments.push(...shipments);
-    allContents.push(...contents);
-    allUnmatchedKeys.push(...unmatchedCols.map(k => brand ? `${brand}: ${k}` : k));
+    allUnmatchedKeys.push(...unmatchedCols.map(k => contentBrand ? `${contentBrand}${contentRegion?' ('+contentRegion+')':''}: ${k}` : k));
   });
 
   return { shipments: allShipments, contents: allContents, unmatchedKeys: allUnmatchedKeys };
@@ -3091,24 +3122,37 @@ async function handleShipmentsUpload(event){
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
       const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
-      const uploadMarket = state.currentMarket;
-      const uploadCountry = state.currentEuCountry || '';
+
+      function regionToMarketCountry(region){
+        if(!region) return { market: state.currentMarket, country: state.currentEuCountry || '' }; // no Region column — use the switcher, as before
+        if(region==='USA') return { market:'USA', country:'' };
+        if(region==='CA') return { market:'CA', country:'' };
+        if(region==='EU') return { market:'EU', country:'' }; // unspecified EU country
+        return { market:'EU', country: region }; // DE/IT/FR/ES
+      }
+      shipments.forEach(s=>{ const mc = regionToMarketCountry(s.region); s.resolvedMarket = mc.market; s.resolvedCountry = mc.country; });
 
       statusEl.textContent = `Saving ${shipments.length} shipment(s) and ${contents.length} SKU-shipment record(s)...`;
 
-      // Full replace, but scoped to the market (and EU country) currently selected — re-uploading
-      // Canada's shipment file must never touch USA's or EU's data, and vice versa.
-      const existingForMarket = await sb.from('shipments').select('id').eq('client_id', CLIENT_ID).eq('market', uploadMarket).eq('country', uploadCountry);
-      const existingIds = (existingForMarket.data||[]).map(r=>r.id);
-      if(existingIds.length){
-        await sb.from('shipment_contents').delete().in('shipment_id', existingIds);
-        await sb.from('shipments').delete().in('id', existingIds);
+      // Full replace, but scoped to exactly the market/country combinations present in THIS file — a
+      // single upload can now span several markets at once (via the Region column), and each one only
+      // replaces its own data, never touching the others.
+      const marketCountryCombos = Array.from(new Set(shipments.map(s=>`${s.resolvedMarket}|${s.resolvedCountry}`))).map(k=>{
+        const [market, country] = k.split('|'); return { market, country };
+      });
+      for(const {market, country} of marketCountryCombos){
+        const existingForMarket = await sb.from('shipments').select('id').eq('client_id', CLIENT_ID).eq('market', market).eq('country', country);
+        const existingIds = (existingForMarket.data||[]).map(r=>r.id);
+        if(existingIds.length){
+          await sb.from('shipment_contents').delete().in('shipment_id', existingIds);
+          await sb.from('shipments').delete().in('id', existingIds);
+        }
       }
 
       const shipmentInsertPayload = shipments.map(s=>({
         client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
         fba_shipment_id: s.fbaShipmentId, brand: s.brand,
-        market: uploadMarket, country: uploadCountry,
+        market: s.resolvedMarket, country: s.resolvedCountry,
         total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
         total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
       }));
@@ -5285,22 +5329,36 @@ async function reparseRawFile(id, opts){
       const arrayBuffer = await data.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
       const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
-      // Re-parsing uses the market this file was ORIGINALLY uploaded under, not whatever's currently
-      // selected in the switcher — otherwise re-parsing a CA file while viewing USA would mistag it.
+      // Re-parsing uses the market this file was ORIGINALLY uploaded under as the fallback for any
+      // shipment with no Region column — files with a Region column resolve per-shipment instead,
+      // since one file can now span several markets at once.
       const fileMarket = fileRow.market || 'USA';
       const fileCountry = fileRow.country || '';
+      function regionToMarketCountry(region){
+        if(!region) return { market: fileMarket, country: fileCountry };
+        if(region==='USA') return { market:'USA', country:'' };
+        if(region==='CA') return { market:'CA', country:'' };
+        if(region==='EU') return { market:'EU', country:'' };
+        return { market:'EU', country: region };
+      }
+      shipments.forEach(s=>{ const mc = regionToMarketCountry(s.region); s.resolvedMarket = mc.market; s.resolvedCountry = mc.country; });
 
-      const existingForMarket = await sb.from('shipments').select('id').eq('client_id', CLIENT_ID).eq('market', fileMarket).eq('country', fileCountry);
-      const existingIds = (existingForMarket.data||[]).map(r=>r.id);
-      if(existingIds.length){
-        await sb.from('shipment_contents').delete().in('shipment_id', existingIds);
-        await sb.from('shipments').delete().in('id', existingIds);
+      const marketCountryCombos = Array.from(new Set(shipments.map(s=>`${s.resolvedMarket}|${s.resolvedCountry}`))).map(k=>{
+        const [market, country] = k.split('|'); return { market, country };
+      });
+      for(const {market, country} of marketCountryCombos){
+        const existingForMarket = await sb.from('shipments').select('id').eq('client_id', CLIENT_ID).eq('market', market).eq('country', country);
+        const existingIds = (existingForMarket.data||[]).map(r=>r.id);
+        if(existingIds.length){
+          await sb.from('shipment_contents').delete().in('shipment_id', existingIds);
+          await sb.from('shipments').delete().in('id', existingIds);
+        }
       }
 
       const shipmentInsertPayload = shipments.map(s=>({
         client_id: CLIENT_ID, patent: s.patent, container: s.container, destination: s.destination,
         fba_shipment_id: s.fbaShipmentId, brand: s.brand,
-        market: fileMarket, country: fileCountry,
+        market: s.resolvedMarket, country: s.resolvedCountry,
         total_units: s.totalUnits, total_boxes: s.totalBoxes, cost_per_cbm: s.costPerCbm,
         total_shipping_cost: s.totalShippingCost, placement_fee: s.placementFee,
       }));
