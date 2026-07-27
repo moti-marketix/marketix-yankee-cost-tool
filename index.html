@@ -1182,7 +1182,8 @@ function allSkus(){
 }
 
 function skuSelectOptions(selectedValue){
-  const skus = state.catalog.map(r=>r.sku).filter(Boolean);
+  const marketGroup = currentCatalogMarketGroup();
+  const skus = state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.sku).filter(Boolean);
   if(selectedValue && !skus.includes(selectedValue)) skus.unshift(selectedValue);
   let opts = '<option value="">— select SKU —</option>';
   skus.forEach(s=>{
@@ -1217,6 +1218,15 @@ function matchesCurrentMarketScope(rowMarket, rowCountry){
   if(rowMarket !== 'EU') return false;
   if(!state.currentEuCountry) return true; // "All EU" — combine every country
   return rowCountry === state.currentEuCountry;
+}
+// Every place that needs "which SKUs have shipment data" must go through this — filtering shipmentContents
+// by market AFTER extracting SKU names is not equivalent, since a SKU with only another market's shipment
+// data would still appear (just with blank/zero numbers) rather than being excluded outright.
+function marketScopedShipmentContents(){
+  return state.shipmentContents.filter(c=>{
+    const shipment = state.shipments.find(s=>s.id===c.shipmentId);
+    return shipment && matchesCurrentMarketScope(shipment.market, shipment.country);
+  });
 }
 
 function renderCatalog(){
@@ -1782,10 +1792,12 @@ function matchesFilter(value, filterValue){
 }
 
 function populateAsinFilterDropdowns(){
-  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
-  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
-  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
-  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+  const marketGroup = currentCatalogMarketGroup();
+  const scopedCatalog = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  const asins = Array.from(new Set(scopedCatalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(scopedCatalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(scopedCatalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(scopedCatalog.map(r=>r.brand).filter(Boolean))).sort();
 
   const asinListIds = ['catalog-filter-asin-list', 'mfg-filter-asin-list', 'logistics-filter-asin-list', 'sku-filter-asin-list'];
   const parentListIds = ['catalog-filter-parent-list', 'mfg-filter-parent-list', 'logistics-filter-parent-list', 'sku-filter-parent-list'];
@@ -2692,7 +2704,7 @@ function unitsShippedToWhForSku(sku){
     }, 0);
 }
 function totalCartonsHandled(){
-  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
+  const skusWithShipments = Array.from(new Set(marketScopedShipmentContents().map(c=>c.sku)));
   let total = 0;
   skusWithShipments.forEach(sku=>{
     const logRow = logisticsRowForSku(sku);
@@ -2728,10 +2740,12 @@ function toggleWarehouseSkuSort(column){
   renderWarehouse();
 }
 function populateWarehouseFilterDropdowns(){
-  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
-  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
-  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
-  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+  const marketGroup = currentCatalogMarketGroup();
+  const scopedCatalog = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  const asins = Array.from(new Set(scopedCatalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(scopedCatalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(scopedCatalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(scopedCatalog.map(r=>r.brand).filter(Boolean))).sort();
   const asinListEl = document.getElementById('warehouse-filter-asin-list');
   if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
   const parentListEl = document.getElementById('warehouse-filter-parent-list');
@@ -2780,7 +2794,7 @@ function renderWarehouse(){
   const skuTbody = document.querySelector('#warehouse-sku-table tbody');
   skuTbody.innerHTML = '';
 
-  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
+  const skusWithShipments = Array.from(new Set(marketScopedShipmentContents().map(c=>c.sku)))
     .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter) && matchesFilter(catalogBrandForSku(sku), brandFilter));
 
   if(whLevel === 'parent'){
@@ -3259,10 +3273,12 @@ function shipmentFreightDataForSku(sku){
 }
 
 function populateShipmentsFilterDropdowns(){
-  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
-  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
-  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
-  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+  const marketGroup = currentCatalogMarketGroup();
+  const scopedCatalog = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  const asins = Array.from(new Set(scopedCatalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(scopedCatalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(scopedCatalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(scopedCatalog.map(r=>r.brand).filter(Boolean))).sort();
   const asinListEl = document.getElementById('shipments-filter-asin-list');
   if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
   const parentListEl = document.getElementById('shipments-filter-parent-list');
@@ -3305,7 +3321,7 @@ function toggleShipmentsRawSort(column){
 }
 
 function downloadShipmentCostsExcel(){
-  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)));
+  const skusWithShipments = Array.from(new Set(marketScopedShipmentContents().map(c=>c.sku)));
   const perSkuRows = skusWithShipments.map(sku=>{
     const data = shipmentFreightDataForSku(sku);
     if(!data) return null;
@@ -3359,7 +3375,7 @@ function renderShipments(){
   skuTbody.innerHTML = '';
   const ss = shipmentsSkuSortState;
 
-  const skusWithShipments = Array.from(new Set(state.shipmentContents.map(c=>c.sku)))
+  const skusWithShipments = Array.from(new Set(marketScopedShipmentContents().map(c=>c.sku)))
     .filter(sku => matchesFilter(catalogAsinForSku(sku), asinFilter) && matchesFilter(catalogParentAsinForSku(sku), parentFilter) && matchesFilter(catalogFamilyForSku(sku), familyFilter) && matchesFilter(catalogBrandForSku(sku), brandFilter));
 
   if(level === 'parent'){
@@ -4869,10 +4885,12 @@ function toggleParentExpand(key){
 
 // ---------------- Net Proceeds by Item (SKU Economics tab) ----------------
 function populateSummaryFilterDropdowns(){
-  const asins = Array.from(new Set(state.catalog.map(r=>r.asin).filter(Boolean))).sort();
-  const parents = Array.from(new Set(state.catalog.map(r=>r.parentAsin).filter(Boolean))).sort();
-  const families = Array.from(new Set(state.catalog.map(r=>r.family).filter(Boolean))).sort();
-  const brands = Array.from(new Set(state.catalog.map(r=>r.brand).filter(Boolean))).sort();
+  const marketGroup = currentCatalogMarketGroup();
+  const scopedCatalog = state.catalog.filter(r=>r.marketGroup===marketGroup);
+  const asins = Array.from(new Set(scopedCatalog.map(r=>r.asin).filter(Boolean))).sort();
+  const parents = Array.from(new Set(scopedCatalog.map(r=>r.parentAsin).filter(Boolean))).sort();
+  const families = Array.from(new Set(scopedCatalog.map(r=>r.family).filter(Boolean))).sort();
+  const brands = Array.from(new Set(scopedCatalog.map(r=>r.brand).filter(Boolean))).sort();
 
   const asinListEl = document.getElementById('summary-filter-asin-list');
   if(asinListEl) asinListEl.innerHTML = asins.map(a=>`<option value="${a}">`).join('');
@@ -5671,8 +5689,8 @@ function buildMarkiContext(){
   ).join('\n');
   const catalogNote = catalogRows.length > 400 ? `\n(...and ${catalogRows.length-400} more SKUs not shown here — ask about a specific SKU/ASIN/family if needed.)` : '';
 
-  const mfgLines = state.mfg.map(r=>`${r.sku}: ${r.mfgCost!==null && r.mfgCost!==undefined ? '$'+r.mfgCost : '—'}`).join('\n');
-  const logLines = state.logistics.items.map(r=>`${r.sku}: L${r.l??'-'}xW${r.w??'-'}xH${r.h??'-'}cm, ${r.weight??'-'}kg, ${r.unitsPerCarton??'-'}/carton`).join('\n');
+  const mfgLines = state.mfg.filter(r=>r.marketGroup===marketGroup).map(r=>`${r.sku}: ${r.mfgCost!==null && r.mfgCost!==undefined ? '$'+r.mfgCost : '—'}`).join('\n');
+  const logLines = state.logistics.items.filter(r=>r.marketGroup===marketGroup).map(r=>`${r.sku}: L${r.l??'-'}xW${r.w??'-'}xH${r.h??'-'}cm, ${r.weight??'-'}kg, ${r.unitsPerCarton??'-'}/carton`).join('\n');
 
   let profSummary = 'Not available — visit Profitability Summary to populate.';
   try{
@@ -5843,12 +5861,13 @@ function presentMarkiActionConfirmation(block){
 
 async function executeMarkiTool(name, input){
   if(name === 'update_manufacturing_cost'){
-    let row = state.mfg.find(r=>r.sku===input.sku);
-    if(!row){ row = { sku: input.sku, mfgCost: null }; state.mfg.push(row); }
+    const marketGroup = currentCatalogMarketGroup();
+    let row = state.mfg.find(r=>r.sku===input.sku && r.marketGroup===marketGroup);
+    if(!row){ row = { sku: input.sku, mfgCost: null, marketGroup }; state.mfg.push(row); }
     row.mfgCost = input.mfg_cost;
     await saveMfgRow(row);
     renderMfg();
-    return `Manufacturing Cost for ${input.sku} is now $${input.mfg_cost}.`;
+    return `Manufacturing Cost for ${input.sku} is now $${input.mfg_cost} (${marketContextLabel()}).`;
   }
   if(name === 'update_catalog_field'){
     const marketGroup = currentCatalogMarketGroup();
@@ -5860,12 +5879,13 @@ async function executeMarkiTool(name, input){
     return `${input.field} for ${input.sku} is now "${input.value}" (${marketContextLabel()} catalog).`;
   }
   if(name === 'update_logistics_dimension'){
-    let row = state.logistics.items.find(r=>r.sku===input.sku);
-    if(!row){ row = { sku: input.sku, l:null,w:null,h:null,weight:null,unitsPerCarton:null }; state.logistics.items.push(row); }
+    const marketGroup = currentCatalogMarketGroup();
+    let row = state.logistics.items.find(r=>r.sku===input.sku && r.marketGroup===marketGroup);
+    if(!row){ row = { sku: input.sku, l:null,w:null,h:null,weight:null,unitsPerCarton:null, marketGroup }; state.logistics.items.push(row); }
     row[input.field] = input.value;
     await saveLogisticsRow(row);
     renderLogistics();
-    return `${input.field} for ${input.sku} is now ${input.value}.`;
+    return `${input.field} for ${input.sku} is now ${input.value} (${marketContextLabel()}).`;
   }
   if(name === 'update_warehouse_invoice'){
     let row = state.warehouse.find(r=>r.month===input.month && (r.market||'USA')===state.currentMarket && (r.country||'')===(state.currentEuCountry||''));
