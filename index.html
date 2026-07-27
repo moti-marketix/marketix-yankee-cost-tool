@@ -4057,10 +4057,16 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
   const headerMap = {};
   headers.forEach((h, idx)=>{ if(h) headerMap[h] = idx; });
 
-  const required = ['asin', 'start date', 'units sold', 'net proceeds total'];
+  const required = ['asin', 'start date', 'units sold'];
   const missing = required.filter(r => headerMap[r]===undefined);
   if(missing.length){
     const errorMsg = `This doesn't look like an Amazon SKU Economics report — missing columns: ${missing.join(', ')}.`;
+    if(statusEl){ statusEl.textContent = errorMsg; statusEl.style.color = 'var(--red)'; }
+    return { success: false, error: errorMsg };
+  }
+  const hasDirectNetProceeds = headerMap['net proceeds total'] !== undefined;
+  if(!hasDirectNetProceeds && headerMap['net sales']===undefined){
+    const errorMsg = `This doesn't look like an Amazon SKU Economics report — missing columns: net proceeds total (or net sales, for non-US marketplace reports).`;
     if(statusEl){ statusEl.textContent = errorMsg; statusEl.style.color = 'var(--red)'; }
     return { success: false, error: errorMsg };
   }
@@ -4080,8 +4086,8 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     if(!asin) continue;
 
     const unitsSold = num(row[headerMap['units sold']]);
-    const netProceeds = num(row[headerMap['net proceeds total']]);
-    if(unitsSold === 0 && netProceeds === 0){ skippedZero++; continue; }
+    const quickNetSalesCheck = num(row[headerMap['net sales']]) || (hasDirectNetProceeds ? num(row[headerMap['net proceeds total']]) : 0);
+    if(unitsSold === 0 && quickNetSalesCheck === 0){ skippedZero++; continue; }
 
     const sku = asinToSku[String(asin).trim().toUpperCase()];
     if(!sku){ skippedNoMatch++; continue; }
@@ -4104,19 +4110,51 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     const month = mmddyyyyToMonth(row[headerMap['start date']]);
     if(!month){ skippedBadDate++; continue; }
 
-    const referralFee = num(row[headerMap['referral fee total']]) - num(row[headerMap['referral fee refunds total']]);
-    const fbaFees = num(row[headerMap['fba fulfillment fees total']])
-      + num(row[headerMap['fba inbound placement service fee total']])
-      + num(row[headerMap['inbound transportation fee total']])
-      + num(row[headerMap['fba removal order fee total']])
-      + num(row[headerMap['fba disposal order fee total']]);
-    const storageFees = num(row[headerMap['base monthly storage fee total']])
-      + num(row[headerMap['monthly inventory storage fee total']])
-      + num(row[headerMap['storage utilization surcharge total']])
-      + num(row[headerMap['aged inventory surcharge total']]);
-    const adSpend = num(row[headerMap['sponsored products charge total']]);
-    const refunds = num(row[headerMap['refund administration fee total']]);
+    const referralFee = hasDirectNetProceeds
+      ? num(row[headerMap['referral fee total']]) - num(row[headerMap['referral fee refunds total']])
+      : 0; // filled in below for the alternate format
+    const fbaFees = hasDirectNetProceeds
+      ? num(row[headerMap['fba fulfillment fees total']])
+        + num(row[headerMap['fba inbound placement service fee total']])
+        + num(row[headerMap['inbound transportation fee total']])
+        + num(row[headerMap['fba removal order fee total']])
+        + num(row[headerMap['fba disposal order fee total']])
+      : 0;
+    const storageFees = hasDirectNetProceeds
+      ? num(row[headerMap['base monthly storage fee total']])
+        + num(row[headerMap['monthly inventory storage fee total']])
+        + num(row[headerMap['storage utilization surcharge total']])
+        + num(row[headerMap['aged inventory surcharge total']])
+      : 0;
+    const adSpend = hasDirectNetProceeds ? num(row[headerMap['sponsored products charge total']]) : 0;
+    const refunds = hasDirectNetProceeds ? num(row[headerMap['refund administration fee total']]) : 0;
     const revenue = num(row[headerMap['net sales']]);
+
+    let netProceeds, computedReferralFee=referralFee, computedFbaFees=fbaFees, computedStorageFees=storageFees, computedAdSpend=adSpend, computedRefunds=refunds;
+    if(hasDirectNetProceeds){
+      netProceeds = num(row[headerMap['net proceeds total']]);
+    } else {
+      // Non-US marketplace reports (CA/DE/ES/FR/IT, etc.) don't provide Net Proceeds directly — Amazon's
+      // own definition is Net Sales minus every fee/surcharge deducted from the sale, so we compute it
+      // the same way: sum every "* total" column present (these vary by marketplace) and subtract from
+      // Net Sales. Each fee is also bucketed into the same categories the US report uses, by keyword —
+      // some rarer fee types (e.g. Digital Services Fee, Liquidation fees) don't fit a named bucket, but
+      // are still included in the overall total so the bottom-line Net Proceeds stays accurate.
+      let totalFeesSum = 0;
+      computedReferralFee = 0; computedFbaFees = 0; computedStorageFees = 0; computedAdSpend = 0; computedRefunds = 0;
+      headers.forEach((h, idx)=>{
+        if(!h || !h.endsWith(' total')) return;
+        const val = num(row[idx]);
+        totalFeesSum += val;
+        if(h.includes('liquidation')) { /* leave unbucketed — still counted in totalFeesSum, just not misfiled as a standard fee type */ }
+        else if(h.includes('referral fee refunds')) computedRefunds += val;
+        else if(h.includes('referral fee')) computedReferralFee += val;
+        else if(h.includes('sponsored products') || h.includes('sponsored brand')) computedAdSpend += val;
+        else if(h.includes('storage') || h.includes('aged inventory')) computedStorageFees += val;
+        else if(h.includes('fulfil') || h.includes('inbound transportation') || h.includes('disposal') || h.includes('removal') || h.includes('placement') || h.includes('fuel and logistics')) computedFbaFees += val;
+      });
+      netProceeds = revenue - totalFeesSum;
+    }
 
     // Individual raw line items, kept separate for the full detail view
     const unitsReturned = numOrNull(row[headerMap['units returned']]);
@@ -4148,7 +4186,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     const existing = state.sku.find(r=>r.sku===sku && r.month===month && (r.market||'USA')===uploadMarket && (r.country||'')===uploadCountry);
     const rowData = {
       sku, month, units: unitsSold, revenue,
-      referralFees: referralFee, fbaFees, storageFees, adSpend, refunds,
+      referralFees: computedReferralFee, fbaFees: computedFbaFees, storageFees: computedStorageFees, adSpend: computedAdSpend, refunds: computedRefunds,
       netProceeds,
       unitsReturned, netUnitsSold, avgSalesPrice, salesGross,
       agedInventorySurcharge, baseFulfillmentFee, baseMonthlyStorageFee,
