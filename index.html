@@ -1571,11 +1571,12 @@ function removeExecChip(value){
   renderExecSummary();
 }
 
-function healthColor(margin){
-  if(margin===null || margin===undefined) return { bg:'#F3F4F6', border:'#9CA3AF', text:'#6B7280' };
-  if(margin >= 20) return { bg:'#E8F8F0', border:'#1E9E63', text:'#0F6B41' };
-  if(margin >= 5) return { bg:'#FFF7E0', border:'#D9A400', text:'#8A6600' };
-  return { bg:'#FDEAEA', border:'#D9453D', text:'#A32B25' };
+function healthColor(roi){
+  if(roi===null || roi===undefined) return { bg:'#F3F4F6', border:'#9CA3AF', text:'#6B7280' };
+  if(roi >= 35) return { bg:'#E8F8F0', border:'#1E9E63', text:'#0F6B41' };   // green
+  if(roi >= 25) return { bg:'#FFF7E0', border:'#D9A400', text:'#8A6600' };   // yellow
+  if(roi >= 15) return { bg:'#FFFFFF', border:'#C7CBD1', text:'#333333' };   // white
+  return { bg:'#FDEAEA', border:'#D9453D', text:'#A32B25' };                 // red
 }
 
 function execKpiCard(label, value, color){
@@ -1653,10 +1654,10 @@ function renderExecSummary(){
   emptyEl.style.display = 'none';
 
   const agg = aggregateRows(scopedRows);
-  const marginColors = healthColor(agg.margin);
+  const roiColors = healthColor(agg.roi);
 
   container.innerHTML = `
-    <div style="background:${marginColors.bg}; border:2px solid ${marginColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
+    <div style="background:${roiColors.bg}; border:2px solid ${roiColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
       <div style="font-size:20px; font-weight:800; color:var(--navy); margin-bottom:16px;">${label}</div>
       <div class="kpi-grid">
         ${execKpiCard('Units Sold', agg.units.toLocaleString())}
@@ -1667,8 +1668,8 @@ function renderExecSummary(){
         ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
         ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
         ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
-        ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—', marginColors.text)}
-        ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—')}
+        ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—')}
+        ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—', roiColors.text)}
       </div>
     </div>
   `;
