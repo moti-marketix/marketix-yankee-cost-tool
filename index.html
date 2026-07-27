@@ -5417,18 +5417,31 @@ async function reparseRawFile(id, opts){
       const arrayBuffer = await data.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
       const catalogRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Catalog'), {header:1, defval:null});
-      const catalogResult = await parseAndSaveCatalogRows(catalogRows, null);
+      const catalogResult = await parseAndSaveCatalogRows(catalogRows, null, 'USA_CA');
+      let catalogEuResult = { success: true, rowsImported: 0, rowsSkipped: 0 };
+      const catalogEuWs = findSheetOptional(wb, 'Catalog EU');
+      if(catalogEuWs) catalogEuResult = await parseAndSaveCatalogRows(XLSX.utils.sheet_to_json(catalogEuWs, {header:1, defval:null}), null, 'EU');
+
       const mfgRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Manufacturing Costs'), {header:1, defval:null});
-      const mfgResult = await parseAndSaveMfgRows(mfgRows, null);
+      const mfgResult = await parseAndSaveMfgRows(mfgRows, null, 'USA_CA');
+      let mfgEuResult = { success: true, rowsImported: 0, rowsSkipped: 0 };
+      const mfgEuWs = findSheetOptional(wb, 'Manufacturing Costs EU');
+      if(mfgEuWs) mfgEuResult = await parseAndSaveMfgRows(XLSX.utils.sheet_to_json(mfgEuWs, {header:1, defval:null}), null, 'EU');
+
       const logRows = XLSX.utils.sheet_to_json(findSheet(wb, 'Logistics & Freight'), {header:1, defval:null});
-      const logResult = await parseAndSaveLogisticsRows(logRows, null);
-      const allSucceeded = [catalogResult, mfgResult, logResult].every(r => r && r.success);
-      const totalImported = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
-      const totalSkipped = [catalogResult, mfgResult, logResult].reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
+      const logResult = await parseAndSaveLogisticsRows(logRows, null, 'USA_CA');
+      let logEuResult = { success: true, rowsImported: 0, rowsSkipped: 0 };
+      const logEuWs = findSheetOptional(wb, 'Logistics & Freight EU');
+      if(logEuWs) logEuResult = await parseAndSaveLogisticsRows(XLSX.utils.sheet_to_json(logEuWs, {header:1, defval:null}), null, 'EU');
+
+      const allResults = [catalogResult, catalogEuResult, mfgResult, mfgEuResult, logResult, logEuResult];
+      const allSucceeded = allResults.every(r => r && r.success);
+      const totalImported = allResults.reduce((s,r)=> s + (r && r.rowsImported || 0), 0);
+      const totalSkipped = allResults.reduce((s,r)=> s + (r && r.rowsSkipped || 0), 0);
       await updateRawFileStats(id, { success: allSucceeded, rowsImported: totalImported, rowsSkipped: totalSkipped });
       if(!silent){
         await loadRawFiles(); renderRawFiles();
-        alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics have all been reloaded from this file.');
+        alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics (USA/CA and EU) have all been reloaded from this file.');
       }
       return;
     }
