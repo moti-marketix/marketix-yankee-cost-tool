@@ -3118,7 +3118,7 @@ function parseShipmentWorkbook(wb){
     allUnmatchedKeys.push(...unmatchedCols.map(k => contentBrand ? `${contentBrand}${contentRegion?' ('+contentRegion+')':''}: ${k}` : k));
   });
 
-  return { shipments: dedupedShipments, contents: allContents, unmatchedKeys: allUnmatchedKeys };
+  return { shipments: dedupedShipments, contents: allContents, unmatchedKeys: allUnmatchedKeys, usingClassicFallback };
 }
 
 async function handleShipmentsUpload(event){
@@ -3134,10 +3134,20 @@ async function handleShipmentsUpload(event){
       const fileId = await uploadRawFile(file, 'shipment_costs');
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array'});
-      const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
+      const { shipments, contents, unmatchedKeys, usingClassicFallback } = parseShipmentWorkbook(wb);
 
       function regionToMarketCountry(region){
-        if(!region) return { market: state.currentMarket, country: state.currentEuCountry || '' }; // no Region column — use the switcher, as before
+        if(!region){
+          // No Region column for this brand's sheet. If this file is the old single-brand format,
+          // the switcher IS the deliberate signal for which market this upload is for — use it.
+          // But if this file also has OTHER brands that DO carry a Region column (the new mixed
+          // format), defaulting a region-less brand to "whatever the switcher currently shows" would
+          // silently pull it into whichever market you happened to be viewing at upload time — instead
+          // it defaults to USA, since that's how these brands have been used historically.
+          return usingClassicFallback
+            ? { market: state.currentMarket, country: state.currentEuCountry || '' }
+            : { market: 'USA', country: '' };
+        }
         if(region==='USA') return { market:'USA', country:'' };
         if(region==='CA') return { market:'CA', country:'' };
         if(region==='EU') return { market:'EU', country:'' }; // unspecified EU country
@@ -5410,14 +5420,17 @@ async function reparseRawFile(id, opts){
     if(fileRow.screen === 'shipment_costs'){
       const arrayBuffer = await data.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(arrayBuffer), {type:'array'});
-      const { shipments, contents, unmatchedKeys } = parseShipmentWorkbook(wb);
-      // Re-parsing uses the market this file was ORIGINALLY uploaded under as the fallback for any
-      // shipment with no Region column — files with a Region column resolve per-shipment instead,
-      // since one file can now span several markets at once.
+      const { shipments, contents, unmatchedKeys, usingClassicFallback } = parseShipmentWorkbook(wb);
+      // Re-parsing uses the market this file was ORIGINALLY uploaded under as the fallback, but only for
+      // the old single-brand format — for the newer mixed format (some brands have a Region column,
+      // others don't), a region-less brand always defaults to USA rather than whatever market the file
+      // happened to be tagged with, since that tag could itself reflect a different brand's region.
       const fileMarket = fileRow.market || 'USA';
       const fileCountry = fileRow.country || '';
       function regionToMarketCountry(region){
-        if(!region) return { market: fileMarket, country: fileCountry };
+        if(!region){
+          return usingClassicFallback ? { market: fileMarket, country: fileCountry } : { market: 'USA', country: '' };
+        }
         if(region==='USA') return { market:'USA', country:'' };
         if(region==='CA') return { market:'CA', country:'' };
         if(region==='EU') return { market:'EU', country:'' };
