@@ -1521,17 +1521,21 @@ function handleCatalogUpload(event){
 }
 
 // ---------------- TAB 1: Manufacturing ----------------
+function skusMatch(a, b){
+  if(a===null || a===undefined || b===null || b===undefined) return false;
+  return String(a).trim().toUpperCase() === String(b).trim().toUpperCase();
+}
 function catalogRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
-  return state.catalog.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+  return state.catalog.find(r=>skusMatch(r.sku, sku) && r.marketGroup===marketGroup);
 }
 function mfgRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
-  return state.mfg.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+  return state.mfg.find(r=>skusMatch(r.sku, sku) && r.marketGroup===marketGroup);
 }
 function logisticsRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
-  return state.logistics.items.find(r=>r.sku===sku && r.marketGroup===marketGroup);
+  return state.logistics.items.find(r=>skusMatch(r.sku, sku) && r.marketGroup===marketGroup);
 }
 function catalogNameForSku(sku){
   const cat = catalogRowForSku(sku);
