@@ -5126,6 +5126,9 @@ function formatDateTime(iso){
 }
 
 function marketBadge(f){
+  if(f.screen === 'full_template'){
+    return `<span style="display:inline-block; padding:2px 9px; border-radius:10px; font-size:11px; font-weight:700; color:#fff; background:#6B4FA0;">All Markets</span>`;
+  }
   const market = f.market || 'USA';
   const colors = { USA: 'var(--navy)', CA: '#B12A2A', EU: '#1F6F5C' };
   const color = colors[market] || 'var(--grey)';
