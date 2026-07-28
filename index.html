@@ -3094,17 +3094,32 @@ function parseShipmentWorkbook(wb){
     const ws2 = wb.Sheets[contentSheetName];
     const sheet2Rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null});
 
-    let headerRowIdx = -1;
+    // Find the header row by locating a cell that literally says "SKU" — its column position varies
+    // (some sheets put SKU in column B, others insert extra columns like "Series"/"PRODUCT" before it).
+    let headerRowIdx = -1, skuColIdx = -1;
     for(let i=0; i<Math.min(sheet2Rows.length,10); i++){
-      const cell1 = sheet2Rows[i] && sheet2Rows[i][1];
-      if(cell1 && String(cell1).trim().toUpperCase()==='SKU'){ headerRowIdx = i; break; }
+      const row = sheet2Rows[i] || [];
+      const foundCol = row.findIndex(cell => cell && String(cell).trim().toUpperCase()==='SKU');
+      if(foundCol !== -1){ headerRowIdx = i; skuColIdx = foundCol; break; }
     }
-    if(headerRowIdx === -1) headerRowIdx = 1;
+    if(headerRowIdx === -1){ headerRowIdx = 1; skuColIdx = 1; } // fallback to the old assumed layout
 
+    // Reference columns (the messy multi-line patent/container/shipment-id text) start right after the
+    // last of the standard labeled columns — detected by name rather than a fixed position, since the
+    // exact set and order of standard columns (SKU, ASIN, Series, Product, Barcode, Image, Total...)
+    // varies between sheets.
+    const STANDARD_COL_NAMES = ['sku','asin','parent asin','product','barcode','image','series','fnsku','sum'];
     const headerKeyRow = sheet2Rows[headerRowIdx] || [];
+    let refColsStart = headerKeyRow.length;
+    for(let c=0; c<headerKeyRow.length; c++){
+      const label = headerKeyRow[c] ? String(headerKeyRow[c]).trim().toLowerCase() : '';
+      const isStandard = label && (STANDARD_COL_NAMES.includes(label) || label.includes('total'));
+      if(isStandard) refColsStart = c+1; // keep pushing forward past every standard column found
+    }
+
     const colResolution = {};
     const unmatchedCols = [];
-    for(let c=5; c<headerKeyRow.length; c++){
+    for(let c=refColsStart; c<headerKeyRow.length; c++){
       const val = headerKeyRow[c];
       if(!val) continue;
       const text = String(val);
@@ -3118,7 +3133,7 @@ function parseShipmentWorkbook(wb){
 
     for(let r=headerRowIdx+1; r<sheet2Rows.length; r++){
       const row = sheet2Rows[r] || [];
-      const sku = row[1];
+      const sku = row[skuColIdx];
       if(!sku) continue;
       Object.keys(colResolution).forEach(c=>{
         const shipment = colResolution[c];
