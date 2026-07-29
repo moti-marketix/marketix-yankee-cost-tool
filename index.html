@@ -823,22 +823,42 @@ let state = {
   familyGroups: [],
   eurToUsdRate: null,
   eurToUsdRateFetchedAt: null,
+  eurToUsdRateError: null,
 };
 
 async function fetchLiveExchangeRate(){
-  try{
-    const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=USD');
-    const data = await res.json();
-    if(data && data.rates && data.rates.USD){
-      state.eurToUsdRate = data.rates.USD;
+  state.eurToUsdRateError = null;
+  updateExchangeRateIndicator(); // show "Loading..." immediately, including on manual Retry clicks
+
+  // Try two independent free FX APIs in sequence — if the first is down or blocked, fall back to
+  // the second rather than leaving the rate unset.
+  const sources = [
+    { url: 'https://api.frankfurter.app/latest?from=EUR&to=USD', extract: d => d?.rates?.USD },
+    { url: 'https://open.er-api.com/v6/latest/EUR', extract: d => d?.rates?.USD },
+  ];
+
+  let lastError = null;
+  for(const source of sources){
+    try{
+      const res = await fetch(source.url);
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const rate = source.extract(data);
+      if(!rate) throw new Error('Response did not include a USD rate');
+      state.eurToUsdRate = rate;
       state.eurToUsdRateFetchedAt = new Date();
+      state.eurToUsdRateError = null;
       updateExchangeRateIndicator();
       refreshAllMarketScopedPages();
+      return;
+    }catch(err){
+      lastError = err;
+      console.error(`Exchange rate source failed (${source.url}):`, err);
     }
-  }catch(err){
-    console.error('Could not fetch live exchange rate:', err);
-    updateExchangeRateIndicator();
   }
+  // Both sources failed
+  state.eurToUsdRateError = lastError ? (lastError.message || String(lastError)) : 'Unknown error';
+  updateExchangeRateIndicator();
 }
 function eurToUsd(amount){
   // Falls back to treating EUR as USD (rate=1) if the live rate hasn't loaded yet — better to show a
@@ -852,8 +872,10 @@ function updateExchangeRateIndicator(){
   if(state.eurToUsdRate){
     const time = state.eurToUsdRateFetchedAt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
     el.innerHTML = `1 EUR = $${state.eurToUsdRate.toFixed(4)} <span style="opacity:0.7;">(as of ${time})</span> <a href="#" onclick="fetchLiveExchangeRate(); return false;" style="color:inherit; text-decoration:underline;">Refresh</a>`;
+  } else if(state.eurToUsdRateError){
+    el.innerHTML = `<span style="color:#FFB4B4;">Rate failed: ${state.eurToUsdRateError}</span> <a href="#" onclick="fetchLiveExchangeRate(); return false;" style="color:inherit; text-decoration:underline;">Retry</a>`;
   } else {
-    el.innerHTML = `Loading live EUR/USD rate... <a href="#" onclick="fetchLiveExchangeRate(); return false;" style="color:inherit; text-decoration:underline;">Retry</a>`;
+    el.innerHTML = `Loading live EUR/USD rate...`;
   }
 }
 
