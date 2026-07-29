@@ -217,6 +217,7 @@
           <option value="ES">Spain</option>
         </select>
       </div>
+      <div id="exchange-rate-indicator" style="margin-top:10px; font-size:11px; color:#9DC3E6; line-height:1.4;"></div>
     </div>
     <div class="nav-item active" data-tab="catalog"><span class="num">1</span>Catalog</div>
     <div class="nav-item" data-tab="mfg"><span class="num">2</span>Manufacturing Costs</div>
@@ -491,7 +492,7 @@
     <!-- ===================== TAB 3: WAREHOUSE ===================== -->
     <section id="tab-warehouse" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Warehouse Costs</h1><div id="warehouse-lock-bar" class="lock-bar"></div></div>
-      <p class="subtitle">Real invoice total, normalized by carton size — items packed 1-per-box carry more of the handling cost per unit than items packed 10 or 20-per-box. <strong>Set the Market (and, for EU, Country) in the sidebar first</strong> — invoices you add or upload here are tagged to whichever one is currently selected.</p>
+      <p class="subtitle">Real invoice total, normalized by carton size — items packed 1-per-box carry more of the handling cost per unit than items packed 10 or 20-per-box. <strong>Set the Market (and, for EU, Country) in the sidebar first</strong> — invoices you add or upload here are tagged to whichever one is currently selected. <strong>For EU, enter invoice amounts in EUR</strong> — they're automatically converted to USD using the live rate shown in the sidebar before being combined with Manufacturing/Freight costs.</p>
 
       <div class="kpi-grid" id="warehouse-kpis"></div>
 
@@ -820,7 +821,41 @@ let state = {
   currentMarket: 'USA',
   currentEuCountry: '',
   familyGroups: [],
+  eurToUsdRate: null,
+  eurToUsdRateFetchedAt: null,
 };
+
+async function fetchLiveExchangeRate(){
+  try{
+    const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=USD');
+    const data = await res.json();
+    if(data && data.rates && data.rates.USD){
+      state.eurToUsdRate = data.rates.USD;
+      state.eurToUsdRateFetchedAt = new Date();
+      updateExchangeRateIndicator();
+      refreshAllMarketScopedPages();
+    }
+  }catch(err){
+    console.error('Could not fetch live exchange rate:', err);
+    updateExchangeRateIndicator();
+  }
+}
+function eurToUsd(amount){
+  // Falls back to treating EUR as USD (rate=1) if the live rate hasn't loaded yet — better to show a
+  // roughly-right number immediately than block the page, and it self-corrects once the fetch completes.
+  const rate = state.eurToUsdRate || 1;
+  return amount * rate;
+}
+function updateExchangeRateIndicator(){
+  const el = document.getElementById('exchange-rate-indicator');
+  if(!el) return;
+  if(state.eurToUsdRate){
+    const time = state.eurToUsdRateFetchedAt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    el.innerHTML = `1 EUR = $${state.eurToUsdRate.toFixed(4)} <span style="opacity:0.7;">(as of ${time})</span> <a href="#" onclick="fetchLiveExchangeRate(); return false;" style="color:inherit; text-decoration:underline;">Refresh</a>`;
+  } else {
+    el.innerHTML = `Loading live EUR/USD rate... <a href="#" onclick="fetchLiveExchangeRate(); return false;" style="color:inherit; text-decoration:underline;">Retry</a>`;
+  }
+}
 
 // ---------------- Lock / Edit / Submit workflow (applies to all data-entry tables) ----------------
 const editModeState = { catalog:false, mfg:false, logistics:false, warehouse:false, sku:false };
@@ -2690,7 +2725,7 @@ function yearOf(monthStr){
 function totalWarehouseInvoices(){
   return state.warehouse
     .filter(r=>matchesCurrentMarketScope(r.market||'USA', r.country||''))
-    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
+    .reduce((sum,r)=>sum + ((r.invoiceAmount||0) * ((r.market||'USA')==='EU' ? (state.eurToUsdRate||1) : 1)), 0);
 }
 function isWarehouseExcludedForSku(sku){
   const brand = catalogBrandForSku(sku);
@@ -4751,28 +4786,35 @@ function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0, adSpend=0;
   let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
   rows.forEach(row=>{
-    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only
-    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0;
+    // Amazon's EU marketplace reports (DE/IT/FR/ES) are natively denominated in EUR, while Manufacturing
+    // Costs and Freight are entered in USD — convert the EUR-native figures to USD here, at the point
+    // they enter any calculation, so Net Profit/Margin/ROI are never a meaningless mix of currencies.
+    const fx = row.market === 'EU' ? (state.eurToUsdRate || 1) : 1;
+    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only — already USD, no conversion
+    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0; // converted separately, inside that function
     const u = row.units || 0;
     const rowCogs = landed * u;
     const rowWh = whPerUnit * u;
+    const rowRevenue = (row.revenue||0) * fx;
+    const rowAdSpend = (row.adSpend||0) * fx;
+    const rowNetProceeds = (row.netProceeds!==null && row.netProceeds!==undefined) ? row.netProceeds * fx : null;
 
     units += u;
-    revenue += (row.revenue||0);
+    revenue += rowRevenue;
     cogs += rowCogs;
     wh += rowWh;
-    adSpend += (row.adSpend||0);
+    adSpend += rowAdSpend;
 
     const shippedQty = row.inboundTransportationFeeQty || 0;
     unitsShipped += shippedQty;
     if(row.inboundTransportationFeePerUnit!==null && row.inboundTransportationFeePerUnit!==undefined && shippedQty>0){
-      feeWeightSum += row.inboundTransportationFeePerUnit * shippedQty;
+      feeWeightSum += (row.inboundTransportationFeePerUnit * fx) * shippedQty;
       feeQtySum += shippedQty;
     }
 
-    if(row.netProceeds!==null && row.netProceeds!==undefined){
-      netProceedsTotal += row.netProceeds;
-      netProfit += (row.netProceeds - rowCogs - rowWh);
+    if(rowNetProceeds!==null){
+      netProceedsTotal += rowNetProceeds;
+      netProfit += (rowNetProceeds - rowCogs - rowWh);
       rowsWithProfit++;
     } else {
       rowsMissingNetProceeds++;
@@ -5640,6 +5682,8 @@ async function initApp(){
   document.getElementById('market-select').value = state.currentMarket;
   document.getElementById('eu-country-select').value = state.currentEuCountry;
   document.getElementById('eu-country-subselect').style.display = state.currentMarket === 'EU' ? 'block' : 'none';
+  updateExchangeRateIndicator();
+  fetchLiveExchangeRate(); // fire-and-forget — page renders immediately with rate=1 fallback, self-corrects when this resolves
   renderCatalog();
   renderMfg();
   renderLogistics();
