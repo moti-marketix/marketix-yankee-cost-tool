@@ -1217,19 +1217,16 @@ function scrollTable(id, delta){
 }
 
 function currencySymbol(){
-  return state.currentMarket === 'EU' ? '€' : '$';
+  return '$'; // everything is combined in USD — EUR-native EU figures get converted to USD before display
 }
 function fmt(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
-  return currencySymbol() + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function fmtWhole(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
-  return currencySymbol() + Math.round(Number(n)).toLocaleString(undefined, {maximumFractionDigits:0});
+  return '$' + Math.round(Number(n)).toLocaleString(undefined, {maximumFractionDigits:0});
 }
-// Manufacturing Costs and Logistics & Freight are always entered in USD, even when viewing EU (only
-// Warehouse invoices and SKU Economics reports are natively EUR there) — these two pages use fmtUsd
-// instead of fmt so their raw entered values never show a misleading € sign.
 function fmtUsd(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -1703,7 +1700,7 @@ function renderExecChips(){
 }
 
 function renderExecSummary(){
-  document.getElementById('exec-currency-note').textContent = state.currentMarket === 'EU' ? '— figures shown in EUR' : '— figures shown in USD';
+  document.getElementById('exec-currency-note').textContent = state.currentMarket === 'EU' ? '— EU figures converted to USD at the live rate shown in the sidebar' : '';
   const valueSelect = document.getElementById('exec-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
 
@@ -2762,7 +2759,7 @@ function yearOf(monthStr){
 function totalWarehouseInvoices(){
   return state.warehouse
     .filter(r=>matchesCurrentMarketScope(r.market||'USA', r.country||''))
-    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
+    .reduce((sum,r)=>sum + ((r.invoiceAmount||0) * ((r.market||'USA')==='EU' ? (state.eurToUsdRate||1) : 1)), 0);
 }
 function isWarehouseExcludedForSku(sku){
   const brand = catalogBrandForSku(sku);
@@ -4823,19 +4820,18 @@ function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0, adSpend=0;
   let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
   rows.forEach(row=>{
-    // Amazon's EU marketplace reports (DE/IT/FR/ES) and EU Warehouse invoices are natively in EUR — those
-    // stay exactly as entered. Manufacturing Costs and Logistics/Freight, however, are always entered in
-    // USD even for EU — those get converted into EUR here, at the point they enter the calculation, so
-    // everything ends up in one consistent currency (EUR for EU, USD everywhere else).
-    const usdToEur = row.market === 'EU' ? (1 / (state.eurToUsdRate || 1)) : 1;
-    const landed = (landedCostForSku(row.sku) || 0) * usdToEur; // Manufacturing + Freight — USD-native, converted to EUR for EU
-    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0; // Warehouse — already EUR-native for EU, no conversion
+    // Amazon's EU marketplace reports (DE/IT/FR/ES) are natively denominated in EUR, while Manufacturing
+    // Costs and Freight are entered in USD — convert the EUR-native figures to USD here, at the point
+    // they enter any calculation, so Net Profit/Margin/ROI are never a meaningless mix of currencies.
+    const fx = row.market === 'EU' ? (state.eurToUsdRate || 1) : 1;
+    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only — already USD, no conversion
+    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0; // converted separately, inside totalWarehouseInvoices
     const u = row.units || 0;
     const rowCogs = landed * u;
     const rowWh = whPerUnit * u;
-    const rowRevenue = row.revenue || 0; // already EUR-native for EU
-    const rowAdSpend = row.adSpend || 0; // already EUR-native for EU
-    const rowNetProceeds = (row.netProceeds!==null && row.netProceeds!==undefined) ? row.netProceeds : null; // already EUR-native for EU
+    const rowRevenue = (row.revenue||0) * fx;
+    const rowAdSpend = (row.adSpend||0) * fx;
+    const rowNetProceeds = (row.netProceeds!==null && row.netProceeds!==undefined) ? row.netProceeds * fx : null;
 
     units += u;
     revenue += rowRevenue;
@@ -4846,7 +4842,7 @@ function aggregateRows(rows){
     const shippedQty = row.inboundTransportationFeeQty || 0;
     unitsShipped += shippedQty;
     if(row.inboundTransportationFeePerUnit!==null && row.inboundTransportationFeePerUnit!==undefined && shippedQty>0){
-      feeWeightSum += row.inboundTransportationFeePerUnit * shippedQty;
+      feeWeightSum += (row.inboundTransportationFeePerUnit * fx) * shippedQty;
       feeQtySum += shippedQty;
     }
 
@@ -5045,7 +5041,7 @@ function getSortValue(obj, columnKey, colDefs){
 }
 
 function renderSummary(){
-  document.getElementById('summary-currency-note').textContent = state.currentMarket === 'EU' ? '— figures shown in EUR' : '— figures shown in USD';
+  document.getElementById('summary-currency-note').textContent = state.currentMarket === 'EU' ? '— EU figures converted to USD at the live rate shown in the sidebar' : '';
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('summary-period-type', 'summary-period-value', 'summary-period-value-label');
