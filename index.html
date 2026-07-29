@@ -1591,7 +1591,8 @@ function handleCatalogUpload(event){
 // ---------------- TAB 1: Manufacturing ----------------
 function skusMatch(a, b){
   if(a===null || a===undefined || b===null || b===undefined) return false;
-  return String(a).trim().toUpperCase() === String(b).trim().toUpperCase();
+  const normalize = s => String(s).replace(/\s+/g, '').toUpperCase(); // strip ALL whitespace, not just leading/trailing
+  return normalize(a) === normalize(b);
 }
 function catalogRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
