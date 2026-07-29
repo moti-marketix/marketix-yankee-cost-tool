@@ -5402,12 +5402,21 @@ function parseInvoiceText(text){
   if(isNaN(invoiceAmount)) return null;
 
   // These invoices sometimes cover more than one calendar month (e.g. "JANUARY & FEBRUARY 2026
-  // SERVICES") — rather than guess which month the combined total belongs to, flag it for manual
-  // entry/splitting instead of silently misattributing the whole amount to one month.
+  // SERVICES") with one combined total. Per-line-item parsing turned out fragile here (rate labels
+  // like "99,00 € per month" get confused with the actual charge, and section titles can falsely
+  // match as a line item) — an even split across the mentioned months is far more reliable, and this
+  // vendor's line items have been identical per month in every invoice seen so far anyway.
   const monthNames = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
   const mentionedMonths = monthNames.filter(m => new RegExp(`\\b${m}\\b`, 'i').test(text));
   if(mentionedMonths.length >= 2){
-    return { multiMonth: true, invoiceAmount, monthsmentioned: mentionedMonths };
+    const yearMatch = text.match(new RegExp(`(?:${mentionedMonths.join('|')})[^0-9]{0,20}(\\d{4})`, 'i'));
+    const year = yearMatch ? yearMatch[1] : new Date().getFullYear().toString();
+    const perMonthAmount = Math.round((invoiceAmount / mentionedMonths.length) * 100) / 100;
+    const splitMonths = mentionedMonths.map(m => ({
+      month: `${year}-${String(monthNames.indexOf(m)+1).padStart(2,'0')}`,
+      invoiceAmount: perMonthAmount,
+    }));
+    return { multiMonth: true, invoiceAmount, monthsmentioned: mentionedMonths, splitMonths };
   }
 
   const euDateMatches = [...text.matchAll(/(\d{1,2})\.(\d{1,2})\.(\d{4})/g)];
@@ -5442,29 +5451,30 @@ async function handleBulkInvoiceUpload(event){
         results.push({ file: file.name, success: false, error: "Couldn't find a date and total in this file" });
         continue;
       }
-      if(parsed.multiMonth){
-        results.push({ file: file.name, success: false, error: `Covers multiple months (${parsed.monthsmentioned.join(' & ')}) for a combined total of ${fmt(parsed.invoiceAmount)} — enter these as separate monthly rows manually` });
-        continue;
-      }
+      const monthEntries = parsed.multiMonth ? parsed.splitMonths : [{ month: parsed.month, invoiceAmount: parsed.invoiceAmount }];
 
-      // Find existing row for this month AND market, or create one
-      let row = state.warehouse.find(r=>r.month === parsed.month && (r.market||'USA')===state.currentMarket && (r.country||'')===(state.currentEuCountry||''));
-      if(!row){
-        row = { month: parsed.month, invoiceAmount: null, market: state.currentMarket, country: state.currentEuCountry || '' };
-        state.warehouse.push(row);
-      }
-      row.invoiceAmount = parsed.invoiceAmount;
-
-      // Archive the PDF and attach it to this row
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const path = `${CLIENT_ID}/warehouse_invoice_docs/${row.month}_${timestamp}_${file.name}`;
-      const { error: uploadErr } = await sb.storage.from('raw-uploads').upload(path, file);
-      if(uploadErr) throw uploadErr;
-      row.invoiceFilePath = path;
-      row.invoiceFileName = file.name;
+      const savedEntries = [];
+      for(const entry of monthEntries){
+        let row = state.warehouse.find(r=>r.month === entry.month && (r.market||'USA')===state.currentMarket && (r.country||'')===(state.currentEuCountry||''));
+        if(!row){
+          row = { month: entry.month, invoiceAmount: null, market: state.currentMarket, country: state.currentEuCountry || '' };
+          state.warehouse.push(row);
+        }
+        row.invoiceAmount = entry.invoiceAmount;
 
-      await saveWarehouseRow(row);
-      results.push({ file: file.name, success: true, month: parsed.month, amount: parsed.invoiceAmount });
+        // Archive the PDF (same file attached to every month it covers) and attach it to this row
+        const path = `${CLIENT_ID}/warehouse_invoice_docs/${entry.month}_${timestamp}_${file.name}`;
+        const { error: uploadErr } = await sb.storage.from('raw-uploads').upload(path, file);
+        if(uploadErr) throw uploadErr;
+        row.invoiceFilePath = path;
+        row.invoiceFileName = file.name;
+
+        await saveWarehouseRow(row);
+        savedEntries.push(entry);
+      }
+      const noteForMultiMonth = parsed.multiMonth ? ` (split evenly from a combined ${fmt(parsed.invoiceAmount)} covering ${parsed.monthsmentioned.join(' & ')})` : '';
+      results.push({ file: file.name, success: true, entries: savedEntries, note: noteForMultiMonth });
     }catch(err){
       console.error(err);
       results.push({ file: file.name, success: false, error: err.message || String(err) });
@@ -5476,7 +5486,7 @@ async function handleBulkInvoiceUpload(event){
   const succeeded = results.filter(r=>r.success);
   const failed = results.filter(r=>!r.success);
   let msg = `Done — ${succeeded.length} of ${files.length} invoice(s) read and saved automatically`;
-  if(succeeded.length) msg += `: ${succeeded.map(r=>`${r.month} (${fmt(r.amount)})`).join(', ')}`;
+  if(succeeded.length) msg += `: ${succeeded.map(r=>`${r.entries.map(e=>`${e.month} (${fmt(e.invoiceAmount)})`).join(', ')}${r.note}`).join('; ')}`;
   if(failed.length) msg += `. ${failed.length} file(s) need manual entry: ${failed.map(f=>`${f.file} — ${f.error}`).join('; ')}`;
   statusEl.style.color = failed.length ? 'var(--red)' : 'var(--green)';
   statusEl.textContent = msg + '.';
