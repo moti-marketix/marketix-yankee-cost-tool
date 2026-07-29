@@ -5383,16 +5383,45 @@ async function extractTextFromPdf(arrayBuffer){
 }
 
 function parseInvoiceText(text){
-  // Invoice date appears before Due Date in this vendor's template — take the first date found.
-  const dateMatches = [...text.matchAll(/(\d{1,2})\/(\d{1,2})\/(\d{4})/g)];
-  const totalMatch = text.match(/TOTAL\s*DUE\s*\$?\s*([\d,]+\.\d{2})/i);
+  // Try the existing US-vendor format first: MM/DD/YYYY dates, "TOTAL DUE $X,XXX.XX".
+  const usDateMatches = [...text.matchAll(/(\d{1,2})\/(\d{1,2})\/(\d{4})/g)];
+  const usTotalMatch = text.match(/TOTAL\s*DUE\s*\$?\s*([\d,]+\.\d{2})/i);
+  if(usDateMatches.length && usTotalMatch){
+    const [, mm, , yyyy] = usDateMatches[0];
+    const month = `${yyyy}-${mm.padStart(2,'0')}`;
+    const invoiceAmount = parseFloat(usTotalMatch[1].replace(/,/g,''));
+    return { month, invoiceAmount };
+  }
 
-  if(!dateMatches.length || !totalMatch) return null;
+  // European-vendor format: DD.MM.YYYY dates, "TOTAL: X.XXX,XX €" (comma as decimal separator).
+  const euTotalMatch = text.match(/TOTAL\s*:?\s*([\d.,]+)\s*€/i);
+  if(!euTotalMatch) return null;
+  // European numbers use "." as a thousands separator and "," as the decimal — strip thousands dots,
+  // then convert the decimal comma to a dot.
+  const invoiceAmount = parseFloat(euTotalMatch[1].replace(/\./g,'').replace(',', '.'));
+  if(isNaN(invoiceAmount)) return null;
 
-  const [, mm, , yyyy] = dateMatches[0];
-  const month = `${yyyy}-${mm.padStart(2,'0')}`;
-  const invoiceAmount = parseFloat(totalMatch[1].replace(/,/g,''));
-  return { month, invoiceAmount };
+  // These invoices sometimes cover more than one calendar month (e.g. "JANUARY & FEBRUARY 2026
+  // SERVICES") — rather than guess which month the combined total belongs to, flag it for manual
+  // entry/splitting instead of silently misattributing the whole amount to one month.
+  const monthNames = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const mentionedMonths = monthNames.filter(m => new RegExp(`\\b${m}\\b`, 'i').test(text));
+  if(mentionedMonths.length >= 2){
+    return { multiMonth: true, invoiceAmount, monthsmentioned: mentionedMonths };
+  }
+
+  const euDateMatches = [...text.matchAll(/(\d{1,2})\.(\d{1,2})\.(\d{4})/g)];
+  if(mentionedMonths.length === 1){
+    // Prefer the explicitly-named service month over a possibly-unrelated invoice/issue date.
+    const monthIdx = monthNames.indexOf(mentionedMonths[0]) + 1;
+    const yearMatch = text.match(new RegExp(`${mentionedMonths[0]}\\D{0,10}(\\d{4})`, 'i'));
+    if(yearMatch) return { month: `${yearMatch[1]}-${String(monthIdx).padStart(2,'0')}`, invoiceAmount };
+  }
+  if(euDateMatches.length){
+    const [, dd, mm, yyyy] = euDateMatches[0];
+    return { month: `${yyyy}-${mm.padStart(2,'0')}`, invoiceAmount };
+  }
+  return null;
 }
 
 async function handleBulkInvoiceUpload(event){
@@ -5411,6 +5440,10 @@ async function handleBulkInvoiceUpload(event){
       const parsed = parseInvoiceText(text);
       if(!parsed){
         results.push({ file: file.name, success: false, error: "Couldn't find a date and total in this file" });
+        continue;
+      }
+      if(parsed.multiMonth){
+        results.push({ file: file.name, success: false, error: `Covers multiple months (${parsed.monthsmentioned.join(' & ')}) for a combined total of ${fmt(parsed.invoiceAmount)} — enter these as separate monthly rows manually` });
         continue;
       }
 
