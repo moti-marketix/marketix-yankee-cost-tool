@@ -666,7 +666,7 @@
     <!-- ===================== SUMMARY ===================== -->
     <section id="tab-summary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Profitability Summary</h1></div>
-      <p class="subtitle">Net Profit = Net Proceeds (from Amazon) − COGS (Manufacturing + Freight) − Warehouse cost/unit.</p>
+      <p class="subtitle">Net Profit = Net Proceeds (from Amazon) − COGS (Manufacturing + Freight) − Warehouse cost/unit. <strong id="summary-currency-note"></strong></p>
 
       <div class="card">
         <h2>View</h2>
@@ -730,7 +730,7 @@
     <!-- ===================== EXECUTIVE SUMMARY ===================== -->
     <section id="tab-execsummary" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Executive Summary</h1></div>
-      <p class="subtitle">Pick one or more Parent ASINs or Product Families below to see their combined key numbers.</p>
+      <p class="subtitle">Pick one or more Parent ASINs or Product Families below to see their combined key numbers. <strong id="exec-currency-note"></strong></p>
 
       <div class="card">
         <div class="filter-bar">
@@ -1216,11 +1216,25 @@ function scrollTable(id, delta){
   if(el) el.scrollBy({ left: delta, behavior: 'smooth' });
 }
 
+function currencySymbol(){
+  return state.currentMarket === 'EU' ? '€' : '$';
+}
 function fmt(n){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return currencySymbol() + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtWhole(n){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return currencySymbol() + Math.round(Number(n)).toLocaleString(undefined, {maximumFractionDigits:0});
+}
+// Manufacturing Costs and Logistics & Freight are always entered in USD, even when viewing EU (only
+// Warehouse invoices and SKU Economics reports are natively EUR there) — these two pages use fmtUsd
+// instead of fmt so their raw entered values never show a misleading € sign.
+function fmtUsd(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
 }
-function fmtWhole(n){
+function fmtUsdWhole(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return '$' + Math.round(Number(n)).toLocaleString(undefined, {maximumFractionDigits:0});
 }
@@ -1689,6 +1703,7 @@ function renderExecChips(){
 }
 
 function renderExecSummary(){
+  document.getElementById('exec-currency-note').textContent = state.currentMarket === 'EU' ? '— figures shown in EUR' : '— figures shown in USD';
   const valueSelect = document.getElementById('exec-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
 
@@ -1914,7 +1929,7 @@ function renderMfg(){
     const displayName = catalogNameForSku(row.sku);
     const costCell = editing
       ? `<input type="number" step="0.01" value="${row.mfgCost??''}" oninput="updateMfg(${idx},'mfgCost',this.value)" placeholder="0.00">`
-      : `${row.mfgCost!==null && row.mfgCost!==undefined ? fmt(row.mfgCost) : '—'}`;
+      : `${row.mfgCost!==null && row.mfgCost!==undefined ? fmtUsd(row.mfgCost) : '—'}`;
     const skuCell = editing ? skuCellHtml('mfg', idx, row.sku, 'updateMfg') : (row.sku || '—');
     const indentStyle = indent ? `style="padding-left:${indent}px;"` : '';
     return `
@@ -2463,7 +2478,7 @@ function renderLogistics(){
         <td><input type="number" class="narrow" value="${row.weight??''}" oninput="updateLogistics(${idx},'weight',this.value)"></td>
         <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
         <td><input type="number" class="narrow" value="${row.unitsPerCarton??''}" oninput="updateLogistics(${idx},'unitsPerCarton',this.value)"></td>
-        <td class="computed">${freight!==null ? fmt(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
+        <td class="computed">${freight!==null ? fmtUsd(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
         <td></td>
         <td><button class="btn-del" onclick="deleteLogistics(${idx})">&times;</button></td>
       `;
@@ -2478,7 +2493,7 @@ function renderLogistics(){
       <td>${row.weight??'—'}</td>
       <td class="computed">${cbm!==null ? fmtNum(cbm,4) : '—'}</td>
       <td>${row.unitsPerCarton??'—'}</td>
-      <td class="computed">${freight!==null ? fmt(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
+      <td class="computed">${freight!==null ? fmtUsd(freight) : '<span style="color:var(--red)">no shipment data</span>'}</td>
       <td></td>
       <td></td>
     `;
@@ -2556,7 +2571,7 @@ function renderLogistics(){
         <td>${isExpanded ? '&#9662;' : '&#9656;'} ${pr.parent}</td>
         <td>${pr.entries.length}</td>
         <td>${pr.weightedAvgCbmPerUnit!==null ? fmtNum(pr.weightedAvgCbmPerUnit,4) : '—'}</td>
-        <td><strong>${pr.weightedAvgFreightPerUnit!==null ? fmt(pr.weightedAvgFreightPerUnit) : '—'}</strong></td>
+        <td><strong>${pr.weightedAvgFreightPerUnit!==null ? fmtUsd(pr.weightedAvgFreightPerUnit) : '—'}</strong></td>
         <td></td><td></td>
       `;
       tbody.appendChild(tr);
@@ -2747,7 +2762,7 @@ function yearOf(monthStr){
 function totalWarehouseInvoices(){
   return state.warehouse
     .filter(r=>matchesCurrentMarketScope(r.market||'USA', r.country||''))
-    .reduce((sum,r)=>sum + ((r.invoiceAmount||0) * ((r.market||'USA')==='EU' ? (state.eurToUsdRate||1) : 1)), 0);
+    .reduce((sum,r)=>sum + (r.invoiceAmount||0), 0);
 }
 function isWarehouseExcludedForSku(sku){
   const brand = catalogBrandForSku(sku);
@@ -4808,18 +4823,19 @@ function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0, adSpend=0;
   let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
   rows.forEach(row=>{
-    // Amazon's EU marketplace reports (DE/IT/FR/ES) are natively denominated in EUR, while Manufacturing
-    // Costs and Freight are entered in USD — convert the EUR-native figures to USD here, at the point
-    // they enter any calculation, so Net Profit/Margin/ROI are never a meaningless mix of currencies.
-    const fx = row.market === 'EU' ? (state.eurToUsdRate || 1) : 1;
-    const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only — already USD, no conversion
-    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0; // converted separately, inside that function
+    // Amazon's EU marketplace reports (DE/IT/FR/ES) and EU Warehouse invoices are natively in EUR — those
+    // stay exactly as entered. Manufacturing Costs and Logistics/Freight, however, are always entered in
+    // USD even for EU — those get converted into EUR here, at the point they enter the calculation, so
+    // everything ends up in one consistent currency (EUR for EU, USD everywhere else).
+    const usdToEur = row.market === 'EU' ? (1 / (state.eurToUsdRate || 1)) : 1;
+    const landed = (landedCostForSku(row.sku) || 0) * usdToEur; // Manufacturing + Freight — USD-native, converted to EUR for EU
+    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0; // Warehouse — already EUR-native for EU, no conversion
     const u = row.units || 0;
     const rowCogs = landed * u;
     const rowWh = whPerUnit * u;
-    const rowRevenue = (row.revenue||0) * fx;
-    const rowAdSpend = (row.adSpend||0) * fx;
-    const rowNetProceeds = (row.netProceeds!==null && row.netProceeds!==undefined) ? row.netProceeds * fx : null;
+    const rowRevenue = row.revenue || 0; // already EUR-native for EU
+    const rowAdSpend = row.adSpend || 0; // already EUR-native for EU
+    const rowNetProceeds = (row.netProceeds!==null && row.netProceeds!==undefined) ? row.netProceeds : null; // already EUR-native for EU
 
     units += u;
     revenue += rowRevenue;
@@ -4830,7 +4846,7 @@ function aggregateRows(rows){
     const shippedQty = row.inboundTransportationFeeQty || 0;
     unitsShipped += shippedQty;
     if(row.inboundTransportationFeePerUnit!==null && row.inboundTransportationFeePerUnit!==undefined && shippedQty>0){
-      feeWeightSum += (row.inboundTransportationFeePerUnit * fx) * shippedQty;
+      feeWeightSum += row.inboundTransportationFeePerUnit * shippedQty;
       feeQtySum += shippedQty;
     }
 
@@ -4921,11 +4937,11 @@ function showCogsBreakdown(key, level){
     return `
       <tr>
         <td>${sku}${missingNote}</td>
-        <td>${mfgCost!==null ? fmt(mfgCost) : '—'}</td>
-        <td>${freight!==null ? fmt(freight) : '—'}</td>
-        <td><strong>${fmt(landed)}</strong></td>
+        <td>${mfgCost!==null ? fmtUsd(mfgCost) : '—'}</td>
+        <td>${freight!==null ? fmtUsd(freight) : '—'}</td>
+        <td><strong>${fmtUsd(landed)}</strong></td>
         <td>${units.toLocaleString()}</td>
-        <td><strong>${fmt(subtotal)}</strong></td>
+        <td><strong>${fmtUsd(subtotal)}</strong></td>
       </tr>
     `;
   }).join('');
@@ -5029,6 +5045,7 @@ function getSortValue(obj, columnKey, colDefs){
 }
 
 function renderSummary(){
+  document.getElementById('summary-currency-note').textContent = state.currentMarket === 'EU' ? '— figures shown in EUR' : '— figures shown in USD';
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('summary-period-type', 'summary-period-value', 'summary-period-value-label');
