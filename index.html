@@ -4198,6 +4198,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
 
   let imported = 0, skippedZero = 0, skippedNoMatch = 0, skippedBadDate = 0;
   const rowsToSave = [];
+  const monthsInThisUpload = new Set();
 
   for(let i=1; i<rows.length; i++){
     const row = rows[i] || [];
@@ -4217,7 +4218,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     if(hasParentAsinCol){
       const parentAsin = row[headerMap['parent asin']];
       if(parentAsin){
-        const catRow = state.catalog.find(r=>r.sku===sku);
+        const catRow = state.catalog.find(r=>r.sku===sku && r.marketGroup===uploadCatalogMarketGroup);
         const cleanParentAsin = String(parentAsin).trim();
         if(catRow && catRow.parentAsin !== cleanParentAsin){
           catRow.parentAsin = cleanParentAsin;
@@ -4228,6 +4229,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
 
     const month = mmddyyyyToMonth(row[headerMap['start date']]);
     if(!month){ skippedBadDate++; continue; }
+    monthsInThisUpload.add(month);
 
     const referralFee = hasDirectNetProceeds
       ? num(row[headerMap['referral fee total']]) - num(row[headerMap['referral fee refunds total']])
@@ -4325,6 +4327,23 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
       rowsToSave.push(rowData);
     }
     imported++;
+  }
+
+  // Clean up stale rows: anything previously saved for a month this upload covers, in this same
+  // market/country, that the new file no longer matches to a SKU (e.g. because it was incorrectly
+  // matched against the wrong catalog group before, or is simply no longer in the report) — otherwise
+  // re-uploading a corrected file would never remove data left over from an earlier, wrong match.
+  const touchedRows = new Set(rowsToSave); // object identity, not .id — brand new rows don't have an id yet
+  const staleRows = state.sku.filter(r=>
+    monthsInThisUpload.has(r.month) &&
+    (r.market||'USA')===uploadMarket &&
+    (r.country||'')===uploadCountry &&
+    !touchedRows.has(r)
+  );
+  if(staleRows.length){
+    const staleIds = staleRows.filter(r=>r.id).map(r=>r.id);
+    if(staleIds.length) await sb.from('sku_economics').delete().in('id', staleIds);
+    state.sku = state.sku.filter(r=>!staleRows.includes(r));
   }
 
   if(statusEl) statusEl.textContent = `Saving ${rowsToSave.length} row(s) to Supabase...`;
