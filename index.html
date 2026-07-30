@@ -996,6 +996,7 @@ async function loadAllFromSupabase(){
     state.currentEuCountry = (settingsRes.data && settingsRes.data.current_eu_country) || '';
     state.sku = (skuRes.data||[]).map(r=>({
       id: r.id, sku: r.sku, month: r.month, units: r.units, revenue: r.revenue,
+      asin: r.asin || '', parentAsin: r.parent_asin || '',
       referralFees: r.referral_fees, fbaFees: r.fba_fees, storageFees: r.storage_fees,
       adSpend: r.ad_spend, refunds: r.refunds, netProceeds: r.net_proceeds,
       market: r.market || 'USA', country: r.country || '',
@@ -1171,6 +1172,7 @@ async function saveWarehouseRow(row){
 async function saveSkuRow(row){
   const payload = {
     client_id: CLIENT_ID, sku: row.sku, month: row.month, units: row.units, revenue: row.revenue,
+    asin: row.asin || null, parent_asin: row.parentAsin || null,
     referral_fees: row.referralFees, fba_fees: row.fbaFees, storage_fees: row.storageFees,
     ad_spend: row.adSpend, refunds: row.refunds, net_proceeds: row.netProceeds,
     units_returned: row.unitsReturned, net_units_sold: row.netUnitsSold,
@@ -1630,6 +1632,15 @@ function catalogNameForSku(sku){
 function catalogAsinForSku(sku){
   const cat = catalogRowForSku(sku);
   return cat ? (cat.asin||'') : '';
+}
+// Prefer the Catalog's ASIN (kept up to date manually), but fall back to whatever ASIN was in the
+// original SKU Economics report if Catalog doesn't have one for this SKU yet — better to show
+// something real than a blank cell just because Catalog hasn't caught up.
+function asinForSkuRow(row){
+  return catalogAsinForSku(row.sku) || row.asin || '';
+}
+function parentAsinForSkuRow(row){
+  return catalogParentAsinForSku(row.sku) || row.parentAsin || '';
 }
 function catalogParentAsinForSku(sku){
   const cat = catalogRowForSku(sku);
@@ -3982,8 +3993,8 @@ function renderSku(){
 
     anyRows = items.length > 0;
     items.forEach(({sku, summed, rows})=>{
-      const asin = catalogAsinForSku(sku);
-      const parentAsin = catalogParentAsinForSku(sku);
+      const asin = asinForSkuRow({ sku, asin: rows[0]?.asin });
+      const parentAsin = parentAsinForSkuRow({ sku, parentAsin: rows[0]?.parentAsin });
       const tr = document.createElement('tr');
       let cells = `
         <td>${sku}</td>
@@ -4324,6 +4335,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     const existing = state.sku.find(r=>r.sku===sku && r.month===month && (r.market||'USA')===uploadMarket && (r.country||'')===uploadCountry);
     const rowData = {
       sku, month, units: unitsSold, revenue,
+      asin: String(asin).trim(), parentAsin: hasParentAsinCol && row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '',
       referralFees: computedReferralFee, fbaFees: computedFbaFees, storageFees: computedStorageFees, adSpend: computedAdSpend, refunds: computedRefunds,
       netProceeds,
       unitsReturned, netUnitsSold, avgSalesPrice, salesGross,
