@@ -4935,12 +4935,16 @@ function aggregateRows(rows){
   };
 }
 
-function summaryRowHtml(label, agg, indent, rawKey, level){
+function summaryRowHtml(label, agg, indent, rawKey, level, showIdColumns){
   const indentStyle = indent ? `style="padding-left:${indent}px; color:var(--grey);"` : '';
   const missingNote = '';
   const cogsClickable = rawKey ? `onclick="event.stopPropagation(); showCogsBreakdown('${String(rawKey).replace(/'/g,"\\'")}','${level||'child'}')" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Click for breakdown"` : '';
+  const idColumns = showIdColumns
+    ? `<td>${catalogAsinForSku(rawKey)||'—'}</td><td>${catalogParentAsinForSku(rawKey)||'—'}</td>`
+    : '';
   let html = `
     <td ${indentStyle}>${label}${missingNote}</td>
+    ${idColumns}
     <td>${agg.units.toLocaleString()}</td>
     <td>${fmt(agg.revenue)}</td>
     <td>${fmt(agg.netProceedsTotal)}</td>
@@ -5140,9 +5144,12 @@ function renderSummary(){
       ${sortableTh('Normalized Margin %', 'normalizedMargin', '11%', s, 'toggleSummarySort')}
       ${sortableTh('Normalized ROI %', 'normalizedRoi', '10%', s, 'toggleSummarySort')}
   ` : '';
+  const idColumnHeaders = level==='parent'
+    ? sortableTh('Parent ASIN', 'key', '18%', s, 'toggleSummarySort')
+    : `${sortableTh('SKU', 'key', '12%', s, 'toggleSummarySort')}<th style="width:10%">ASIN</th><th style="width:10%">Parent ASIN</th>`;
   thead.innerHTML = `
     <tr>
-      ${sortableTh(level==='parent' ? 'Parent ASIN' : 'SKU', 'key', '18%', s, 'toggleSummarySort')}
+      ${idColumnHeaders}
       ${sortableTh('Units', 'units', '9%', s, 'toggleSummarySort')}
       ${sortableTh('Revenue', 'revenue', '12%', s, 'toggleSummarySort')}
       ${sortableTh('Net Proceeds', 'netProceedsTotal', '12%', s, 'toggleSummarySort')}
@@ -5178,7 +5185,7 @@ function renderSummary(){
 
     items.forEach(({key, agg})=>{
       const tr = document.createElement('tr');
-      tr.innerHTML = summaryRowHtml(key, agg, null, key, 'child');
+      tr.innerHTML = summaryRowHtml(key, agg, null, key, 'child', true);
       tbody.appendChild(tr);
     });
   } else {
@@ -5218,7 +5225,7 @@ function renderSummary(){
   if(scopedRows.length){
     const totalsTr = document.createElement('tr');
     totalsTr.style.cssText = 'border-top:2px solid var(--navy); background:var(--blue-light); font-weight:700;';
-    totalsTr.innerHTML = summaryRowHtml('TOTAL', overall);
+    totalsTr.innerHTML = summaryRowHtml('TOTAL', overall, null, null, 'child', level==='child');
     tbody.appendChild(totalsTr);
   }
 
