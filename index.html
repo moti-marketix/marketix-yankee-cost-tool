@@ -4187,9 +4187,12 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     return { success: false, error: errorMsg };
   }
 
-  // Build ASIN -> SKU lookup from Catalog
+  // Build ASIN -> SKU lookup from Catalog — scoped to whichever catalog group this upload is actually
+  // for (EU catalog for EU uploads, shared USA/CA catalog otherwise). Matching against the wrong
+  // catalog group could silently attribute another market's ASIN/product to this one.
+  const uploadCatalogMarketGroup = uploadMarket === 'EU' ? 'EU' : 'USA_CA';
   const asinToSku = {};
-  state.catalog.forEach(r=>{ if(r.asin) asinToSku[r.asin.trim().toUpperCase()] = r.sku; });
+  state.catalog.filter(r=>r.marketGroup===uploadCatalogMarketGroup).forEach(r=>{ if(r.asin) asinToSku[r.asin.trim().toUpperCase()] = r.sku; });
   const hasParentAsinCol = headerMap['parent asin'] !== undefined;
   const catalogRowsToUpdate = [];
 
