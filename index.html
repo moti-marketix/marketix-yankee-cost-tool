@@ -1656,6 +1656,7 @@ function execMonthsInScope(){
   return computeMonthsInScope(periodType, value);
 }
 let selectedExecItems = [];
+let selectedExecItemsMarketGroup = null; // clears the chip list automatically if the market changes underneath it
 
 function onExecGroupByChange(){
   const groupBy = document.getElementById('exec-group-by').value;
@@ -1734,9 +1735,11 @@ function renderExecSummary(){
   if(!valueSelect.options.length) populatePeriodValueSelect('exec-period-type', 'exec-period-value', 'exec-period-value-label');
 
   const marketGroup = currentCatalogMarketGroup();
-  if(!document.getElementById('exec-selection-list').options.length && !selectedExecItems.length){
-    populateExecSelectionDropdown();
+  if(selectedExecItemsMarketGroup !== null && selectedExecItemsMarketGroup !== marketGroup){
+    selectedExecItems = []; // these chips were picked under a different market's catalog — no longer valid
   }
+  selectedExecItemsMarketGroup = marketGroup;
+  populateExecSelectionDropdown();
   renderExecChips();
 
   const groupBy = document.getElementById('exec-group-by').value;
