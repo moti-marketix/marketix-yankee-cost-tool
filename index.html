@@ -579,6 +579,17 @@
 
       <div class="kpi-grid" id="sku-table-kpis"></div>
 
+      <div class="card" id="sku-eu-country-breakdown-card" style="display:none;">
+        <h2>EU Breakdown by Country</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Raw SKU Economics totals for each country separately, plus the combined total — check this against what you know is real for each market.</p>
+        <div class="table-scroll">
+          <table id="sku-eu-country-breakdown-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <h2>Upload Amazon Report(s)</h2>
         <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Upload the SKU Economics report exactly as exported from Seller Central (.csv or .xlsx) — no template needed. Select multiple files at once (e.g. one per month) to import them all in a single action. Rows are matched to your Catalog by ASIN, and rows with zero activity that month are skipped automatically.</p>
@@ -3854,7 +3865,70 @@ function onSkuTablePeriodTypeChange(){
   renderSku();
 }
 
+function renderSkuEuCountryBreakdown(){
+  const card = document.getElementById('sku-eu-country-breakdown-card');
+  if(state.currentMarket !== 'EU'){ card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const baseFiltered = state.sku.filter(r=>{
+    if(!r.sku) return false;
+    if((r.market||'USA') !== 'EU') return false;
+    if(!matchesFilter(catalogAsinForSku(r.sku), skuFilters.asin)) return false;
+    if(!matchesFilter(catalogParentAsinForSku(r.sku), skuFilters.parentAsin)) return false;
+    if(!matchesFilter(catalogFamilyForSku(r.sku), skuFilters.family)) return false;
+    if(!matchesFilter(catalogBrandForSku(r.sku), skuFilters.brand)) return false;
+    return true;
+  });
+
+  const countries = [
+    { code: 'DE', label: 'Germany' }, { code: 'IT', label: 'Italy' },
+    { code: 'FR', label: 'France' }, { code: 'ES', label: 'Spain' },
+  ];
+  const perCountry = countries.map(c=>({ ...c, rows: baseFiltered.filter(r=>(r.country||'')===c.code) }));
+  const combinedAgg = aggregateRows(baseFiltered);
+  const sumOfCountries = perCountry.reduce((sum, c)=>{
+    const agg = aggregateRows(c.rows);
+    return {
+      units: sum.units + agg.units, revenue: sum.revenue + agg.revenue, netProceedsTotal: sum.netProceedsTotal + agg.netProceedsTotal,
+      adSpend: sum.adSpend + agg.adSpend,
+    };
+  }, { units:0, revenue:0, netProceedsTotal:0, adSpend:0 });
+
+  const thead = document.querySelector('#sku-eu-country-breakdown-table thead');
+  const tbody = document.querySelector('#sku-eu-country-breakdown-table tbody');
+  thead.innerHTML = `<tr><th>Country</th><th>Rows</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Ad Spend</th></tr>`;
+  tbody.innerHTML = perCountry.map(c=>{
+    const agg = aggregateRows(c.rows);
+    return `<tr>
+      <td>${c.label} (${c.code})</td>
+      <td>${c.rows.length}</td>
+      <td>${agg.units.toLocaleString()}</td>
+      <td>${fmt(agg.revenue)}</td>
+      <td>${fmt(agg.netProceedsTotal)}</td>
+      <td>${fmt(agg.adSpend)}</td>
+    </tr>`;
+  }).join('') + `
+    <tr style="border-top:2px solid var(--navy); font-weight:700; background:var(--blue-light);">
+      <td>Sum of 4 countries</td>
+      <td>${baseFiltered.length}</td>
+      <td>${sumOfCountries.units.toLocaleString()}</td>
+      <td>${fmt(sumOfCountries.revenue)}</td>
+      <td>${fmt(sumOfCountries.netProceedsTotal)}</td>
+      <td>${fmt(sumOfCountries.adSpend)}</td>
+    </tr>
+    <tr style="font-weight:700;">
+      <td>Combined (what "All EU" shows)</td>
+      <td>—</td>
+      <td>${combinedAgg.units.toLocaleString()}</td>
+      <td>${fmt(combinedAgg.revenue)}</td>
+      <td>${fmt(combinedAgg.netProceedsTotal)}</td>
+      <td>${fmt(combinedAgg.adSpend)}</td>
+    </tr>
+  `;
+}
+
 function renderSku(){
+  renderSkuEuCountryBreakdown();
   breakdownTooltipRegistry = {};
   breakdownTooltipCounter = 0;
   const periodType = document.getElementById('sku-table-period-type').value;
