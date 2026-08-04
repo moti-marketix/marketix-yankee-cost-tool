@@ -1476,7 +1476,7 @@ async function uploadRawFile(file, screen){
 }
 
 async function updateRawFileStats(fileId, { success, rowsImported, rowsSkipped, error, skippedZero, skippedNoMatch, skippedBadDate }){
-  if(!fileId){ console.warn('updateRawFileStats: no fileId, skipping (archiving likely failed earlier)'); return; }
+  if(!fileId){ console.warn('updateRawFileStats: no fileId, skipping (archiving likely failed earlier)'); return { success: false }; }
   try{
     const { data, error: updateError } = await sb.from('raw_files').update({
       parse_status: success ? 'success' : 'error',
@@ -1491,12 +1491,14 @@ async function updateRawFileStats(fileId, { success, rowsImported, rowsSkipped, 
     if(updateError) throw updateError;
     if(!data || !data.length){
       console.warn('updateRawFileStats: update ran with no error, but matched 0 rows for id', fileId, '— check that this id actually exists in raw_files.');
-    } else {
-      console.log('updateRawFileStats: successfully updated', fileId, data[0]);
+      return { success: false, error: 'No matching file record found' };
     }
+    console.log('updateRawFileStats: successfully updated', fileId, data[0]);
+    return { success: true };
   }catch(err){
     console.error('Could not update raw file parse status:', err);
     showSyncStatus('Could not save file parse status: ' + (err.message||err), true);
+    return { success: false, error: err.message || String(err) };
   }
 }
 
@@ -4749,11 +4751,15 @@ async function applyPendingAdReportPlan(){
 
   await Promise.all(rowsToSave.map(r=>saveSkuRow(r)));
   renderSku();
+  let statsUpdateNote = '';
   if(pendingAdReportPlan.fileId){
-    await updateRawFileStats(pendingAdReportPlan.fileId, { success: true, rowsImported: updated+created, rowsSkipped: pendingAdReportPlan.tierCounts.unmatched });
+    const statsResult = await updateRawFileStats(pendingAdReportPlan.fileId, { success: true, rowsImported: updated+created, rowsSkipped: pendingAdReportPlan.tierCounts.unmatched });
+    if(!statsResult.success){
+      statsUpdateNote = ` (Ad Spend was saved correctly, but the file's status in Uploaded Files couldn't be updated: ${statsResult.error||'unknown error'} — re-parse it from there once fixed)`;
+    }
   }
-  statusEl.style.color = 'var(--green)';
-  statusEl.textContent = `Done — Ad Spend updated for ${updated} row(s), ${created} new row(s) created.`;
+  statusEl.style.color = statsUpdateNote ? 'var(--red)' : 'var(--green)';
+  statusEl.textContent = `Done — Ad Spend updated for ${updated} row(s), ${created} new row(s) created.${statsUpdateNote}`;
   pendingAdReportPlan = null;
 }
 
@@ -5287,7 +5293,7 @@ function formatDateTime(iso){
 }
 
 function marketBadge(f){
-  if(f.screen === 'full_template'){
+  if(f.screen === 'full_template' || f.screen === 'advertising_report'){
     return `<span style="display:inline-block; padding:2px 9px; border-radius:10px; font-size:11px; font-weight:700; color:#fff; background:#6B4FA0;">All Markets</span>`;
   }
   const market = f.market || 'USA';
