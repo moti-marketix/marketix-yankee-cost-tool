@@ -668,6 +668,17 @@
       <div class="top-bar"><h1 class="page-title">Profitability Summary</h1></div>
       <p class="subtitle">Net Profit = Net Proceeds (from Amazon) − COGS (Manufacturing + Freight) − Warehouse cost/unit. <strong id="summary-currency-note"></strong></p>
 
+      <div class="card" id="eu-country-breakdown-card" style="display:none;">
+        <h2>EU Breakdown by Country</h2>
+        <p style="margin:0 0 14px 0; color:var(--grey); font-size:13px;">Each country shown separately, plus the combined total your "All EU" view uses — a direct way to check the totals line up.</p>
+        <div class="table-scroll">
+          <table id="eu-country-breakdown-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <h2>View</h2>
         <div class="filter-bar">
@@ -5123,8 +5134,83 @@ function getSortValue(obj, columnKey, colDefs){
   return obj[columnKey];
 }
 
+function renderEuCountryBreakdown(){
+  const card = document.getElementById('eu-country-breakdown-card');
+  if(state.currentMarket !== 'EU'){ card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const months = monthsInScope();
+  const asinFilter = document.getElementById('summary-filter-asin').value;
+  const parentFilter = document.getElementById('summary-filter-parent').value;
+  const familyFilter = document.getElementById('summary-filter-family').value;
+  const brandFilter = document.getElementById('summary-filter-brand').value;
+
+  const baseFiltered = state.sku.filter(r=>{
+    if(!r.sku || !r.month || !months.includes(r.month)) return false;
+    if((r.market||'USA') !== 'EU') return false; // every EU country, regardless of which one is currently selected in the sidebar
+    if(!matchesFilter(catalogAsinForSku(r.sku), asinFilter)) return false;
+    if(!matchesFilter(catalogParentAsinForSku(r.sku), parentFilter)) return false;
+    if(!matchesFilter(catalogFamilyForSku(r.sku), familyFilter)) return false;
+    if(!matchesFilter(catalogBrandForSku(r.sku), brandFilter)) return false;
+    return true;
+  });
+
+  const countries = [
+    { code: 'DE', label: 'Germany' }, { code: 'IT', label: 'Italy' },
+    { code: 'FR', label: 'France' }, { code: 'ES', label: 'Spain' },
+  ];
+  const perCountry = countries.map(c=>({
+    ...c,
+    rows: baseFiltered.filter(r=>(r.country||'')===c.code),
+  }));
+  const combinedAgg = aggregateRows(baseFiltered);
+  const sumOfCountries = perCountry.reduce((sum, c)=>{
+    const agg = aggregateRows(c.rows);
+    return {
+      revenue: sum.revenue + agg.revenue, netProceedsTotal: sum.netProceedsTotal + agg.netProceedsTotal,
+      cogs: sum.cogs + agg.cogs, wh: sum.wh + agg.wh, netProfit: sum.netProfit + agg.netProfit,
+    };
+  }, { revenue:0, netProceedsTotal:0, cogs:0, wh:0, netProfit:0 });
+
+  const thead = document.querySelector('#eu-country-breakdown-table thead');
+  const tbody = document.querySelector('#eu-country-breakdown-table tbody');
+  thead.innerHTML = `<tr><th>Country</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>COGS</th><th>WH</th><th>Net Profit</th></tr>`;
+  tbody.innerHTML = perCountry.map(c=>{
+    const agg = aggregateRows(c.rows);
+    return `<tr>
+      <td>${c.label} (${c.code})</td>
+      <td>${agg.units.toLocaleString()}</td>
+      <td>${fmt(agg.revenue)}</td>
+      <td>${fmt(agg.netProceedsTotal)}</td>
+      <td>${fmt(agg.cogs)}</td>
+      <td>${fmt(agg.wh)}</td>
+      <td>${fmt(agg.netProfit)}</td>
+    </tr>`;
+  }).join('') + `
+    <tr style="border-top:2px solid var(--navy); font-weight:700; background:var(--blue-light);">
+      <td>Sum of 4 countries</td>
+      <td>—</td>
+      <td>${fmt(sumOfCountries.revenue)}</td>
+      <td>${fmt(sumOfCountries.netProceedsTotal)}</td>
+      <td>${fmt(sumOfCountries.cogs)}</td>
+      <td>${fmt(sumOfCountries.wh)}</td>
+      <td>${fmt(sumOfCountries.netProfit)}</td>
+    </tr>
+    <tr style="font-weight:700;">
+      <td>Combined (what "All EU" shows)</td>
+      <td>${combinedAgg.units.toLocaleString()}</td>
+      <td>${fmt(combinedAgg.revenue)}</td>
+      <td>${fmt(combinedAgg.netProceedsTotal)}</td>
+      <td>${fmt(combinedAgg.cogs)}</td>
+      <td>${fmt(combinedAgg.wh)}</td>
+      <td>${fmt(combinedAgg.netProfit)}</td>
+    </tr>
+  `;
+}
+
 function renderSummary(){
   document.getElementById('summary-currency-note').textContent = state.currentMarket === 'EU' ? '— EU figures converted to USD at the live rate shown in the sidebar' : '';
+  renderEuCountryBreakdown();
   // Populate period dropdown on first render
   const valueSelect = document.getElementById('summary-period-value');
   if(!valueSelect.options.length) populatePeriodValueSelect('summary-period-type', 'summary-period-value', 'summary-period-value-label');
