@@ -4134,6 +4134,15 @@ function normHeader(h){ return (h===null||h===undefined) ? '' : String(h).trim()
 function findColIdx(headerMap, name){
   return headerMap[normHeader(name)];
 }
+// Some fee columns are named differently between marketplaces (British vs American spelling, or
+// entirely different wording for the same fee) — try every known variant and use whichever exists.
+function numFromAnyCol(row, headerMap, ...names){
+  for(const name of names){
+    const idx = headerMap[normHeader(name)];
+    if(idx !== undefined) return num(row[idx]);
+  }
+  return 0;
+}
 
 function mmddyyyyToMonth(dateVal){
   if(dateVal === null || dateVal === undefined || dateVal === '') return null;
@@ -4263,23 +4272,23 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     monthsInThisUpload.add(month);
 
     const referralFee = hasDirectNetProceeds
-      ? num(row[headerMap['referral fee total']]) - num(row[headerMap['referral fee refunds total']])
+      ? numFromAnyCol(row, headerMap, 'referral fee total') - numFromAnyCol(row, headerMap, 'referral fee refunds total')
       : 0; // filled in below for the alternate format
     const fbaFees = hasDirectNetProceeds
-      ? num(row[headerMap['fba fulfillment fees total']])
-        + num(row[headerMap['fba inbound placement service fee total']])
-        + num(row[headerMap['inbound transportation fee total']])
-        + num(row[headerMap['fba removal order fee total']])
-        + num(row[headerMap['fba disposal order fee total']])
+      ? numFromAnyCol(row, headerMap, 'fba fulfillment fees total', 'fba fulfilment fees total', 'fulfilment by amazon fulfilment fees total', 'fulfillment by amazon fulfillment fees total')
+        + numFromAnyCol(row, headerMap, 'fba inbound placement service fee total')
+        + numFromAnyCol(row, headerMap, 'inbound transportation fee total')
+        + numFromAnyCol(row, headerMap, 'fba removal order fee total')
+        + numFromAnyCol(row, headerMap, 'fba disposal order fee total')
       : 0;
     const storageFees = hasDirectNetProceeds
-      ? num(row[headerMap['base monthly storage fee total']])
-        + num(row[headerMap['monthly inventory storage fee total']])
-        + num(row[headerMap['storage utilization surcharge total']])
-        + num(row[headerMap['aged inventory surcharge total']])
+      ? numFromAnyCol(row, headerMap, 'base monthly storage fee total')
+        + numFromAnyCol(row, headerMap, 'monthly inventory storage fee total', 'monthly storage fee total')
+        + numFromAnyCol(row, headerMap, 'storage utilization surcharge total', 'storage utilisation surcharge total')
+        + numFromAnyCol(row, headerMap, 'aged inventory surcharge total')
       : 0;
-    const adSpend = hasDirectNetProceeds ? num(row[headerMap['sponsored products charge total']]) : 0;
-    const refunds = hasDirectNetProceeds ? num(row[headerMap['refund administration fee total']]) : 0;
+    const adSpend = hasDirectNetProceeds ? numFromAnyCol(row, headerMap, 'sponsored products charge total') : 0;
+    const refunds = hasDirectNetProceeds ? numFromAnyCol(row, headerMap, 'refund administration fee total') : 0;
     const revenue = num(row[headerMap['net sales']]);
 
     let netProceeds, computedReferralFee=referralFee, computedFbaFees=fbaFees, computedStorageFees=storageFees, computedAdSpend=adSpend, computedRefunds=refunds;
