@@ -5080,13 +5080,14 @@ function aggregateRows(rows){
   };
 }
 
-function summaryRowHtml(label, agg, indent, rawKey, level, showIdColumns){
+function summaryRowHtml(label, agg, indent, rawKey, level, idColumnsMode){
   const indentStyle = indent ? `style="padding-left:${indent}px; color:var(--grey);"` : '';
   const missingNote = '';
   const cogsClickable = rawKey ? `onclick="event.stopPropagation(); showCogsBreakdown('${String(rawKey).replace(/'/g,"\\'")}','${level||'child'}')" style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" title="Click for breakdown"` : '';
-  const idColumns = showIdColumns
-    ? `<td>${catalogAsinForSku(rawKey)||'—'}</td><td>${catalogParentAsinForSku(rawKey)||'—'}</td>`
-    : '';
+  let idColumns = '';
+  if(idColumnsMode === 'full') idColumns = `<td>${catalogAsinForSku(rawKey)||'—'}</td><td>${catalogParentAsinForSku(rawKey)||'—'}</td>`;
+  else if(idColumnsMode === 'asinOnly') idColumns = `<td>${catalogAsinForSku(rawKey)||'—'}</td>`;
+  else if(idColumnsMode === 'blank') idColumns = `<td>—</td>`;
   let html = `
     <td ${indentStyle}>${label}${missingNote}</td>
     ${idColumns}
@@ -5365,7 +5366,7 @@ function renderSummary(){
       ${sortableTh('Normalized ROI %', 'normalizedRoi', '10%', s, 'toggleSummarySort')}
   ` : '';
   const idColumnHeaders = level==='parent'
-    ? sortableTh('Parent ASIN', 'key', '18%', s, 'toggleSummarySort')
+    ? `${sortableTh('Parent ASIN', 'key', '15%', s, 'toggleSummarySort')}<th style="width:10%">ASIN</th>`
     : `${sortableTh('SKU', 'key', '12%', s, 'toggleSummarySort')}<th style="width:10%">ASIN</th><th style="width:10%">Parent ASIN</th>`;
   thead.innerHTML = `
     <tr>
@@ -5405,7 +5406,7 @@ function renderSummary(){
 
     items.forEach(({key, agg})=>{
       const tr = document.createElement('tr');
-      tr.innerHTML = summaryRowHtml(key, agg, null, key, 'child', true);
+      tr.innerHTML = summaryRowHtml(key, agg, null, key, 'child', 'full');
       tbody.appendChild(tr);
     });
   } else {
@@ -5423,7 +5424,7 @@ function renderSummary(){
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
       tr.onclick = ()=>toggleParentExpand(parent);
-      tr.innerHTML = summaryRowHtml(`${isExpanded ? '&#9662;' : '&#9656;'} ${parent}`, agg, null, parent, 'parent');
+      tr.innerHTML = summaryRowHtml(`${isExpanded ? '&#9662;' : '&#9656;'} ${parent}`, agg, null, parent, 'parent', 'blank');
       tbody.appendChild(tr);
 
       if(isExpanded){
@@ -5433,7 +5434,7 @@ function renderSummary(){
           const childAgg = aggregateRows(bySku[sku]);
           const childTr = document.createElement('tr');
           childTr.style.background = '#FAFBFC';
-          childTr.innerHTML = summaryRowHtml(sku, childAgg, 28, sku, 'child');
+          childTr.innerHTML = summaryRowHtml(sku, childAgg, 28, sku, 'child', 'asinOnly');
           tbody.appendChild(childTr);
         });
       }
@@ -5445,7 +5446,7 @@ function renderSummary(){
   if(scopedRows.length){
     const totalsTr = document.createElement('tr');
     totalsTr.style.cssText = 'border-top:2px solid var(--navy); background:var(--blue-light); font-weight:700;';
-    totalsTr.innerHTML = summaryRowHtml('TOTAL', overall, null, null, 'child', level==='child');
+    totalsTr.innerHTML = summaryRowHtml('TOTAL', overall, null, null, 'child', level==='child' ? 'full' : 'blank');
     tbody.appendChild(totalsTr);
   }
 
