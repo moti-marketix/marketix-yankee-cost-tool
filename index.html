@@ -6001,6 +6001,9 @@ async function reparseRawFile(id, opts){
     else if(fileRow.screen === 'sku_economics') result = await parseAmazonSkuEconomicsReport(rows, null, fileRow.market || 'USA', fileRow.country || '');
 
     if(fileRow.screen === 'sku_economics' && result){
+      if(result.detectedMarket !== undefined){
+        await sb.from('raw_files').update({ market: result.detectedMarket, country: result.detectedCountry }).eq('id', id);
+      }
       await updateRawFileStats(id, {
         success: result.success,
         rowsImported: result.imported,
