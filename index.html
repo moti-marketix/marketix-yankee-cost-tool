@@ -4305,8 +4305,8 @@ function numOrNull(v){
 }
 
 async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, countryOverride){
-  const uploadMarket = marketOverride !== undefined ? marketOverride : state.currentMarket;
-  const uploadCountry = countryOverride !== undefined ? countryOverride : (state.currentEuCountry || '');
+  let uploadMarket = marketOverride !== undefined ? marketOverride : state.currentMarket;
+  let uploadCountry = countryOverride !== undefined ? countryOverride : (state.currentEuCountry || '');
   if(!rows.length){
     if(statusEl){ statusEl.textContent = 'File appears to be empty.'; statusEl.style.color = 'var(--red)'; }
     return { success: false, error: 'File appears to be empty.' };
@@ -4314,6 +4314,27 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
   const headers = rows[0].map(normHeader);
   const headerMap = {};
   headers.forEach((h, idx)=>{ if(h) headerMap[h] = idx; });
+
+  // The report itself carries the marketplace in an "Amazon store" column (US/CA/DE/IT/FR/ES) — this
+  // is the authoritative source when present, and takes priority over the sidebar or any override,
+  // since it comes from the file's own data rather than whatever happened to be selected when you
+  // clicked upload. This is what makes it safe to bulk-upload several countries' files at once.
+  const AMAZON_STORE_MAP = {
+    US: { market:'USA', country:'' }, CA: { market:'CA', country:'' },
+    DE: { market:'EU', country:'DE' }, IT: { market:'EU', country:'IT' },
+    FR: { market:'EU', country:'FR' }, ES: { market:'EU', country:'ES' },
+  };
+  const storeColIdx = headerMap['amazon store'];
+  let detectedFromFile = false;
+  if(storeColIdx !== undefined){
+    for(let i=1; i<rows.length; i++){
+      const storeVal = rows[i] && rows[i][storeColIdx];
+      if(!storeVal) continue;
+      const mapped = AMAZON_STORE_MAP[String(storeVal).trim().toUpperCase()];
+      if(mapped){ uploadMarket = mapped.market; uploadCountry = mapped.country; detectedFromFile = true; }
+      break; // one file = one marketplace in every case seen so far — just need the first data row
+    }
+  }
 
   const required = ['asin', 'start date', 'units sold'];
   const missing = required.filter(r => headerMap[r]===undefined);
