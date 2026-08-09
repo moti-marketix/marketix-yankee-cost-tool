@@ -3885,19 +3885,21 @@ function renderSkuEuCountryBreakdown(){
     { code: 'FR', label: 'France' }, { code: 'ES', label: 'Spain' },
   ];
   const perCountry = countries.map(c=>({ ...c, rows: baseFiltered.filter(r=>(r.country||'')===c.code) }));
+  const unspecifiedRows = baseFiltered.filter(r=>!countries.some(c=>c.code===(r.country||'')));
   const combinedAgg = aggregateRows(baseFiltered);
   const sumOfCountries = perCountry.reduce((sum, c)=>{
     const agg = aggregateRows(c.rows);
     return {
+      rows: sum.rows + c.rows.length,
       units: sum.units + agg.units, revenue: sum.revenue + agg.revenue, netProceedsTotal: sum.netProceedsTotal + agg.netProceedsTotal,
       adSpend: sum.adSpend + agg.adSpend,
     };
-  }, { units:0, revenue:0, netProceedsTotal:0, adSpend:0 });
+  }, { rows:0, units:0, revenue:0, netProceedsTotal:0, adSpend:0 });
 
   const thead = document.querySelector('#sku-eu-country-breakdown-table thead');
   const tbody = document.querySelector('#sku-eu-country-breakdown-table tbody');
   thead.innerHTML = `<tr><th>Country</th><th>Rows</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Ad Spend</th></tr>`;
-  tbody.innerHTML = perCountry.map(c=>{
+  let html = perCountry.map(c=>{
     const agg = aggregateRows(c.rows);
     return `<tr>
       <td>${c.label} (${c.code})</td>
@@ -3907,14 +3909,26 @@ function renderSkuEuCountryBreakdown(){
       <td>${fmt(agg.netProceedsTotal)}</td>
       <td>${fmt(agg.adSpend)}</td>
     </tr>`;
-  }).join('') + `
+  }).join('');
+  if(unspecifiedRows.length){
+    const unspecAgg = aggregateRows(unspecifiedRows);
+    html += `<tr style="background:#FDEAEA;">
+      <td>⚠ Tagged "EU" but no specific country</td>
+      <td>${unspecifiedRows.length}</td>
+      <td>${unspecAgg.units.toLocaleString()}</td>
+      <td>${fmt(unspecAgg.revenue)}</td>
+      <td>${fmt(unspecAgg.netProceedsTotal)}</td>
+      <td>${fmt(unspecAgg.adSpend)}</td>
+    </tr>`;
+  }
+  html += `
     <tr style="border-top:2px solid var(--navy); font-weight:700; background:var(--blue-light);">
-      <td>Sum of 4 countries</td>
-      <td>${baseFiltered.length}</td>
-      <td>${sumOfCountries.units.toLocaleString()}</td>
-      <td>${fmt(sumOfCountries.revenue)}</td>
-      <td>${fmt(sumOfCountries.netProceedsTotal)}</td>
-      <td>${fmt(sumOfCountries.adSpend)}</td>
+      <td>Sum of the above</td>
+      <td>${sumOfCountries.rows + unspecifiedRows.length}</td>
+      <td>${(sumOfCountries.units + aggregateRows(unspecifiedRows).units).toLocaleString()}</td>
+      <td>${fmt(sumOfCountries.revenue + aggregateRows(unspecifiedRows).revenue)}</td>
+      <td>${fmt(sumOfCountries.netProceedsTotal + aggregateRows(unspecifiedRows).netProceedsTotal)}</td>
+      <td>${fmt(sumOfCountries.adSpend + aggregateRows(unspecifiedRows).adSpend)}</td>
     </tr>
     <tr style="font-weight:700;">
       <td>Combined (what "All EU" shows)</td>
@@ -3925,6 +3939,7 @@ function renderSkuEuCountryBreakdown(){
       <td>${fmt(combinedAgg.adSpend)}</td>
     </tr>
   `;
+  tbody.innerHTML = html;
 }
 
 function renderSku(){
