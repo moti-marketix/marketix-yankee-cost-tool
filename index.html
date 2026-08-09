@@ -3983,17 +3983,15 @@ function renderSku(){
     return true;
   });
 
-  // KPI cards — reflect whatever's currently filtered, regardless of grouping/aggregation display mode below
+  // KPI cards — reflect whatever's currently filtered, regardless of grouping/aggregation display mode below.
+  // Uses aggregateRows() (not a plain sum) specifically because EU rows are natively in EUR and need
+  // converting to USD before being added to units/revenue/etc — a plain sum here previously produced a
+  // different (wrong) total than every other page that already went through aggregateRows correctly.
   const uniqueSkusInScope = new Set(filteredEntries.map(e=>e.row.sku)).size;
-  const kpiTotals = filteredEntries.reduce((acc, {row})=>{
-    acc.units += (row.units||0);
-    acc.revenue += (row.revenue||0);
-    acc.adSpend += (row.adSpend||0);
-    if(row.netProceeds!==null && row.netProceeds!==undefined) acc.netProceeds += row.netProceeds;
-    return acc;
-  }, {units:0, revenue:0, adSpend:0, netProceeds:0});
-  const kpiNetProceedsPct = kpiTotals.revenue ? (kpiTotals.netProceeds/kpiTotals.revenue*100) : null;
-  const kpiTacosPct = kpiTotals.revenue ? (kpiTotals.adSpend/kpiTotals.revenue*100) : null;
+  const kpiAgg = aggregateRows(filteredEntries.map(e=>e.row));
+  const kpiTotals = { units: kpiAgg.units, revenue: kpiAgg.revenue, adSpend: kpiAgg.adSpend, netProceeds: kpiAgg.netProceedsTotal };
+  const kpiNetProceedsPct = kpiAgg.netProceedsPct;
+  const kpiTacosPct = kpiAgg.tacos;
 
   document.getElementById('sku-table-kpis').innerHTML = `
     <div class="kpi"><div class="label">Rows in Scope</div><div class="value">${filteredEntries.length}</div></div>
