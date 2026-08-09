@@ -5280,19 +5280,21 @@ function renderEuCountryBreakdown(){
     ...c,
     rows: baseFiltered.filter(r=>(r.country||'')===c.code),
   }));
+  const unspecifiedRows = baseFiltered.filter(r=>!countries.some(c=>c.code===(r.country||'')));
   const combinedAgg = aggregateRows(baseFiltered);
   const sumOfCountries = perCountry.reduce((sum, c)=>{
     const agg = aggregateRows(c.rows);
     return {
+      rows: sum.rows + c.rows.length, units: sum.units + agg.units,
       revenue: sum.revenue + agg.revenue, netProceedsTotal: sum.netProceedsTotal + agg.netProceedsTotal,
       cogs: sum.cogs + agg.cogs, wh: sum.wh + agg.wh, netProfit: sum.netProfit + agg.netProfit,
     };
-  }, { revenue:0, netProceedsTotal:0, cogs:0, wh:0, netProfit:0 });
+  }, { rows:0, units:0, revenue:0, netProceedsTotal:0, cogs:0, wh:0, netProfit:0 });
 
   const thead = document.querySelector('#eu-country-breakdown-table thead');
   const tbody = document.querySelector('#eu-country-breakdown-table tbody');
   thead.innerHTML = `<tr><th>Country</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>COGS</th><th>WH</th><th>Net Profit</th></tr>`;
-  tbody.innerHTML = perCountry.map(c=>{
+  let html = perCountry.map(c=>{
     const agg = aggregateRows(c.rows);
     return `<tr>
       <td>${c.label} (${c.code})</td>
@@ -5303,15 +5305,29 @@ function renderEuCountryBreakdown(){
       <td>${fmt(agg.wh)}</td>
       <td>${fmt(agg.netProfit)}</td>
     </tr>`;
-  }).join('') + `
+  }).join('');
+  if(unspecifiedRows.length){
+    const unspecAgg = aggregateRows(unspecifiedRows);
+    html += `<tr style="background:#FDEAEA;">
+      <td>⚠ Tagged "EU" but no specific country</td>
+      <td>${unspecAgg.units.toLocaleString()}</td>
+      <td>${fmt(unspecAgg.revenue)}</td>
+      <td>${fmt(unspecAgg.netProceedsTotal)}</td>
+      <td>${fmt(unspecAgg.cogs)}</td>
+      <td>${fmt(unspecAgg.wh)}</td>
+      <td>${fmt(unspecAgg.netProfit)}</td>
+    </tr>`;
+  }
+  const unspecAggForSum = aggregateRows(unspecifiedRows);
+  html += `
     <tr style="border-top:2px solid var(--navy); font-weight:700; background:var(--blue-light);">
-      <td>Sum of 4 countries</td>
-      <td>—</td>
-      <td>${fmt(sumOfCountries.revenue)}</td>
-      <td>${fmt(sumOfCountries.netProceedsTotal)}</td>
-      <td>${fmt(sumOfCountries.cogs)}</td>
-      <td>${fmt(sumOfCountries.wh)}</td>
-      <td>${fmt(sumOfCountries.netProfit)}</td>
+      <td>Sum of the above</td>
+      <td>${(sumOfCountries.units + unspecAggForSum.units).toLocaleString()}</td>
+      <td>${fmt(sumOfCountries.revenue + unspecAggForSum.revenue)}</td>
+      <td>${fmt(sumOfCountries.netProceedsTotal + unspecAggForSum.netProceedsTotal)}</td>
+      <td>${fmt(sumOfCountries.cogs + unspecAggForSum.cogs)}</td>
+      <td>${fmt(sumOfCountries.wh + unspecAggForSum.wh)}</td>
+      <td>${fmt(sumOfCountries.netProfit + unspecAggForSum.netProfit)}</td>
     </tr>
     <tr style="font-weight:700;">
       <td>Combined (what "All EU" shows)</td>
@@ -5323,6 +5339,7 @@ function renderEuCountryBreakdown(){
       <td>${fmt(combinedAgg.netProfit)}</td>
     </tr>
   `;
+  tbody.innerHTML = html;
 }
 
 function renderSummary(){
