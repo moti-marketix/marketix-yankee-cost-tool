@@ -777,10 +777,10 @@
               <option value="family">Product Family</option>
             </select>
           </div>
-          <div class="field" style="flex:2;">
+          <div class="field" style="flex:2; position:relative;">
             <label id="exec-selection-label">Add a Parent ASIN</label>
-            <input type="text" id="exec-selection" list="exec-selection-list" placeholder="Type to search, then select to add..." oninput="onExecSelectionInput()">
-            <datalist id="exec-selection-list"></datalist>
+            <input type="text" id="exec-selection" placeholder="Type to search anywhere in the name..." oninput="onExecSelectionInput()" onfocus="onExecSelectionInput()" autocomplete="off">
+            <div id="exec-selection-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:20; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,0.12); max-height:240px; overflow-y:auto; margin-top:2px;"></div>
           </div>
         </div>
         <div id="exec-selection-chips" style="margin-top:12px; display:flex; flex-wrap:wrap; gap:8px;"></div>
@@ -1733,15 +1733,38 @@ function onExecGroupByChange(){
 }
 function onExecSelectionInput(){
   const input = document.getElementById('exec-selection');
-  const value = input.value.trim();
-  const options = Array.from(document.getElementById('exec-selection-list').options).map(o=>o.value);
-  if(options.includes(value) && !selectedExecItems.includes(value)){
-    selectedExecItems.push(value);
-    input.value = '';
-    populateExecSelectionDropdown();
+  const query = input.value.trim().toLowerCase();
+  const suggestionsBox = document.getElementById('exec-selection-suggestions');
+
+  // Substring match anywhere in the name, not just from the start — a native <datalist> only matches
+  // from the beginning of the string in most browsers, which makes longer, more descriptive values like
+  // Product Family names hard to find unless you happen to type the exact start of the name.
+  const matches = query
+    ? execSelectionAvailableValues.filter(v=>v.toLowerCase().includes(query))
+    : execSelectionAvailableValues;
+
+  if(!matches.length){
+    suggestionsBox.style.display = 'none';
+    suggestionsBox.innerHTML = '';
+    return;
   }
+  suggestionsBox.style.display = 'block';
+  suggestionsBox.innerHTML = matches.slice(0, 50).map(v=>
+    `<div onclick="selectExecSuggestion('${v.replace(/'/g,"\\'")}')" style="padding:8px 12px; cursor:pointer; font-size:14px; border-bottom:1px solid #F1F3F5;" onmouseenter="this.style.background='var(--blue-light)'" onmouseleave="this.style.background=''">${v}</div>`
+  ).join('');
+}
+function selectExecSuggestion(value){
+  if(!selectedExecItems.includes(value)) selectedExecItems.push(value);
+  document.getElementById('exec-selection').value = '';
+  document.getElementById('exec-selection-suggestions').style.display = 'none';
+  populateExecSelectionDropdown();
   renderExecSummary();
 }
+document.addEventListener('click', (e)=>{
+  const box = document.getElementById('exec-selection-suggestions');
+  const input = document.getElementById('exec-selection');
+  if(box && !box.contains(e.target) && e.target !== input) box.style.display = 'none';
+});
 function removeExecChip(value){
   selectedExecItems = selectedExecItems.filter(v=>v!==value);
   populateExecSelectionDropdown();
@@ -1772,16 +1795,15 @@ function skusForExecSelection(groupBy, value, marketGroup){
   return state.catalog.filter(r=>r.parentAsin===value && r.marketGroup===marketGroup).map(r=>r.sku);
 }
 
+let execSelectionAvailableValues = [];
 function populateExecSelectionDropdown(){
   const marketGroup = currentCatalogMarketGroup();
   const groupBy = document.getElementById('exec-group-by').value;
 
-  const values = (groupBy === 'family'
+  execSelectionAvailableValues = (groupBy === 'family'
     ? Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.family).filter(Boolean)))
     : Array.from(new Set(state.catalog.filter(r=>r.marketGroup===marketGroup).map(r=>r.parentAsin).filter(Boolean)))
   ).filter(v=>!selectedExecItems.includes(v)).sort(); // hide already-added items from the suggestions
-
-  document.getElementById('exec-selection-list').innerHTML = values.map(v=>`<option value="${v}">`).join('');
 }
 
 function renderExecChips(){
