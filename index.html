@@ -6251,7 +6251,13 @@ async function reparseRawFile(id, opts){
 
     if(!silent){
       await loadRawFiles(); renderRawFiles();
-      alert('Re-parse complete — data has been reloaded from this file.');
+      if(result && result.success === false){
+        alert(`Re-parse FAILED for this file: ${result.error || 'unknown error'}\n\nNo data was saved. Check the browser console for more detail.`);
+      } else if(result){
+        alert(`Re-parse complete — ${result.imported ?? '?'} row(s) imported and saved.`);
+      } else {
+        alert('Re-parse complete — data has been reloaded from this file.');
+      }
     }
   }catch(err){
     console.error(err);
