@@ -732,7 +732,7 @@
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="btn-row" style="margin-top:10px; margin-bottom:0;">
-          <button class="btn btn-ghost" id="normalized-profitability-toggle-btn" onclick="toggleNormalizedProfitability()">&#9662; Hide Normalized Profitability</button>
+          <button class="btn btn-ghost" id="normalized-profitability-toggle-btn" onclick="toggleNormalizedProfitability()">&#9656; Show Normalized Profitability</button>
         </div>
       </div>
 
@@ -1861,21 +1861,46 @@ function renderExecSummary(){
 
   const agg = aggregateRows(scopedRows);
   const roiColors = healthColor(agg.roi);
+  const normColors = healthColor(agg.normalizedRoi);
+  const profitPerUnit = agg.units ? agg.netProfit / agg.units : null;
+  const cogsPerUnit = agg.units ? agg.cogs / agg.units : null;
+  const whPerUnit = agg.units ? agg.wh / agg.units : null;
+  // "Normalized" adds back the inbound transportation fee paid on units still sitting in stock — a large
+  // shipment landing in one month gets its freight cost deducted upfront, but most of those units
+  // haven't sold yet, so that month would otherwise look artificially unprofitable while later months
+  // selling from the same shipment look artificially better than they should. This matters especially
+  // for seasonal products with large pre-season shipments.
+  const normalizedProfitPerUnit = agg.units ? agg.normalizedNetProfit / agg.units : null;
 
   container.innerHTML = `
     <div style="background:${roiColors.bg}; border:2px solid ${roiColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
       <div style="font-size:20px; font-weight:800; color:var(--navy); margin-bottom:16px;">${label}</div>
       <div class="kpi-grid">
         ${execKpiCard('Units Sold', agg.units.toLocaleString())}
+        ${execKpiCard('Units Shipped', agg.unitsShipped.toLocaleString())}
+        ${execKpiCard('Units in Stock', agg.unitsInStock.toLocaleString())}
         ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
         ${execKpiCard('Net Proceeds', fmtWhole(agg.netProceedsTotal))}
         ${execKpiCard('COGS', fmtWhole(agg.cogs))}
+        ${execKpiCard('COGS / Unit', cogsPerUnit!==null ? fmt(cogsPerUnit) : '—')}
         ${execKpiCard('Warehouse Cost', fmtWhole(agg.wh))}
+        ${execKpiCard('Warehouse Cost / Unit', whPerUnit!==null ? fmt(whPerUnit) : '—')}
         ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
         ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
         ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
+        ${execKpiCard('Profit / Unit', profitPerUnit!==null ? fmt(profitPerUnit) : '—')}
         ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—')}
         ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—', roiColors.text)}
+      </div>
+      <div style="margin-top:18px; padding-top:16px; border-top:1px dashed ${roiColors.border};">
+        <div style="font-size:13px; font-weight:700; color:var(--navy); margin-bottom:10px;">Normalized (accounts for freight on units still in stock — better for seasonal products)</div>
+        <div class="kpi-grid">
+          ${execKpiCard('Normalized Net Proceeds', fmtWhole(agg.normalizedNetProceedsTotal))}
+          ${execKpiCard('Normalized Net Profit', fmtWhole(agg.normalizedNetProfit))}
+          ${execKpiCard('Profit / Unit (normalized)', normalizedProfitPerUnit!==null ? fmt(normalizedProfitPerUnit) : '—')}
+          ${execKpiCard('Normalized Margin %', agg.normalizedMargin!==null ? Math.round(agg.normalizedMargin)+'%' : '—')}
+          ${execKpiCard('Normalized ROI %', agg.normalizedRoi!==null ? Math.round(agg.normalizedRoi)+'%' : '—', normColors.text)}
+        </div>
       </div>
     </div>
   `;
@@ -5324,7 +5349,7 @@ function populateSummaryFilterDropdowns(){
   if(brandListEl) brandListEl.innerHTML = brands.map(b=>`<option value="${b}">`).join('');
 }
 
-let normalizedProfitabilityExpanded = true;
+let normalizedProfitabilityExpanded = false;
 function toggleNormalizedProfitability(){
   normalizedProfitabilityExpanded = !normalizedProfitabilityExpanded;
   const btn = document.getElementById('normalized-profitability-toggle-btn');
@@ -6230,6 +6255,7 @@ async function renderShareView(urlParams){
 
     const agg = aggregateRows(scopedRows);
     const roiColors = healthColor(agg.roi);
+    const normColors = healthColor(agg.normalizedRoi);
     const profitPerUnit = agg.units ? agg.netProfit / agg.units : null;
     const normalizedProfitPerUnit = agg.units ? agg.normalizedNetProfit / agg.units : null;
     const cogsPerUnit = agg.units ? agg.cogs / agg.units : null;
@@ -6241,6 +6267,8 @@ async function renderShareView(urlParams){
         <div style="font-size:24px; font-weight:800; color:var(--navy); margin-bottom:20px;">${label}</div>
         <div class="kpi-grid">
           ${execKpiCard('Units Sold', agg.units.toLocaleString())}
+          ${execKpiCard('Units Shipped', agg.unitsShipped.toLocaleString())}
+          ${execKpiCard('Units in Stock', agg.unitsInStock.toLocaleString())}
           ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
           ${execKpiCard('Net Proceeds', fmtWhole(agg.netProceedsTotal))}
           ${execKpiCard('COGS', fmtWhole(agg.cogs))}
@@ -6250,10 +6278,19 @@ async function renderShareView(urlParams){
           ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
           ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
           ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
+          ${execKpiCard('Profit / Unit', profitPerUnit!==null ? fmt(profitPerUnit) : '—')}
           ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—')}
           ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—', roiColors.text)}
-          ${execKpiCard('Profit / Unit', profitPerUnit!==null ? fmt(profitPerUnit) : '—')}
-          ${execKpiCard('Profit / Unit (normalized)', normalizedProfitPerUnit!==null ? fmt(normalizedProfitPerUnit) : '—')}
+        </div>
+        <div style="margin-top:18px; padding-top:16px; border-top:1px dashed ${roiColors.border};">
+          <div style="font-size:13px; font-weight:700; color:var(--navy); margin-bottom:10px;">Normalized (accounts for freight on units still in stock)</div>
+          <div class="kpi-grid">
+            ${execKpiCard('Normalized Net Proceeds', fmtWhole(agg.normalizedNetProceedsTotal))}
+            ${execKpiCard('Normalized Net Profit', fmtWhole(agg.normalizedNetProfit))}
+            ${execKpiCard('Profit / Unit (normalized)', normalizedProfitPerUnit!==null ? fmt(normalizedProfitPerUnit) : '—')}
+            ${execKpiCard('Normalized Margin %', agg.normalizedMargin!==null ? Math.round(agg.normalizedMargin)+'%' : '—')}
+            ${execKpiCard('Normalized ROI %', agg.normalizedRoi!==null ? Math.round(agg.normalizedRoi)+'%' : '—', normColors.text)}
+          </div>
         </div>
       </div>
     `;
