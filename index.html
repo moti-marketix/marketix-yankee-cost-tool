@@ -3865,7 +3865,6 @@ const FEE_BREAKDOWN_COMPONENTS = {
   ],
   storageFees: [
     { label: 'Base Monthly Storage Fee', key: 'baseMonthlyStorageFee' },
-    { label: 'Monthly Inventory Storage Fee', key: 'monthlyInventoryStorageFee' },
     { label: 'Storage Utilization Surcharge', key: 'storageUtilizationSurcharge' },
     { label: 'Aged Inventory Surcharge', key: 'agedInventorySurcharge' },
   ],
@@ -4546,8 +4545,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
         + numFromAnyCol(row, headerMap, 'fba disposal order fee total')
       : 0;
     const storageFees = hasDirectNetProceeds
-      ? numFromAnyCol(row, headerMap, 'base monthly storage fee total')
-        + numFromAnyCol(row, headerMap, 'monthly inventory storage fee total', 'monthly storage fee total')
+      ? numFromAnyCol(row, headerMap, 'base monthly storage fee total', 'monthly inventory storage fee total', 'monthly storage fee total')
         + numFromAnyCol(row, headerMap, 'storage utilization surcharge total', 'storage utilisation surcharge total')
         + numFromAnyCol(row, headerMap, 'aged inventory surcharge total')
       : 0;
