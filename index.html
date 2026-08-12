@@ -1332,8 +1332,9 @@ function matchesCurrentMarketScope(rowMarket, rowCountry){
 // by market AFTER extracting SKU names is not equivalent, since a SKU with only another market's shipment
 // data would still appear (just with blank/zero numbers) rather than being excluded outright.
 function marketScopedShipmentContents(){
+  const shipmentsById = getShipmentsByIdIndex();
   return state.shipmentContents.filter(c=>{
-    const shipment = state.shipments.find(s=>s.id===c.shipmentId);
+    const shipment = shipmentsById.get(c.shipmentId);
     return shipment && matchesCurrentMarketScope(shipment.market, shipment.country);
   });
 }
@@ -1637,17 +1638,52 @@ function skusMatch(a, b){
   const normalize = s => String(s).replace(/\s+/g, '').toUpperCase(); // strip ALL whitespace, not just leading/trailing
   return normalize(a) === normalize(b);
 }
+function skuIndexKey(sku, marketGroup){
+  return String(sku).replace(/\s+/g, '').toUpperCase() + '|' + marketGroup;
+}
+// Building an index once and reusing it turns hundreds of per-row .find() linear scans (O(rows × table
+// size)) into O(rows + table size) — this matters a lot once there are several months × several
+// markets × many SKUs. Cache is invalidated by array length, which is safe here: we're indexing object
+// REFERENCES, so an in-place edit to an existing row's field (e.g. updating a Manufacturing Cost) is
+// still visible through the cached reference — only insertions/deletions actually need a rebuild.
+let _catalogIndexCache = { length: -1, index: null };
+let _mfgIndexCache = { length: -1, index: null };
+let _logisticsIndexCache = { length: -1, index: null };
+function getCatalogIndex(){
+  if(_catalogIndexCache.length !== state.catalog.length){
+    const idx = new Map();
+    state.catalog.forEach(r=>{ if(r.sku) idx.set(skuIndexKey(r.sku, r.marketGroup), r); });
+    _catalogIndexCache = { length: state.catalog.length, index: idx };
+  }
+  return _catalogIndexCache.index;
+}
+function getMfgIndex(){
+  if(_mfgIndexCache.length !== state.mfg.length){
+    const idx = new Map();
+    state.mfg.forEach(r=>{ if(r.sku) idx.set(skuIndexKey(r.sku, r.marketGroup), r); });
+    _mfgIndexCache = { length: state.mfg.length, index: idx };
+  }
+  return _mfgIndexCache.index;
+}
+function getLogisticsIndex(){
+  if(_logisticsIndexCache.length !== state.logistics.items.length){
+    const idx = new Map();
+    state.logistics.items.forEach(r=>{ if(r.sku) idx.set(skuIndexKey(r.sku, r.marketGroup), r); });
+    _logisticsIndexCache = { length: state.logistics.items.length, index: idx };
+  }
+  return _logisticsIndexCache.index;
+}
 function catalogRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
-  return state.catalog.find(r=>skusMatch(r.sku, sku) && r.marketGroup===marketGroup);
+  return getCatalogIndex().get(skuIndexKey(sku, marketGroup));
 }
 function mfgRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
-  return state.mfg.find(r=>skusMatch(r.sku, sku) && r.marketGroup===marketGroup);
+  return getMfgIndex().get(skuIndexKey(sku, marketGroup));
 }
 function logisticsRowForSku(sku){
   const marketGroup = currentCatalogMarketGroup();
-  return state.logistics.items.find(r=>skusMatch(r.sku, sku) && r.marketGroup===marketGroup);
+  return getLogisticsIndex().get(skuIndexKey(sku, marketGroup));
 }
 function catalogNameForSku(sku){
   const cat = catalogRowForSku(sku);
@@ -2821,12 +2857,22 @@ function isWarehouseExcludedForSku(sku){
   const brand = catalogBrandForSku(sku);
   return brand && state.warehouseExcludedBrands.includes(brand);
 }
+let _shipmentsByIdCache = { length: -1, index: null };
+function getShipmentsByIdIndex(){
+  if(_shipmentsByIdCache.length !== state.shipments.length){
+    const idx = new Map();
+    state.shipments.forEach(s=>{ if(s.id) idx.set(s.id, s); });
+    _shipmentsByIdCache = { length: state.shipments.length, index: idx };
+  }
+  return _shipmentsByIdCache.index;
+}
 function unitsShippedToWhForSku(sku){
   if(isWarehouseExcludedForSku(sku)) return 0; // this brand never touches the 3PL warehouse (e.g. ships direct to AMZ)
+  const shipmentsById = getShipmentsByIdIndex();
   return state.shipmentContents
     .filter(c=>c.sku===sku)
     .reduce((sum,c)=>{
-      const shipment = state.shipments.find(s=>s.id===c.shipmentId);
+      const shipment = shipmentsById.get(c.shipmentId);
       if(!shipment || shipment.destination !== 'WH') return sum;
       if(!matchesCurrentMarketScope(shipment.market, shipment.country)) return sum;
       return sum + (c.units||0);
@@ -2849,9 +2895,9 @@ function costPerCarton(){
   if(!cartons || !invoices) return null;
   return invoices / cartons;
 }
-function warehouseCostPerUnitForSku(sku){
+function warehouseCostPerUnitForSku(sku, precomputedCpc){
   if(isWarehouseExcludedForSku(sku)) return null;
-  const cpc = costPerCarton();
+  const cpc = precomputedCpc !== undefined ? precomputedCpc : costPerCarton();
   if(cpc === null) return null;
   const logRow = logisticsRowForSku(sku);
   if(!logRow || !logRow.unitsPerCarton) return null;
@@ -5025,13 +5071,14 @@ function onSummaryPeriodTypeChange(){
 function aggregateRows(rows){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0, adSpend=0;
   let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
+  const precomputedCpc = costPerCarton(); // same value for every row in this call — no need to recompute per row
   rows.forEach(row=>{
     // Amazon's EU marketplace reports (DE/IT/FR/ES) are natively denominated in EUR, while Manufacturing
     // Costs and Freight are entered in USD — convert the EUR-native figures to USD here, at the point
     // they enter any calculation, so Net Profit/Margin/ROI are never a meaningless mix of currencies.
     const fx = row.market === 'EU' ? (state.eurToUsdRate || 1) : 1;
     const landed = landedCostForSku(row.sku) || 0; // Manufacturing + Freight only — already USD, no conversion
-    const whPerUnit = warehouseCostPerUnitForSku(row.sku) || 0; // converted separately, inside totalWarehouseInvoices
+    const whPerUnit = warehouseCostPerUnitForSku(row.sku, precomputedCpc) || 0; // converted separately, inside totalWarehouseInvoices
     const u = row.units || 0;
     const rowCogs = landed * u;
     const rowWh = whPerUnit * u;
