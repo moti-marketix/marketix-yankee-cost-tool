@@ -1830,6 +1830,13 @@ function renderExecSummary(){
 
   const agg = aggregateRows(scopedRows);
   const roiColors = healthColor(agg.roi);
+  const profitPerUnit = agg.units ? agg.netProfit / agg.units : null;
+  const cogsPerUnit = agg.units ? agg.cogs / agg.units : null;
+  const whPerUnit = agg.units ? agg.wh / agg.units : null;
+  // "Normalized" accounts for inbound transportation fees using a weighted average spread across units
+  // still in stock, rather than only units sold this period — so a spike from one large shipment landing
+  // in a single month doesn't distort the true per-unit economics of a product sold over many months.
+  const normalizedProfitPerUnit = agg.units ? agg.normalizedNetProfit / agg.units : null;
 
   container.innerHTML = `
     <div style="background:${roiColors.bg}; border:2px solid ${roiColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
@@ -1839,12 +1846,16 @@ function renderExecSummary(){
         ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
         ${execKpiCard('Net Proceeds', fmtWhole(agg.netProceedsTotal))}
         ${execKpiCard('COGS', fmtWhole(agg.cogs))}
+        ${execKpiCard('COGS / Unit', cogsPerUnit!==null ? fmt(cogsPerUnit) : '—')}
         ${execKpiCard('Warehouse Cost', fmtWhole(agg.wh))}
+        ${execKpiCard('Warehouse Cost / Unit', whPerUnit!==null ? fmt(whPerUnit) : '—')}
         ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
         ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
         ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
         ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—')}
         ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—', roiColors.text)}
+        ${execKpiCard('Profit / Unit', profitPerUnit!==null ? fmt(profitPerUnit) : '—')}
+        ${execKpiCard('Profit / Unit (normalized)', normalizedProfitPerUnit!==null ? fmt(normalizedProfitPerUnit) : '—')}
       </div>
     </div>
   `;
