@@ -732,7 +732,7 @@
         </div>
         <p style="margin:8px 0 0 0; color:var(--grey); font-size:11.5px;">Tip: click any column title below to sort by it.</p>
         <div class="btn-row" style="margin-top:10px; margin-bottom:0;">
-          <button class="btn btn-ghost" id="normalized-profitability-toggle-btn" onclick="toggleNormalizedProfitability()">&#9656; Show Normalized Profitability</button>
+          <button class="btn btn-ghost" id="normalized-profitability-toggle-btn" onclick="toggleNormalizedProfitability()">&#9662; Hide Normalized Profitability</button>
         </div>
       </div>
 
@@ -5324,7 +5324,7 @@ function populateSummaryFilterDropdowns(){
   if(brandListEl) brandListEl.innerHTML = brands.map(b=>`<option value="${b}">`).join('');
 }
 
-let normalizedProfitabilityExpanded = false;
+let normalizedProfitabilityExpanded = true;
 function toggleNormalizedProfitability(){
   normalizedProfitabilityExpanded = !normalizedProfitabilityExpanded;
   const btn = document.getElementById('normalized-profitability-toggle-btn');
