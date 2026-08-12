@@ -5163,7 +5163,7 @@ function onSummaryPeriodTypeChange(){
 // ---------------- Summary: aggregation ----------------
 function aggregateRows(rows, precomputedCpc){
   let units=0, revenue=0, netProceedsTotal=0, cogs=0, wh=0, netProfit=0, rowsWithProfit=0, rowsMissingNetProceeds=0, adSpend=0;
-  let unitsShipped=0, feeWeightSum=0, feeQtySum=0;
+  let unitsShipped=0, feeWeightSum=0, feeQtySum=0, storageFeesTotal=0;
   const cpc = precomputedCpc !== undefined ? precomputedCpc : costPerCarton();
   rows.forEach(row=>{
     // Amazon's EU marketplace reports (DE/IT/FR/ES) are natively denominated in EUR, while Manufacturing
@@ -5184,6 +5184,7 @@ function aggregateRows(rows, precomputedCpc){
     cogs += rowCogs;
     wh += rowWh;
     adSpend += rowAdSpend;
+    storageFeesTotal += (row.storageFees||0) * fx;
 
     const shippedQty = row.inboundTransportationFeeQty || 0;
     unitsShipped += shippedQty;
@@ -5205,18 +5206,24 @@ function aggregateRows(rows, precomputedCpc){
   const netProceedsPct = revenue ? (netProceedsTotal/revenue*100) : null;
   const tacos = revenue ? (adSpend/revenue*100) : null;
 
-  // Normalized Profitability: add back Inbound Transportation Fee paid on units still sitting in stock
+  // Normalized Profitability: add back Inbound Transportation Fee AND Storage Fee paid on units still
+  // sitting in stock. Inbound Transportation Fee has its own reported per-unit rate (via feeQtySum), but
+  // Amazon reports Storage Fee only as a flat dollar total per SKU/month, not a per-unit rate — so we
+  // approximate a per-unit storage cost by spreading the total storage fee across every unit shipped in
+  // this batch (sold + still in stock), same level of simplification already used for freight above.
   const unitsInStock = Math.max(0, unitsShipped - units);
   const weightedAvgFeePerUnit = feeQtySum ? feeWeightSum/feeQtySum : null;
   const addBack = weightedAvgFeePerUnit!==null ? weightedAvgFeePerUnit * unitsInStock : 0;
-  const normalizedNetProceedsTotal = netProceedsTotal + addBack;
+  const storageFeePerUnit = unitsShipped ? storageFeesTotal/unitsShipped : null;
+  const storageAddBack = storageFeePerUnit!==null ? storageFeePerUnit * unitsInStock : 0;
+  const normalizedNetProceedsTotal = netProceedsTotal + addBack + storageAddBack;
   const normalizedNetProfit = normalizedNetProceedsTotal - cogs - wh;
   const normalizedMargin = revenue ? (normalizedNetProfit/revenue*100) : null;
   const normalizedRoi = cogs ? (normalizedNetProfit/cogs*100) : null;
 
   return {
     units, revenue, netProceedsTotal, cogs, wh, netProfit, margin, roi, netProceedsPct, rowsWithProfit, rowsMissingNetProceeds, adSpend, tacos,
-    unitsShipped, unitsInStock, weightedAvgFeePerUnit, addBack, normalizedNetProceedsTotal, normalizedNetProfit, normalizedMargin, normalizedRoi,
+    unitsShipped, unitsInStock, weightedAvgFeePerUnit, addBack, storageFeesTotal, storageFeePerUnit, storageAddBack, normalizedNetProceedsTotal, normalizedNetProfit, normalizedMargin, normalizedRoi,
   };
 }
 
