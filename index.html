@@ -194,6 +194,7 @@
 </head>
 <body>
 <div id="shared-breakdown-tooltip"></div>
+<div id="share-view-root" style="display:none; max-width:900px; margin:40px auto; padding:0 20px; font-family:inherit;"></div>
 <div class="app">
   <div class="sidebar">
     <div class="brand">
@@ -787,6 +788,10 @@
 
       <div id="exec-summary-cards"></div>
       <div id="exec-summary-empty" class="empty">Add a Parent ASIN or Product Family above to see its key numbers.</div>
+      <div id="exec-share-section" style="display:none; margin-top:16px;">
+        <button class="btn btn-ghost" onclick="generateShareLink()">🔗 Copy Client Share Link</button>
+        <div id="exec-share-link-box" style="display:none; margin-top:10px; padding:12px; background:var(--blue-light); border-radius:8px; font-size:13px; word-break:break-all;"></div>
+      </div>
     </section>
 
     <!-- ===================== UPLOADED FILES ===================== -->
@@ -1810,6 +1815,7 @@ function renderExecSummary(){
     container.innerHTML = '';
     emptyEl.style.display = 'block';
     emptyEl.textContent = 'Add a Parent ASIN or Product Family above to see its key numbers.';
+    document.getElementById('exec-share-section').style.display = 'none';
     return;
   }
 
@@ -1824,19 +1830,15 @@ function renderExecSummary(){
     container.innerHTML = '';
     emptyEl.style.display = 'block';
     emptyEl.textContent = `No SKU Economics data for "${label}" in this period/market.`;
+    document.getElementById('exec-share-section').style.display = 'none';
     return;
   }
   emptyEl.style.display = 'none';
+  document.getElementById('exec-share-section').style.display = 'block';
+  document.getElementById('exec-share-link-box').style.display = 'none'; // hide any stale link from a previous selection
 
   const agg = aggregateRows(scopedRows);
   const roiColors = healthColor(agg.roi);
-  const profitPerUnit = agg.units ? agg.netProfit / agg.units : null;
-  const cogsPerUnit = agg.units ? agg.cogs / agg.units : null;
-  const whPerUnit = agg.units ? agg.wh / agg.units : null;
-  // "Normalized" accounts for inbound transportation fees using a weighted average spread across units
-  // still in stock, rather than only units sold this period — so a spike from one large shipment landing
-  // in a single month doesn't distort the true per-unit economics of a product sold over many months.
-  const normalizedProfitPerUnit = agg.units ? agg.normalizedNetProfit / agg.units : null;
 
   container.innerHTML = `
     <div style="background:${roiColors.bg}; border:2px solid ${roiColors.border}; border-radius:14px; padding:22px 26px; margin-bottom:16px;">
@@ -1846,19 +1848,34 @@ function renderExecSummary(){
         ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
         ${execKpiCard('Net Proceeds', fmtWhole(agg.netProceedsTotal))}
         ${execKpiCard('COGS', fmtWhole(agg.cogs))}
-        ${execKpiCard('COGS / Unit', cogsPerUnit!==null ? fmt(cogsPerUnit) : '—')}
         ${execKpiCard('Warehouse Cost', fmtWhole(agg.wh))}
-        ${execKpiCard('Warehouse Cost / Unit', whPerUnit!==null ? fmt(whPerUnit) : '—')}
         ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
         ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
         ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
         ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—')}
         ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—', roiColors.text)}
-        ${execKpiCard('Profit / Unit', profitPerUnit!==null ? fmt(profitPerUnit) : '—')}
-        ${execKpiCard('Profit / Unit (normalized)', normalizedProfitPerUnit!==null ? fmt(normalizedProfitPerUnit) : '—')}
       </div>
     </div>
   `;
+}
+
+function generateShareLink(){
+  const groupBy = document.getElementById('exec-group-by').value;
+  const periodType = document.getElementById('exec-period-type').value;
+  const periodValue = document.getElementById('exec-period-value').value;
+  const params = new URLSearchParams({
+    share: '1',
+    market: state.currentMarket,
+    country: state.currentEuCountry || '',
+    groupBy,
+    items: selectedExecItems.join('||'), // items themselves might contain commas, so use a distinctive separator
+    periodType,
+    periodValue,
+  });
+  const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+  const box = document.getElementById('exec-share-link-box');
+  box.style.display = 'block';
+  box.innerHTML = `<strong>Shareable link (read-only, no login needed):</strong><br>${url}<br><br><button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" onclick="navigator.clipboard.writeText('${url}'); this.textContent='Copied!';">Copy to clipboard</button>`;
 }
 
 
@@ -6148,7 +6165,88 @@ async function deleteRawFile(id){
 }
 
 
+async function renderShareView(urlParams){
+  document.querySelector('.app').style.display = 'none';
+  const root = document.getElementById('share-view-root');
+  root.style.display = 'block';
+  root.innerHTML = '<p style="color:var(--grey);">Loading report...</p>';
+
+  try{
+    await loadAllFromSupabase();
+
+    // The link is the only "credential" here — it fully determines market/country/selection, entirely
+    // independent of whatever this browser's own sidebar happens to have saved. No edit controls, no
+    // navigation, no upload buttons are rendered in this mode — this is intentionally read-only.
+    state.currentMarket = urlParams.get('market') || 'USA';
+    state.currentEuCountry = urlParams.get('country') || '';
+    if(state.currentMarket === 'EU') await fetchLiveExchangeRate();
+
+    const groupBy = urlParams.get('groupBy') || 'parentAsin';
+    const items = (urlParams.get('items') || '').split('||').filter(Boolean);
+    const periodType = urlParams.get('periodType') || 'ytd';
+    const periodValue = urlParams.get('periodValue') || '';
+
+    if(!items.length){
+      root.innerHTML = '<p style="color:var(--red);">This link is missing its report selection.</p>';
+      return;
+    }
+
+    const marketGroup = currentCatalogMarketGroup();
+    const skus = Array.from(new Set(items.flatMap(item=>skusForExecSelection(groupBy, item, marketGroup))));
+    const months = computeMonthsInScope(periodType, periodValue);
+    const scopedRows = state.sku.filter(r=>
+      skus.includes(r.sku) && r.month && months.includes(r.month) && matchesCurrentMarketScope(r.market||'USA', r.country||'')
+    );
+
+    const label = items.join(' + ');
+    const marketLabel = state.currentMarket === 'EU' ? `EU${state.currentEuCountry ? ' · '+state.currentEuCountry : ' (All)'}` : state.currentMarket;
+
+    if(!scopedRows.length){
+      root.innerHTML = `<h2 style="color:var(--navy);">${label}</h2><p style="color:var(--grey);">No data available for this selection.</p>`;
+      return;
+    }
+
+    const agg = aggregateRows(scopedRows);
+    const roiColors = healthColor(agg.roi);
+    const profitPerUnit = agg.units ? agg.netProfit / agg.units : null;
+    const normalizedProfitPerUnit = agg.units ? agg.normalizedNetProfit / agg.units : null;
+    const cogsPerUnit = agg.units ? agg.cogs / agg.units : null;
+    const whPerUnit = agg.units ? agg.wh / agg.units : null;
+
+    root.innerHTML = `
+      <div style="margin-bottom:20px; color:var(--grey); font-size:13px;">Marketix Report — ${marketLabel} — generated ${new Date().toLocaleDateString()}</div>
+      <div style="background:${roiColors.bg}; border:2px solid ${roiColors.border}; border-radius:14px; padding:26px 30px;">
+        <div style="font-size:24px; font-weight:800; color:var(--navy); margin-bottom:20px;">${label}</div>
+        <div class="kpi-grid">
+          ${execKpiCard('Units Sold', agg.units.toLocaleString())}
+          ${execKpiCard('Revenue', fmtWhole(agg.revenue))}
+          ${execKpiCard('Net Proceeds', fmtWhole(agg.netProceedsTotal))}
+          ${execKpiCard('COGS', fmtWhole(agg.cogs))}
+          ${execKpiCard('COGS / Unit', cogsPerUnit!==null ? fmt(cogsPerUnit) : '—')}
+          ${execKpiCard('Warehouse Cost', fmtWhole(agg.wh))}
+          ${execKpiCard('Warehouse Cost / Unit', whPerUnit!==null ? fmt(whPerUnit) : '—')}
+          ${execKpiCard('Ad Spend', fmtWhole(agg.adSpend))}
+          ${execKpiCard('TACOS %', agg.tacos!==null ? Math.round(agg.tacos)+'%' : '—')}
+          ${execKpiCard('Net Profit', fmtWhole(agg.netProfit))}
+          ${execKpiCard('Margin %', agg.margin!==null ? Math.round(agg.margin)+'%' : '—')}
+          ${execKpiCard('ROI %', agg.roi!==null ? Math.round(agg.roi)+'%' : '—', roiColors.text)}
+          ${execKpiCard('Profit / Unit', profitPerUnit!==null ? fmt(profitPerUnit) : '—')}
+          ${execKpiCard('Profit / Unit (normalized)', normalizedProfitPerUnit!==null ? fmt(normalizedProfitPerUnit) : '—')}
+        </div>
+      </div>
+    `;
+  }catch(err){
+    console.error(err);
+    root.innerHTML = '<p style="color:var(--red);">Could not load this report. Please contact whoever sent you this link.</p>';
+  }
+}
+
 async function initApp(){
+  const urlParams = new URLSearchParams(window.location.search);
+  if(urlParams.get('share') === '1'){
+    await renderShareView(urlParams);
+    return; // never initialize the normal editable app UI in share mode
+  }
   await loadAllFromSupabase();
   document.getElementById('market-select').value = state.currentMarket;
   document.getElementById('eu-country-select').value = state.currentEuCountry;
