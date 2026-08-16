@@ -4606,7 +4606,7 @@ async function parseAmazonSkuEconomicsReport(rows, statusEl, marketOverride, cou
     const inboundTransportationFeePerUnit = numOrNull(row[headerMap['inbound transportation fee per unit']]);
     const fbaInboundPlacementFeeQty = numOrNull(row[headerMap['fba inbound placement service fee quantity']]);
 
-    const existing = state.sku.find(r=>r.sku===sku && r.month===month && (r.market||'USA')===uploadMarket && (r.country||'')===uploadCountry);
+    const existing = state.sku.find(r=>skusMatch(r.sku, sku) && r.month===month && (r.market||'USA')===uploadMarket && (r.country||'')===uploadCountry);
     const rowData = {
       sku, month, units: unitsSold, revenue,
       asin: String(asin).trim(), parentAsin: hasParentAsinCol && row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '',
