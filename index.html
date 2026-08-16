@@ -5880,14 +5880,21 @@ async function bulkReparseGroup(screen){
 
   const progressEl = document.getElementById(`bulk-reparse-progress-${screen}`);
   const ids = checkboxes.map(cb=>cb.value);
+  const results = [];
 
   for(let i=0; i<ids.length; i++){
     progressEl.innerHTML = `&#8987; Re-parsing file ${i+1} of ${ids.length}...`;
-    await reparseRawFile(ids[i], { silent: true });
+    const result = await reparseRawFile(ids[i], { silent: true });
+    results.push(result || { success: false, filename: '(unknown)', error: 'No result returned' });
   }
-  progressEl.innerHTML = `&#10003; Done — re-parsed ${ids.length} file(s).`;
+  const failed = results.filter(r=>!r.success);
   await loadRawFiles();
   renderRawFiles();
+  if(failed.length){
+    alert(`Bulk re-parse: ${results.length - failed.length} of ${results.length} succeeded. ${failed.length} FAILED:\n\n${failed.map(f=>`${f.filename}: ${f.error||'unknown error'}`).join('\n')}`);
+  } else {
+    alert(`Bulk re-parse complete — all ${results.length} file(s) re-parsed successfully.`);
+  }
 }
 
 // ---------------- Bulk Invoice PDF Upload (auto-extract date + total) ----------------
@@ -6172,7 +6179,7 @@ async function reparseRawFile(id, opts){
         await loadRawFiles(); renderRawFiles();
         alert('Re-parse complete — shipment data reloaded from this file.');
       }
-      return;
+      return { success: true, filename: fileRow.original_filename };
     }
 
     if(fileRow.screen === 'full_template'){
@@ -6205,7 +6212,7 @@ async function reparseRawFile(id, opts){
         await loadRawFiles(); renderRawFiles();
         alert('Re-parse complete — Catalog, Manufacturing Costs, and Logistics (USA/CA and EU) have all been reloaded from this file.');
       }
-      return;
+      return { success: allSucceeded, filename: fileRow.original_filename };
     }
 
     let rows;
@@ -6259,9 +6266,11 @@ async function reparseRawFile(id, opts){
         alert('Re-parse complete — data has been reloaded from this file.');
       }
     }
+    return { success: result ? result.success !== false : true, filename: fileRow.original_filename, error: result ? result.error : undefined };
   }catch(err){
     console.error(err);
     if(!silent) alert('Could not re-parse this file: ' + (err.message||err));
+    return { success: false, filename: fileRow.original_filename, error: err.message || String(err) };
   }
 }
 
