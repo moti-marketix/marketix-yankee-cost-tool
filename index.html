@@ -1220,8 +1220,15 @@ async function saveSkuRow(row){
   };
   try{
     if(row.id){
-      const { error } = await sb.from('sku_economics').update(payload).eq('id', row.id);
+      const { data, error } = await sb.from('sku_economics').update(payload).eq('id', row.id).select();
       if(error) throw error;
+      if(!data || !data.length){
+        // Supabase can return no error here even when the update matched zero rows (e.g. the row was
+        // deleted elsewhere, or a policy silently blocked it) - this was previously misreported as a
+        // successful save even though nothing was actually written.
+        console.error('saveSkuRow: update matched 0 rows for id', row.id, '- nothing was actually saved', payload);
+        return { success: false, id: row.id, error: 'Update matched 0 rows - the row may no longer exist' };
+      }
       return { success: true, id: row.id };
     } else {
       // Use a real database-level upsert (not a blind insert) — if a row for this
