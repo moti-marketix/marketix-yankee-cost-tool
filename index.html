@@ -3955,6 +3955,7 @@ const skuColumnDefs = [
   { key: 'avgRetailPrice', label: 'Avg Retail Price', perUnit: { num: 'revenue', den: 'units' } },
   { key: 'refunds', label: 'Refunds (admin fee)', money: true },
   { key: 'netProceeds', label: 'Net Proceeds', money: true },
+  { key: 'netProceedsPct', label: 'Net Proceeds %', ratio: { num: 'netProceeds', den: 'revenue' } },
   { key: 'unitsReturned', label: 'Units Returned', money: false },
   { key: 'netUnitsSold', label: 'Net Units Sold', money: false },
   { key: 'avgSalesPrice', label: 'Avg Sales Price', money: true },
@@ -3979,7 +3980,7 @@ const skuColumnDefs = [
   { key: 'sponsoredProductsCharge', label: 'Sponsored Products Charge', money: true },
   { key: 'netProceedsPerUnit', label: 'Net Proceeds / Unit (Amazon)', money: true },
 ];
-const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','avgRetailPrice','referralFees','fbaFees','storageFees','adSpend','tacos','refunds','netProceeds','inboundTransportationFeePerUnit'];
+const DEFAULT_VISIBLE_SKU_COLUMNS = ['units','revenue','avgRetailPrice','referralFees','fbaFees','storageFees','adSpend','tacos','refunds','netProceeds','netProceedsPct','inboundTransportationFeePerUnit'];
 
 function loadVisibleSkuColumns(){
   try{
