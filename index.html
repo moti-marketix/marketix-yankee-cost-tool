@@ -827,6 +827,7 @@
 
       <div style="display:flex; gap:8px; margin-bottom:20px; border-bottom:2px solid var(--border);">
         <div class="beta-subtab active" data-betatab="setup" onclick="switchBetaTab('setup')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--navy); border-bottom:2px solid var(--navy); margin-bottom:-2px;">📋 Cost Setup</div>
+        <div class="beta-subtab" data-betatab="warehouse" onclick="switchBetaTab('warehouse')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">🏭 Warehouse Costs</div>
         <div class="beta-subtab" data-betatab="sku-economics" onclick="switchBetaTab('sku-economics')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📊 SKU Economics</div>
         <div class="beta-subtab" data-betatab="profitability" onclick="switchBetaTab('profitability')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">💰 Profitability</div>
       </div>
@@ -847,11 +848,26 @@
           <h2>Current Products (<span id="beta-setup-count">0</span>)</h2>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>SKU</th><th>ASIN</th><th>Parent ASIN</th><th>Product Name</th><th>Family</th><th>Mfg Cost/Unit</th><th>Freight Cost/Unit</th><th>Warehouse Cost/Unit</th></tr></thead>
+              <thead><tr><th>SKU</th><th>ASIN</th><th>Parent ASIN</th><th>Product Name</th><th>Family</th><th>Mfg Cost/Unit</th><th>Shipping Cost/Unit</th></tr></thead>
               <tbody id="beta-setup-table-body"></tbody>
             </table>
             <div id="beta-setup-empty" class="empty" style="display:none;">No products yet — download and upload the Cost Template above to get started.</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Beta: Warehouse Costs -->
+      <div id="beta-tab-warehouse" style="display:none;">
+        <div class="card">
+          <h2>Monthly Warehouse Costs</h2>
+          <p style="font-size:13px; color:var(--grey); margin:0 0 14px;">Enter the total warehouse/3PL invoice amount for each month directly — no file upload needed. This gets blended into a single $/unit rate spread across all units sold, since warehouse costs aren't tracked per SKU.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th style="width:200px;">Month</th><th style="width:200px;">Total Cost</th><th></th></tr></thead>
+              <tbody id="beta-warehouse-table-body"></tbody>
+            </table>
+          </div>
+          <button class="btn btn-ghost" style="margin-top:14px;" onclick="addBetaWarehouseRow()">+ Add Month</button>
         </div>
       </div>
 
@@ -6865,10 +6881,11 @@ function switchBetaTab(tab){
   });
   const activeEl = document.querySelector(`.beta-subtab[data-betatab="${tab}"]`);
   activeEl.classList.add('active'); activeEl.style.color = 'var(--navy)'; activeEl.style.borderBottom = '2px solid var(--navy)'; activeEl.style.marginBottom = '-2px';
-  ['setup','sku-economics','profitability'].forEach(t=>{
+  ['setup','warehouse','sku-economics','profitability'].forEach(t=>{
     document.getElementById(`beta-tab-${t}`).style.display = (t===tab) ? 'block' : 'none';
   });
   if(tab==='profitability') renderBetaProfitability();
+  if(tab==='warehouse') renderBetaWarehouseTable();
 }
 
 function renderBetaAll(){
@@ -6893,7 +6910,7 @@ async function loadBetaClientData(){
   betaState.catalog = (catalogRes.data||[]).map(r=>({ id:r.id, sku:r.sku, asin:r.asin||'', parentAsin:r.parent_asin||'', name:r.product_name||'', brand:r.brand||'', family:r.product_family||'' }));
   betaState.mfg = (mfgRes.data||[]).map(r=>({ id:r.id, sku:r.sku, mfgCost:r.mfg_cost_per_unit }));
   betaState.logistics = (logisticsRes.data||[]).map(r=>({ id:r.id, sku:r.sku, freightCost:r.freight_cost_per_unit }));
-  betaState.warehouse = (warehouseRes.data||[]).map(r=>({ id:r.id, sku:r.sku, warehouseCost:r.warehouse_cost_per_unit }));
+  betaState.warehouse = (warehouseRes.data||[]).filter(r=>r.month).map(r=>({ id:r.id, month:r.month, totalCost:r.total_cost }));
   betaState.sku = (skuRes.data||[]).map(r=>({
     id:r.id, sku:r.sku, asin:r.asin||'', parentAsin:r.parent_asin||'',
     units:r.units, revenue:r.revenue, netProceeds:r.net_proceeds,
@@ -6916,21 +6933,19 @@ function downloadBetaCostTemplate(){
   const mfgRows = betaState.mfg.length ? betaState.mfg.map(r=>[r.sku, r.mfgCost]) : [['EXAMPLE-SKU-001', 8.50]];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mfgHeaders, ...mfgRows]), 'Manufacturing Costs');
 
-  const logHeaders = ['SKU','Freight Cost Per Unit'];
+  const logHeaders = ['SKU','Shipping Cost Per Unit'];
   const logRows = betaState.logistics.length ? betaState.logistics.map(r=>[r.sku, r.freightCost]) : [['EXAMPLE-SKU-001', 2.25]];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([logHeaders, ...logRows]), 'Logistics');
-
-  const whHeaders = ['SKU','Warehouse Cost Per Unit'];
-  const whRows = betaState.warehouse.length ? betaState.warehouse.map(r=>[r.sku, r.warehouseCost]) : [['EXAMPLE-SKU-001', 0.75]];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([whHeaders, ...whRows]), 'Warehouse Costs');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([logHeaders, ...logRows]), 'Shipping Costs');
 
   const instructionsSheet = XLSX.utils.aoa_to_sheet([
     ['Instructions'], [''],
-    ['This file has 4 sheets: Catalog, Manufacturing Costs, Logistics, Warehouse Costs.'],
+    ['This file has 3 sheets: Catalog, Manufacturing Costs, Shipping Costs.'],
     ['Fill in one row per SKU on each sheet, then upload this same file back into the tool.'],
-    ['The SKU column must match exactly across all 4 sheets for a product to show correctly.'],
-    ['Freight Cost Per Unit and Warehouse Cost Per Unit should be simple $/unit figures —'],
+    ['The SKU column must match exactly across all 3 sheets for a product to show correctly.'],
+    ['Shipping Cost Per Unit should be a simple $/unit figure —'],
     ['this tool does not do carton/CBM-based freight calculations.'],
+    [''],
+    ['Warehouse Costs are entered separately (Warehouse Costs tab) as a monthly total, not per SKU.'],
   ]);
   XLSX.utils.book_append_sheet(wb, instructionsSheet, 'Instructions');
 
@@ -6951,11 +6966,10 @@ async function handleBetaCostTemplateUpload(event){
 
     const catalogWs = findSheet('Catalog');
     const mfgWs = findSheet('Manufacturing Costs');
-    const logWs = findSheet('Logistics');
-    const whWs = findSheet('Warehouse Costs');
-    if(!catalogWs || !mfgWs || !logWs || !whWs){
+    const logWs = findSheet('Shipping Costs');
+    if(!catalogWs || !mfgWs || !logWs){
       statusEl.style.color = 'var(--red)';
-      statusEl.textContent = 'This file is missing one of the required sheets: Catalog, Manufacturing Costs, Logistics, Warehouse Costs.';
+      statusEl.textContent = 'This file is missing one of the required sheets: Catalog, Manufacturing Costs, Shipping Costs.';
       return;
     }
 
@@ -6984,20 +6998,13 @@ async function handleBetaCostTemplateUpload(event){
     const logPayload = logRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), freight_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
     if(logPayload.length){
       const { error } = await sb.from('beta_logistics_costs').upsert(logPayload, { onConflict: 'client_id,sku' });
-      if(error) throw new Error('Logistics: ' + error.message);
-    }
-
-    const whRows = XLSX.utils.sheet_to_json(whWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
-    const whPayload = whRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), warehouse_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
-    if(whPayload.length){
-      const { error } = await sb.from('beta_warehouse_costs').upsert(whPayload, { onConflict: 'client_id,sku' });
-      if(error) throw new Error('Warehouse Costs: ' + error.message);
+      if(error) throw new Error('Shipping Costs: ' + error.message);
     }
 
     await loadBetaClientData();
     renderBetaAll();
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent = `Done — ${catalogPayload.length} Catalog, ${mfgPayload.length} Manufacturing, ${logPayload.length} Logistics, ${whPayload.length} Warehouse rows saved.`;
+    statusEl.textContent = `Done — ${catalogPayload.length} Catalog, ${mfgPayload.length} Manufacturing, ${logPayload.length} Shipping Cost rows saved.`;
     event.target.value = '';
   }catch(err){
     console.error(err);
@@ -7015,19 +7022,64 @@ function renderBetaSetupTable(){
 
   const mfgBySku = Object.fromEntries(betaState.mfg.map(r=>[r.sku, r.mfgCost]));
   const logBySku = Object.fromEntries(betaState.logistics.map(r=>[r.sku, r.freightCost]));
-  const whBySku = Object.fromEntries(betaState.warehouse.map(r=>[r.sku, r.warehouseCost]));
 
   tbody.innerHTML = betaState.catalog.map(r=>`
     <tr>
       <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.parentAsin||'—'}</td><td>${r.name||'—'}</td><td>${r.family||'—'}</td>
       <td>${mfgBySku[r.sku]!=null ? fmt(mfgBySku[r.sku]) : '—'}</td>
       <td>${logBySku[r.sku]!=null ? fmt(logBySku[r.sku]) : '—'}</td>
-      <td>${whBySku[r.sku]!=null ? fmt(whBySku[r.sku]) : '—'}</td>
     </tr>
   `).join('');
 }
 
-// ---------------- Beta: SKU Economics upload ----------------
+// ---------------- Beta: Warehouse Costs (simple month + total entry) ----------------
+function renderBetaWarehouseTable(){
+  const tbody = document.getElementById('beta-warehouse-table-body');
+  const sorted = [...betaState.warehouse].sort((a,b)=> (a.month||'').localeCompare(b.month||''));
+  tbody.innerHTML = sorted.map((r, idx)=>{
+    const realIdx = betaState.warehouse.indexOf(r);
+    return `
+    <tr>
+      <td><input type="text" value="${r.month||''}" placeholder="e.g. 2026-01 or January 2026" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:6px;" onchange="updateBetaWarehouseRow(${realIdx},'month',this.value)"></td>
+      <td><input type="number" step="0.01" value="${r.totalCost??''}" placeholder="0.00" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:6px;" onchange="updateBetaWarehouseRow(${realIdx},'totalCost',this.value)"></td>
+      <td><button class="btn btn-ghost" style="padding:5px 10px; font-size:12px; color:var(--red);" onclick="deleteBetaWarehouseRow(${realIdx})">&times; Remove</button></td>
+    </tr>
+  `;
+  }).join('');
+}
+
+function addBetaWarehouseRow(){
+  betaState.warehouse.push({ id:null, month:'', totalCost:null });
+  renderBetaWarehouseTable();
+}
+
+async function updateBetaWarehouseRow(idx, field, value){
+  const row = betaState.warehouse[idx];
+  if(!row) return;
+  row[field] = field==='totalCost' ? numOrNull(value) : value.trim();
+  if(!row.month) return; // wait until there's a month to key on before saving
+
+  const cid = betaState.currentClientId;
+  const payload = { client_id: cid, month: row.month, total_cost: row.totalCost, updated_at: new Date().toISOString() };
+  const { data, error } = await sb.from('beta_warehouse_costs').upsert(payload, { onConflict: 'client_id,month' }).select().single();
+  if(error){ alert('Could not save: ' + error.message); return; }
+  row.id = data.id;
+  renderBetaProfitability(); // warehouse cost affects the blended rate used everywhere
+}
+
+async function deleteBetaWarehouseRow(idx){
+  const row = betaState.warehouse[idx];
+  if(!row) return;
+  if(row.id){
+    const { error } = await sb.from('beta_warehouse_costs').delete().eq('id', row.id);
+    if(error){ alert('Could not delete: ' + error.message); return; }
+  }
+  betaState.warehouse.splice(idx, 1);
+  renderBetaWarehouseTable();
+  renderBetaProfitability();
+}
+
+
 function parseBetaSkuEconomicsRows(rows){
   const headers = rows[0].map(normHeader);
   const headerMap = {};
@@ -7175,18 +7227,20 @@ function landedCostForBetaSku(sku){
   if(mfgCost===null && freightCost===null) return null;
   return (mfgCost||0) + (freightCost||0);
 }
-function warehouseCostForBetaSku(sku){
-  const wh = betaState.warehouse.find(r=>r.sku===sku);
-  return wh ? wh.warehouseCost : null;
+function blendedWarehouseCostPerUnit(){
+  const totalCost = betaState.warehouse.reduce((s,r)=>s+(r.totalCost||0), 0);
+  const totalUnits = betaState.sku.reduce((s,r)=>s+(r.units||0), 0);
+  if(!totalCost || !totalUnits) return 0;
+  return totalCost / totalUnits;
 }
 function catalogRowForBetaSku(sku){
   return betaState.catalog.find(r=>r.sku===sku);
 }
 
-function computeBetaSkuProfitability(skuRow){
+function computeBetaSkuProfitability(skuRow, whPerUnit){
   const catRow = catalogRowForBetaSku(skuRow.sku);
   const landed = landedCostForBetaSku(skuRow.sku) || 0;
-  const whCost = warehouseCostForBetaSku(skuRow.sku) || 0;
+  const whCost = whPerUnit !== undefined ? whPerUnit : blendedWarehouseCostPerUnit();
   const units = skuRow.units || 0;
   const cogs = landed * units;
   const wh = whCost * units;
@@ -7232,7 +7286,8 @@ function renderBetaProfitability(){
   }
   empty.style.display = 'none';
 
-  let computed = betaState.sku.map(computeBetaSkuProfitability);
+  const sharedWhPerUnit = blendedWarehouseCostPerUnit();
+  let computed = betaState.sku.map(r=>computeBetaSkuProfitability(r, sharedWhPerUnit));
   if(search){
     computed = computed.filter(r =>
       r.sku.toLowerCase().includes(search) || (r.asin||'').toLowerCase().includes(search) ||
