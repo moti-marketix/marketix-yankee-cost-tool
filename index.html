@@ -229,6 +229,7 @@
     <div class="nav-item" data-tab="summary"><span class="num">&#9733;</span>Profitability Summary</div>
     <div class="nav-item" data-tab="execsummary"><span class="num">&#9889;</span>Executive Summary</div>
     <div class="nav-item" data-tab="files"><span class="num">&#128193;</span>Uploaded Files</div>
+    <div class="nav-item" data-tab="beta" style="border-top:1px solid rgba(255,255,255,0.15); margin-top:8px; padding-top:14px;"><span class="num">&#129514;</span>Beta: Simple Tool</div>
   </div>
 
   <div class="main">
@@ -809,6 +810,101 @@
       <div id="files-empty" class="empty" style="display:none;">No files uploaded yet.</div>
     </section>
 
+    <!-- ===================== BETA: SIMPLE TOOL ===================== -->
+    <section id="tab-beta" style="display:none;">
+      <div class="top-bar"><h1 class="page-title">Beta: Simple Tool</h1></div>
+      <p class="subtitle">An experimental, simplified alternate approach — one combined cost template, one yearly SKU Economics upload, multi-client. Uses the same database as the main tool but entirely separate tables — nothing here affects Yankee's data above.</p>
+
+      <div class="card" style="margin-bottom:20px;">
+        <div class="filter-bar" style="align-items:center;">
+          <div class="field">
+            <label>Client</label>
+            <select id="beta-client-select" onchange="onBetaClientChange()" style="min-width:220px;"></select>
+          </div>
+          <button class="btn btn-ghost" onclick="promptNewBetaClient()">+ New Client</button>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-bottom:20px; border-bottom:2px solid var(--border);">
+        <div class="beta-subtab active" data-betatab="setup" onclick="switchBetaTab('setup')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--navy); border-bottom:2px solid var(--navy); margin-bottom:-2px;">📋 Cost Setup</div>
+        <div class="beta-subtab" data-betatab="sku-economics" onclick="switchBetaTab('sku-economics')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📊 SKU Economics</div>
+        <div class="beta-subtab" data-betatab="profitability" onclick="switchBetaTab('profitability')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">💰 Profitability</div>
+      </div>
+
+      <!-- Beta: Cost Setup -->
+      <div id="beta-tab-setup">
+        <div class="card">
+          <h2>1. Download the Template</h2>
+          <p style="font-size:13px; color:var(--grey); margin:0 0 12px;">If this client already has products set up, this downloads with current data pre-filled so you can just update it.</p>
+          <button class="btn btn-ghost" onclick="downloadBetaCostTemplate()">⬇ Download Cost Template</button>
+        </div>
+        <div class="card">
+          <h2>2. Upload the Completed Template</h2>
+          <input type="file" id="beta-cost-template-input" accept=".xlsx" onchange="handleBetaCostTemplateUpload(event)">
+          <div id="beta-cost-template-status" class="status-text"></div>
+        </div>
+        <div class="card">
+          <h2>Current Products (<span id="beta-setup-count">0</span>)</h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>SKU</th><th>ASIN</th><th>Parent ASIN</th><th>Product Name</th><th>Family</th><th>Mfg Cost/Unit</th><th>Freight Cost/Unit</th><th>Warehouse Cost/Unit</th></tr></thead>
+              <tbody id="beta-setup-table-body"></tbody>
+            </table>
+            <div id="beta-setup-empty" class="empty" style="display:none;">No products yet — download and upload the Cost Template above to get started.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Beta: SKU Economics -->
+      <div id="beta-tab-sku-economics" style="display:none;">
+        <div class="card">
+          <p style="font-size:13px; color:var(--grey); margin:0 0 12px;">Upload Amazon's SKU Economics report for the full year — exactly as exported from Seller Central. Re-uploading replaces all existing data for this client.</p>
+          <input type="file" id="beta-sku-economics-input" accept=".csv,.xlsx" onchange="handleBetaSkuEconomicsUpload(event)">
+          <div id="beta-sku-economics-status" class="status-text"></div>
+        </div>
+        <div class="card">
+          <h2>Uploaded Data (<span id="beta-sku-econ-count">0</span> SKUs)</h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>SKU</th><th>ASIN</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Ad Spend</th></tr></thead>
+              <tbody id="beta-sku-econ-table-body"></tbody>
+            </table>
+            <div id="beta-sku-econ-empty" class="empty" style="display:none;">No SKU Economics data uploaded yet.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Beta: Profitability -->
+      <div id="beta-tab-profitability" style="display:none;">
+        <div class="card">
+          <div class="filter-bar">
+            <div class="field">
+              <label>Level</label>
+              <select id="beta-profit-level" onchange="renderBetaProfitability()">
+                <option value="parentAsin">Parent ASIN</option>
+                <option value="family">Product Family</option>
+                <option value="sku">SKU</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Search</label>
+              <input type="text" id="beta-profit-search" placeholder="Filter by SKU, ASIN, or Family..." oninput="renderBetaProfitability()">
+            </div>
+          </div>
+        </div>
+        <div class="kpi-grid" id="beta-profit-kpis" style="margin-bottom:20px;"></div>
+        <div class="card">
+          <div class="table-scroll">
+            <table id="beta-profit-table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+            <div id="beta-profit-empty" class="empty" style="display:none;">Upload Cost Setup and SKU Economics data to see profitability.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </div>
 </div>
 
@@ -1283,6 +1379,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     if(item.dataset.tab === 'files'){ loadRawFiles().then(renderRawFiles); }
     if(item.dataset.tab === 'sku'){ renderSku(); }
     if(item.dataset.tab === 'execsummary'){ renderExecSummary(); }
+    if(item.dataset.tab === 'beta'){ initBetaAppOnce(); }
   });
 });
 
@@ -6710,6 +6807,489 @@ async function executeMarkiTool(name, input){
     return `Highlight toggled for ${input.sku} / ${input.month}.`;
   }
   throw new Error(`Unknown tool: ${name}`);
+}
+
+// ============================================================
+// BETA: SIMPLE TOOL — experimental multi-client alternate approach.
+// Reuses the existing `sb` Supabase client and shared helpers (fmt, fmtWhole, num, numOrNull,
+// normHeader, numFromAnyCol, healthColor) already defined above. Uses its own "beta_"-prefixed
+// tables so nothing here can ever touch Yankee's existing data.
+// ============================================================
+const betaState = {
+  clients: [], currentClientId: null,
+  catalog: [], mfg: [], logistics: [], warehouse: [], sku: [],
+};
+let betaInitialized = false;
+
+async function initBetaAppOnce(){
+  if(betaInitialized) return;
+  betaInitialized = true;
+  await loadBetaClients();
+  if(betaState.currentClientId){
+    await loadBetaClientData();
+    renderBetaAll();
+  }
+}
+
+async function loadBetaClients(){
+  const { data, error } = await sb.from('beta_clients').select('*').order('name');
+  if(error){ console.error(error); return; }
+  betaState.clients = data || [];
+  const select = document.getElementById('beta-client-select');
+  select.innerHTML = betaState.clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  if(!betaState.currentClientId && betaState.clients.length) betaState.currentClientId = betaState.clients[0].id;
+  if(betaState.currentClientId) select.value = betaState.currentClientId;
+}
+
+async function promptNewBetaClient(){
+  const name = prompt('New client name:');
+  if(!name || !name.trim()) return;
+  const { data, error } = await sb.from('beta_clients').insert({ name: name.trim() }).select().single();
+  if(error){ alert('Could not create client: ' + error.message); return; }
+  await loadBetaClients();
+  betaState.currentClientId = data.id;
+  document.getElementById('beta-client-select').value = data.id;
+  await onBetaClientChange();
+}
+
+async function onBetaClientChange(){
+  betaState.currentClientId = document.getElementById('beta-client-select').value;
+  await loadBetaClientData();
+  renderBetaAll();
+}
+
+function switchBetaTab(tab){
+  document.querySelectorAll('.beta-subtab').forEach(el=>{
+    el.classList.remove('active');
+    el.style.color = 'var(--grey)'; el.style.borderBottom = 'none';
+  });
+  const activeEl = document.querySelector(`.beta-subtab[data-betatab="${tab}"]`);
+  activeEl.classList.add('active'); activeEl.style.color = 'var(--navy)'; activeEl.style.borderBottom = '2px solid var(--navy)'; activeEl.style.marginBottom = '-2px';
+  ['setup','sku-economics','profitability'].forEach(t=>{
+    document.getElementById(`beta-tab-${t}`).style.display = (t===tab) ? 'block' : 'none';
+  });
+  if(tab==='profitability') renderBetaProfitability();
+}
+
+function renderBetaAll(){
+  renderBetaSetupTable();
+  renderBetaSkuEconTable();
+  renderBetaProfitability();
+}
+
+async function loadBetaClientData(){
+  if(!betaState.currentClientId) return;
+  const cid = betaState.currentClientId;
+  const [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes] = await Promise.all([
+    sb.from('beta_catalog').select('*').eq('client_id', cid),
+    sb.from('beta_manufacturing_costs').select('*').eq('client_id', cid),
+    sb.from('beta_logistics_costs').select('*').eq('client_id', cid),
+    sb.from('beta_warehouse_costs').select('*').eq('client_id', cid),
+    sb.from('beta_sku_economics').select('*').eq('client_id', cid),
+  ]);
+  for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes]){
+    if(r.error){ console.error(r.error); alert('Could not load beta tool data: ' + r.error.message); return; }
+  }
+  betaState.catalog = (catalogRes.data||[]).map(r=>({ id:r.id, sku:r.sku, asin:r.asin||'', parentAsin:r.parent_asin||'', name:r.product_name||'', brand:r.brand||'', family:r.product_family||'' }));
+  betaState.mfg = (mfgRes.data||[]).map(r=>({ id:r.id, sku:r.sku, mfgCost:r.mfg_cost_per_unit }));
+  betaState.logistics = (logisticsRes.data||[]).map(r=>({ id:r.id, sku:r.sku, freightCost:r.freight_cost_per_unit }));
+  betaState.warehouse = (warehouseRes.data||[]).map(r=>({ id:r.id, sku:r.sku, warehouseCost:r.warehouse_cost_per_unit }));
+  betaState.sku = (skuRes.data||[]).map(r=>({
+    id:r.id, sku:r.sku, asin:r.asin||'', parentAsin:r.parent_asin||'',
+    units:r.units, revenue:r.revenue, netProceeds:r.net_proceeds,
+    referralFees:r.referral_fees, fbaFees:r.fba_fees, storageFees:r.storage_fees,
+    adSpend:r.ad_spend, refunds:r.refunds,
+  }));
+}
+
+// ---------------- Beta: Cost Template download/upload ----------------
+function downloadBetaCostTemplate(){
+  const wb = XLSX.utils.book_new();
+
+  const catalogHeaders = ['SKU','ASIN','Parent ASIN','Product Name','Brand','Product Family'];
+  const catalogRows = betaState.catalog.length
+    ? betaState.catalog.map(r=>[r.sku, r.asin, r.parentAsin, r.name, r.brand, r.family])
+    : [['EXAMPLE-SKU-001','B0EXAMPLE1','B0PARENTEX','Example Product Name','My Brand','Example Family']];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([catalogHeaders, ...catalogRows]), 'Catalog');
+
+  const mfgHeaders = ['SKU','Manufacturing Cost Per Unit'];
+  const mfgRows = betaState.mfg.length ? betaState.mfg.map(r=>[r.sku, r.mfgCost]) : [['EXAMPLE-SKU-001', 8.50]];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mfgHeaders, ...mfgRows]), 'Manufacturing Costs');
+
+  const logHeaders = ['SKU','Freight Cost Per Unit'];
+  const logRows = betaState.logistics.length ? betaState.logistics.map(r=>[r.sku, r.freightCost]) : [['EXAMPLE-SKU-001', 2.25]];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([logHeaders, ...logRows]), 'Logistics');
+
+  const whHeaders = ['SKU','Warehouse Cost Per Unit'];
+  const whRows = betaState.warehouse.length ? betaState.warehouse.map(r=>[r.sku, r.warehouseCost]) : [['EXAMPLE-SKU-001', 0.75]];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([whHeaders, ...whRows]), 'Warehouse Costs');
+
+  const instructionsSheet = XLSX.utils.aoa_to_sheet([
+    ['Instructions'], [''],
+    ['This file has 4 sheets: Catalog, Manufacturing Costs, Logistics, Warehouse Costs.'],
+    ['Fill in one row per SKU on each sheet, then upload this same file back into the tool.'],
+    ['The SKU column must match exactly across all 4 sheets for a product to show correctly.'],
+    ['Freight Cost Per Unit and Warehouse Cost Per Unit should be simple $/unit figures —'],
+    ['this tool does not do carton/CBM-based freight calculations.'],
+  ]);
+  XLSX.utils.book_append_sheet(wb, instructionsSheet, 'Instructions');
+
+  XLSX.writeFile(wb, 'Cost_Template.xlsx');
+}
+
+async function handleBetaCostTemplateUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('beta-cost-template-status');
+  statusEl.style.color = 'var(--grey)';
+  statusEl.textContent = 'Reading file...';
+
+  try{
+    const data = new Uint8Array(await file.arrayBuffer());
+    const wb = XLSX.read(data, {type:'array'});
+    const findSheet = (name) => wb.Sheets[wb.SheetNames.find(n=>n.trim().toLowerCase()===name.toLowerCase())];
+
+    const catalogWs = findSheet('Catalog');
+    const mfgWs = findSheet('Manufacturing Costs');
+    const logWs = findSheet('Logistics');
+    const whWs = findSheet('Warehouse Costs');
+    if(!catalogWs || !mfgWs || !logWs || !whWs){
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'This file is missing one of the required sheets: Catalog, Manufacturing Costs, Logistics, Warehouse Costs.';
+      return;
+    }
+
+    const cid = betaState.currentClientId;
+    if(!cid){ statusEl.style.color='var(--red)'; statusEl.textContent='Select a client first.'; return; }
+
+    const catalogRows = XLSX.utils.sheet_to_json(catalogWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const catalogPayload = catalogRows.map(r=>({
+      client_id: cid, sku: String(r[0]).trim(), asin: r[1]||null, parent_asin: r[2]||null,
+      product_name: r[3]||null, brand: r[4]||null, product_family: r[5]||null,
+      updated_at: new Date().toISOString(),
+    }));
+    if(catalogPayload.length){
+      const { error } = await sb.from('beta_catalog').upsert(catalogPayload, { onConflict: 'client_id,sku' });
+      if(error) throw new Error('Catalog: ' + error.message);
+    }
+
+    const mfgRows = XLSX.utils.sheet_to_json(mfgWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const mfgPayload = mfgRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), mfg_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
+    if(mfgPayload.length){
+      const { error } = await sb.from('beta_manufacturing_costs').upsert(mfgPayload, { onConflict: 'client_id,sku' });
+      if(error) throw new Error('Manufacturing Costs: ' + error.message);
+    }
+
+    const logRows = XLSX.utils.sheet_to_json(logWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const logPayload = logRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), freight_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
+    if(logPayload.length){
+      const { error } = await sb.from('beta_logistics_costs').upsert(logPayload, { onConflict: 'client_id,sku' });
+      if(error) throw new Error('Logistics: ' + error.message);
+    }
+
+    const whRows = XLSX.utils.sheet_to_json(whWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const whPayload = whRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), warehouse_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
+    if(whPayload.length){
+      const { error } = await sb.from('beta_warehouse_costs').upsert(whPayload, { onConflict: 'client_id,sku' });
+      if(error) throw new Error('Warehouse Costs: ' + error.message);
+    }
+
+    await loadBetaClientData();
+    renderBetaAll();
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `Done — ${catalogPayload.length} Catalog, ${mfgPayload.length} Manufacturing, ${logPayload.length} Logistics, ${whPayload.length} Warehouse rows saved.`;
+    event.target.value = '';
+  }catch(err){
+    console.error(err);
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Error: ' + (err.message || err);
+  }
+}
+
+function renderBetaSetupTable(){
+  const tbody = document.getElementById('beta-setup-table-body');
+  const empty = document.getElementById('beta-setup-empty');
+  document.getElementById('beta-setup-count').textContent = betaState.catalog.length;
+  if(!betaState.catalog.length){ tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  const mfgBySku = Object.fromEntries(betaState.mfg.map(r=>[r.sku, r.mfgCost]));
+  const logBySku = Object.fromEntries(betaState.logistics.map(r=>[r.sku, r.freightCost]));
+  const whBySku = Object.fromEntries(betaState.warehouse.map(r=>[r.sku, r.warehouseCost]));
+
+  tbody.innerHTML = betaState.catalog.map(r=>`
+    <tr>
+      <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.parentAsin||'—'}</td><td>${r.name||'—'}</td><td>${r.family||'—'}</td>
+      <td>${mfgBySku[r.sku]!=null ? fmt(mfgBySku[r.sku]) : '—'}</td>
+      <td>${logBySku[r.sku]!=null ? fmt(logBySku[r.sku]) : '—'}</td>
+      <td>${whBySku[r.sku]!=null ? fmt(whBySku[r.sku]) : '—'}</td>
+    </tr>
+  `).join('');
+}
+
+// ---------------- Beta: SKU Economics upload ----------------
+function parseBetaSkuEconomicsRows(rows){
+  const headers = rows[0].map(normHeader);
+  const headerMap = {};
+  headers.forEach((h, idx)=>{ if(h) headerMap[h] = idx; });
+
+  const asinIdx = headerMap['asin'];
+  if(asinIdx === undefined || headerMap['units sold'] === undefined){
+    throw new Error("This doesn't look like an Amazon SKU Economics report — missing an ASIN or Units Sold column.");
+  }
+  const hasDirectNetProceeds = headerMap['net proceeds total'] !== undefined;
+  if(!hasDirectNetProceeds && headerMap['net sales']===undefined){
+    throw new Error("This doesn't look like an Amazon SKU Economics report — missing Net Proceeds Total (or Net Sales, for non-US marketplace reports).");
+  }
+
+  const asinToSku = {};
+  betaState.catalog.forEach(r=>{ if(r.asin) asinToSku[r.asin.trim().toUpperCase()] = r.sku; });
+
+  const bySku = {};
+  let skippedNoMatch = 0;
+
+  for(let i=1; i<rows.length; i++){
+    const row = rows[i];
+    const asin = row[asinIdx];
+    if(!asin) continue;
+    const sku = asinToSku[String(asin).trim().toUpperCase()];
+    if(!sku){ skippedNoMatch++; continue; }
+
+    const unitsSold = num(row[headerMap['units sold']]);
+    const revenue = num(row[headerMap['net sales']]);
+    let referralFee, fbaFees, storageFees, adSpend, refunds, netProceeds;
+
+    if(hasDirectNetProceeds){
+      netProceeds = num(row[headerMap['net proceeds total']]);
+      referralFee = numFromAnyCol(row, headerMap, 'referral fee total') - numFromAnyCol(row, headerMap, 'referral fee refunds total');
+      fbaFees = numFromAnyCol(row, headerMap, 'fba fulfillment fees total', 'fba fulfilment fees total', 'fulfilment by amazon fulfilment fees total', 'fulfillment by amazon fulfillment fees total')
+        + numFromAnyCol(row, headerMap, 'fba inbound placement service fee total')
+        + numFromAnyCol(row, headerMap, 'inbound transportation fee total')
+        + numFromAnyCol(row, headerMap, 'fba removal order fee total')
+        + numFromAnyCol(row, headerMap, 'fba disposal order fee total');
+      storageFees = numFromAnyCol(row, headerMap, 'base monthly storage fee total', 'monthly inventory storage fee total', 'monthly storage fee total')
+        + numFromAnyCol(row, headerMap, 'storage utilization surcharge total', 'storage utilisation surcharge total')
+        + numFromAnyCol(row, headerMap, 'aged inventory surcharge total');
+      adSpend = numFromAnyCol(row, headerMap, 'sponsored products charge total');
+      refunds = numFromAnyCol(row, headerMap, 'refund administration fee total');
+    } else {
+      let totalFeesSum = 0;
+      referralFee = 0; fbaFees = 0; storageFees = 0; adSpend = 0; refunds = 0;
+      headers.forEach((h, idx)=>{
+        if(!h || !h.endsWith(' total')) return;
+        const val = num(row[idx]);
+        totalFeesSum += val;
+        if(h.includes('liquidation')){ /* leave unbucketed, still counted in the total */ }
+        else if(h.includes('referral fee refunds')) refunds += val;
+        else if(h.includes('referral fee')) referralFee += val;
+        else if(h.includes('sponsored products') || h.includes('sponsored brand')) adSpend += val;
+        else if(h.includes('storage') || h.includes('aged inventory')) storageFees += val;
+        else if(h.includes('fulfil') || h.includes('inbound transportation') || h.includes('disposal') || h.includes('removal') || h.includes('placement') || h.includes('fuel and logistics')) fbaFees += val;
+      });
+      netProceeds = revenue - totalFeesSum;
+    }
+
+    if(!bySku[sku]) bySku[sku] = { sku, asin: String(asin).trim(), parentAsin: row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '', units:0, revenue:0, netProceeds:0, referralFees:0, fbaFees:0, storageFees:0, adSpend:0, refunds:0 };
+    const agg = bySku[sku];
+    agg.units += unitsSold; agg.revenue += revenue; agg.netProceeds += netProceeds;
+    agg.referralFees += referralFee; agg.fbaFees += fbaFees; agg.storageFees += storageFees;
+    agg.adSpend += adSpend; agg.refunds += refunds;
+  }
+
+  return { rows: Object.values(bySku), skippedNoMatch };
+}
+
+async function handleBetaSkuEconomicsUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('beta-sku-economics-status');
+  statusEl.style.color = 'var(--grey)';
+  statusEl.textContent = 'Reading file...';
+
+  const cid = betaState.currentClientId;
+  if(!cid){ statusEl.style.color='var(--red)'; statusEl.textContent='Select a client first.'; return; }
+  if(!confirm("This replaces ALL existing SKU Economics data for this client with what's in this file. Continue?")){ event.target.value=''; return; }
+
+  try{
+    let rows;
+    if(file.name.toLowerCase().endsWith('.csv')){
+      let text = await file.text();
+      if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const wb = XLSX.read(text, {type:'string'});
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:null});
+    } else {
+      const data = new Uint8Array(await file.arrayBuffer());
+      const wb = XLSX.read(data, {type:'array'});
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:null});
+    }
+
+    const { rows: parsedRows, skippedNoMatch } = parseBetaSkuEconomicsRows(rows);
+
+    const { error: deleteErr } = await sb.from('beta_sku_economics').delete().eq('client_id', cid);
+    if(deleteErr) throw deleteErr;
+
+    const payload = parsedRows.map(r=>({
+      client_id: cid, sku: r.sku, asin: r.asin, parent_asin: r.parentAsin || null,
+      units: r.units, revenue: r.revenue, net_proceeds: r.netProceeds,
+      referral_fees: r.referralFees, fba_fees: r.fbaFees, storage_fees: r.storageFees,
+      ad_spend: r.adSpend, refunds: r.refunds, updated_at: new Date().toISOString(),
+    }));
+    if(payload.length){
+      const { error: insertErr } = await sb.from('beta_sku_economics').insert(payload);
+      if(insertErr) throw insertErr;
+    }
+
+    await loadBetaClientData();
+    renderBetaAll();
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `Done — ${payload.length} SKU(s) imported.${skippedNoMatch ? ` ${skippedNoMatch} row(s) skipped (ASIN not found in Catalog — check Cost Setup).` : ''}`;
+    event.target.value = '';
+  }catch(err){
+    console.error(err);
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Error: ' + (err.message || err);
+    event.target.value = '';
+  }
+}
+
+function renderBetaSkuEconTable(){
+  const tbody = document.getElementById('beta-sku-econ-table-body');
+  const empty = document.getElementById('beta-sku-econ-empty');
+  document.getElementById('beta-sku-econ-count').textContent = betaState.sku.length;
+  if(!betaState.sku.length){ tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = betaState.sku.map(r=>`
+    <tr>
+      <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.units.toLocaleString()}</td>
+      <td>${fmt(r.revenue)}</td><td>${fmt(r.netProceeds)}</td><td>${fmt(r.adSpend)}</td>
+    </tr>
+  `).join('');
+}
+
+// ---------------- Beta: Profitability ----------------
+function landedCostForBetaSku(sku){
+  const mfg = betaState.mfg.find(r=>r.sku===sku);
+  const log = betaState.logistics.find(r=>r.sku===sku);
+  const mfgCost = mfg ? mfg.mfgCost : null;
+  const freightCost = log ? log.freightCost : null;
+  if(mfgCost===null && freightCost===null) return null;
+  return (mfgCost||0) + (freightCost||0);
+}
+function warehouseCostForBetaSku(sku){
+  const wh = betaState.warehouse.find(r=>r.sku===sku);
+  return wh ? wh.warehouseCost : null;
+}
+function catalogRowForBetaSku(sku){
+  return betaState.catalog.find(r=>r.sku===sku);
+}
+
+function computeBetaSkuProfitability(skuRow){
+  const catRow = catalogRowForBetaSku(skuRow.sku);
+  const landed = landedCostForBetaSku(skuRow.sku) || 0;
+  const whCost = warehouseCostForBetaSku(skuRow.sku) || 0;
+  const units = skuRow.units || 0;
+  const cogs = landed * units;
+  const wh = whCost * units;
+  const netProfit = (skuRow.netProceeds||0) - cogs - wh;
+  const margin = skuRow.revenue ? (netProfit/skuRow.revenue*100) : null;
+  const roi = cogs ? (netProfit/cogs*100) : null;
+  const profitPerUnit = units ? netProfit/units : null;
+  return {
+    sku: skuRow.sku, asin: catRow ? catRow.asin : skuRow.asin, parentAsin: catRow ? catRow.parentAsin : skuRow.parentAsin,
+    family: catRow ? catRow.family : '', name: catRow ? catRow.name : '',
+    units, revenue: skuRow.revenue||0, netProceeds: skuRow.netProceeds||0, adSpend: skuRow.adSpend||0,
+    cogs, wh, netProfit, margin, roi, profitPerUnit,
+    hasCostData: landed>0 || whCost>0,
+  };
+}
+
+function aggregateBetaProfitability(rows){
+  const units = rows.reduce((s,r)=>s+r.units,0);
+  const revenue = rows.reduce((s,r)=>s+r.revenue,0);
+  const netProceeds = rows.reduce((s,r)=>s+r.netProceeds,0);
+  const adSpend = rows.reduce((s,r)=>s+r.adSpend,0);
+  const cogs = rows.reduce((s,r)=>s+r.cogs,0);
+  const wh = rows.reduce((s,r)=>s+r.wh,0);
+  const netProfit = netProceeds - cogs - wh;
+  const margin = revenue ? (netProfit/revenue*100) : null;
+  const roi = cogs ? (netProfit/cogs*100) : null;
+  const profitPerUnit = units ? netProfit/units : null;
+  return { units, revenue, netProceeds, adSpend, cogs, wh, netProfit, margin, roi, profitPerUnit };
+}
+
+function renderBetaProfitability(){
+  const level = document.getElementById('beta-profit-level').value;
+  const search = document.getElementById('beta-profit-search').value.trim().toLowerCase();
+  const container = document.getElementById('beta-profit-kpis');
+  const thead = document.querySelector('#beta-profit-table thead');
+  const tbody = document.querySelector('#beta-profit-table tbody');
+  const empty = document.getElementById('beta-profit-empty');
+
+  if(!betaState.sku.length || !betaState.catalog.length){
+    container.innerHTML = ''; thead.innerHTML = ''; tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  let computed = betaState.sku.map(computeBetaSkuProfitability);
+  if(search){
+    computed = computed.filter(r =>
+      r.sku.toLowerCase().includes(search) || (r.asin||'').toLowerCase().includes(search) ||
+      (r.parentAsin||'').toLowerCase().includes(search) || (r.family||'').toLowerCase().includes(search)
+    );
+  }
+
+  const overall = aggregateBetaProfitability(computed);
+  const overallColors = healthColor(overall.roi);
+  container.innerHTML = `
+    <div class="kpi"><div class="label">Units Sold</div><div class="value">${overall.units.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Revenue</div><div class="value">${fmtWhole(overall.revenue)}</div></div>
+    <div class="kpi"><div class="label">Net Proceeds</div><div class="value">${fmtWhole(overall.netProceeds)}</div></div>
+    <div class="kpi"><div class="label">COGS</div><div class="value">${fmtWhole(overall.cogs)}</div></div>
+    <div class="kpi"><div class="label">Warehouse Cost</div><div class="value">${fmtWhole(overall.wh)}</div></div>
+    <div class="kpi" style="border-color:${overallColors.border}; background:${overallColors.bg};"><div class="label">Net Profit</div><div class="value" style="color:${overallColors.text};">${fmtWhole(overall.netProfit)}</div></div>
+    <div class="kpi"><div class="label">Margin %</div><div class="value">${overall.margin!==null ? Math.round(overall.margin)+'%' : '—'}</div></div>
+    <div class="kpi" style="border-color:${overallColors.border}; background:${overallColors.bg};"><div class="label">ROI %</div><div class="value" style="color:${overallColors.text};">${overall.roi!==null ? Math.round(overall.roi)+'%' : '—'}</div></div>
+  `;
+
+  let grouped, keyLabel;
+  if(level === 'sku'){
+    keyLabel = 'SKU';
+    grouped = computed.map(r => ({ key: r.sku, rows: [r] }));
+  } else if(level === 'family'){
+    keyLabel = 'Product Family';
+    const byFamily = {};
+    computed.forEach(r=>{ const k = r.family || '(no family)'; (byFamily[k]=byFamily[k]||[]).push(r); });
+    grouped = Object.keys(byFamily).map(k=>({ key:k, rows: byFamily[k] }));
+  } else {
+    keyLabel = 'Parent ASIN';
+    const byParent = {};
+    computed.forEach(r=>{ const k = r.parentAsin || `(no parent — ${r.sku})`; (byParent[k]=byParent[k]||[]).push(r); });
+    grouped = Object.keys(byParent).map(k=>({ key:k, rows: byParent[k] }));
+  }
+
+  thead.innerHTML = `<tr><th>${keyLabel}</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>COGS</th><th>Warehouse</th><th>Net Profit</th><th>Profit/Unit</th><th>Margin %</th><th>ROI %</th></tr>`;
+
+  tbody.innerHTML = grouped.map(g=>{
+    const agg = aggregateBetaProfitability(g.rows);
+    const colors = healthColor(agg.roi);
+    const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
+    return `
+      <tr>
+        <td>${g.key}${missingCostNote}</td>
+        <td>${agg.units.toLocaleString()}</td>
+        <td>${fmt(agg.revenue)}</td>
+        <td>${fmt(agg.netProceeds)}</td>
+        <td>${fmt(agg.cogs)}</td>
+        <td>${fmt(agg.wh)}</td>
+        <td style="font-weight:700;">${fmt(agg.netProfit)}</td>
+        <td>${agg.profitPerUnit!==null ? fmt(agg.profitPerUnit) : '—'}</td>
+        <td>${agg.margin!==null ? Math.round(agg.margin)+'%' : '—'}</td>
+        <td style="color:${colors.text}; font-weight:700;">${agg.roi!==null ? Math.round(agg.roi)+'%' : '—'}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 initApp();
