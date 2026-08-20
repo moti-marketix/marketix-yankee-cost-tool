@@ -822,6 +822,7 @@
             <select id="beta-client-select" onchange="onBetaClientChange()" style="min-width:220px;"></select>
           </div>
           <button class="btn btn-ghost" onclick="promptNewBetaClient()">+ New Client</button>
+          <button class="btn btn-ghost" style="color:var(--red);" onclick="deleteBetaClient()">🗑 Delete Client</button>
         </div>
       </div>
 
@@ -6872,6 +6873,39 @@ async function onBetaClientChange(){
   betaState.currentClientId = document.getElementById('beta-client-select').value;
   await loadBetaClientData();
   renderBetaAll();
+}
+
+async function deleteBetaClient(){
+  const cid = betaState.currentClientId;
+  if(!cid){ alert('No client selected.'); return; }
+  const client = betaState.clients.find(c=>c.id===cid);
+  const name = client ? client.name : 'this client';
+
+  const typed = prompt(`This permanently deletes "${name}" and ALL its data (Catalog, Manufacturing Costs, Shipping Costs, Warehouse Costs, SKU Economics). This cannot be undone.\n\nType the client name exactly to confirm:`);
+  if(typed === null) return;
+  if(typed.trim() !== name){ alert('Name did not match — nothing was deleted.'); return; }
+
+  try{
+    const tables = ['beta_catalog','beta_manufacturing_costs','beta_logistics_costs','beta_warehouse_costs','beta_sku_economics'];
+    for(const t of tables){
+      const { error } = await sb.from(t).delete().eq('client_id', cid);
+      if(error) throw new Error(`${t}: ` + error.message);
+    }
+    const { error: clientErr } = await sb.from('beta_clients').delete().eq('id', cid);
+    if(clientErr) throw new Error('beta_clients: ' + clientErr.message);
+
+    betaState.currentClientId = null;
+    betaState.catalog = []; betaState.mfg = []; betaState.logistics = []; betaState.warehouse = []; betaState.sku = [];
+    await loadBetaClients();
+    if(betaState.currentClientId){
+      await loadBetaClientData();
+    }
+    renderBetaAll();
+    alert(`"${name}" and all its data have been deleted.`);
+  }catch(err){
+    console.error(err);
+    alert('Could not delete client: ' + (err.message || err));
+  }
 }
 
 function switchBetaTab(tab){
