@@ -883,7 +883,7 @@
           <h2>Uploaded Data (<span id="beta-sku-econ-count">0</span> SKUs)</h2>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>SKU</th><th>ASIN</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Ad Spend</th></tr></thead>
+              <thead><tr><th>SKU</th><th>ASIN</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Ad Spend</th><th>Inbound Units (FBA)</th><th>Inbound Fee Total</th></tr></thead>
               <tbody id="beta-sku-econ-table-body"></tbody>
             </table>
             <div id="beta-sku-econ-empty" class="empty" style="display:none;">No SKU Economics data uploaded yet.</div>
@@ -6950,6 +6950,7 @@ async function loadBetaClientData(){
     units:r.units, revenue:r.revenue, netProceeds:r.net_proceeds,
     referralFees:r.referral_fees, fbaFees:r.fba_fees, storageFees:r.storage_fees,
     adSpend:r.ad_spend, refunds:r.refunds,
+    inboundUnits:r.inbound_units||0, inboundFeeTotal:r.inbound_fee_total||0,
   }));
 }
 
@@ -7309,12 +7310,15 @@ function parseBetaSkuEconomicsRows(rows){
       });
       netProceeds = revenue - totalFeesSum;
     }
+    const inboundUnits = numFromAnyCol(row, headerMap, 'inbound transportation fee quantity');
+    const inboundFeeTotal = numFromAnyCol(row, headerMap, 'inbound transportation fee total');
 
-    if(!bySku[sku]) bySku[sku] = { sku, asin: String(asin).trim(), parentAsin: row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '', units:0, revenue:0, netProceeds:0, referralFees:0, fbaFees:0, storageFees:0, adSpend:0, refunds:0 };
+    if(!bySku[sku]) bySku[sku] = { sku, asin: String(asin).trim(), parentAsin: row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '', units:0, revenue:0, netProceeds:0, referralFees:0, fbaFees:0, storageFees:0, adSpend:0, refunds:0, inboundUnits:0, inboundFeeTotal:0 };
     const agg = bySku[sku];
     agg.units += unitsSold; agg.revenue += revenue; agg.netProceeds += netProceeds;
     agg.referralFees += referralFee; agg.fbaFees += fbaFees; agg.storageFees += storageFees;
     agg.adSpend += adSpend; agg.refunds += refunds;
+    agg.inboundUnits += inboundUnits; agg.inboundFeeTotal += inboundFeeTotal;
   }
 
   return { rows: Object.values(bySku), skippedNoMatch };
@@ -7353,7 +7357,9 @@ async function handleBetaSkuEconomicsUpload(event){
       client_id: cid, sku: r.sku, asin: r.asin, parent_asin: r.parentAsin || null,
       units: r.units, revenue: r.revenue, net_proceeds: r.netProceeds,
       referral_fees: r.referralFees, fba_fees: r.fbaFees, storage_fees: r.storageFees,
-      ad_spend: r.adSpend, refunds: r.refunds, updated_at: new Date().toISOString(),
+      ad_spend: r.adSpend, refunds: r.refunds,
+      inbound_units: r.inboundUnits, inbound_fee_total: r.inboundFeeTotal,
+      updated_at: new Date().toISOString(),
     }));
     if(payload.length){
       const { error: insertErr } = await sb.from('beta_sku_economics').insert(payload);
@@ -7383,6 +7389,7 @@ function renderBetaSkuEconTable(){
     <tr>
       <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.units.toLocaleString()}</td>
       <td>${fmt(r.revenue)}</td><td>${fmt(r.netProceeds)}</td><td>${fmt(r.adSpend)}</td>
+      <td>${(r.inboundUnits||0).toLocaleString()}</td><td>${fmt(r.inboundFeeTotal||0)}</td>
     </tr>
   `).join('');
 }
@@ -7413,7 +7420,15 @@ function computeBetaSkuProfitability(skuRow, whPerUnit){
   const units = skuRow.units || 0;
   const cogs = landed * units;
   const wh = whCost * units;
-  const netProfit = (skuRow.netProceeds||0) - cogs - wh;
+
+  const inboundUnits = skuRow.inboundUnits || 0;
+  const inboundFeeTotal = skuRow.inboundFeeTotal || 0;
+  const inboundCostPerUnit = inboundUnits > 0 ? (inboundFeeTotal / inboundUnits) : 0;
+  const unsoldUnits = Math.max(0, inboundUnits - units);
+  const unsoldUnitsInboundCost = unsoldUnits * inboundCostPerUnit;
+  const normalizedNetProceeds = (skuRow.netProceeds||0) - unsoldUnitsInboundCost;
+
+  const netProfit = normalizedNetProceeds - cogs - wh;
   const margin = skuRow.revenue ? (netProfit/skuRow.revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
   const profitPerUnit = units ? netProfit/units : null;
@@ -7421,6 +7436,7 @@ function computeBetaSkuProfitability(skuRow, whPerUnit){
     sku: skuRow.sku, asin: catRow ? catRow.asin : skuRow.asin, parentAsin: catRow ? catRow.parentAsin : skuRow.parentAsin,
     family: catRow ? catRow.family : '', name: catRow ? catRow.name : '',
     units, revenue: skuRow.revenue||0, netProceeds: skuRow.netProceeds||0, adSpend: skuRow.adSpend||0,
+    unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds,
     cogs, wh, netProfit, margin, roi, profitPerUnit,
     hasCostData: landed>0 || whCost>0,
   };
@@ -7431,13 +7447,16 @@ function aggregateBetaProfitability(rows){
   const revenue = rows.reduce((s,r)=>s+r.revenue,0);
   const netProceeds = rows.reduce((s,r)=>s+r.netProceeds,0);
   const adSpend = rows.reduce((s,r)=>s+r.adSpend,0);
+  const unsoldUnits = rows.reduce((s,r)=>s+r.unsoldUnits,0);
+  const unsoldUnitsInboundCost = rows.reduce((s,r)=>s+r.unsoldUnitsInboundCost,0);
+  const normalizedNetProceeds = rows.reduce((s,r)=>s+r.normalizedNetProceeds,0);
   const cogs = rows.reduce((s,r)=>s+r.cogs,0);
   const wh = rows.reduce((s,r)=>s+r.wh,0);
-  const netProfit = netProceeds - cogs - wh;
+  const netProfit = normalizedNetProceeds - cogs - wh;
   const margin = revenue ? (netProfit/revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
   const profitPerUnit = units ? netProfit/units : null;
-  return { units, revenue, netProceeds, adSpend, cogs, wh, netProfit, margin, roi, profitPerUnit };
+  return { units, revenue, netProceeds, adSpend, unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds, cogs, wh, netProfit, margin, roi, profitPerUnit };
 }
 
 function renderBetaProfitability(){
@@ -7470,6 +7489,9 @@ function renderBetaProfitability(){
     <div class="kpi"><div class="label">Units Sold</div><div class="value">${overall.units.toLocaleString()}</div></div>
     <div class="kpi"><div class="label">Revenue</div><div class="value">${fmtWhole(overall.revenue)}</div></div>
     <div class="kpi"><div class="label">Net Proceeds</div><div class="value">${fmtWhole(overall.netProceeds)}</div></div>
+    <div class="kpi"><div class="label">Unsold Units (Inbound)</div><div class="value">${overall.unsoldUnits.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Unsold Units Inbound Cost</div><div class="value">${fmtWhole(overall.unsoldUnitsInboundCost)}</div></div>
+    <div class="kpi"><div class="label">Net Proceeds (Normalized)</div><div class="value">${fmtWhole(overall.normalizedNetProceeds)}</div></div>
     <div class="kpi"><div class="label">COGS</div><div class="value">${fmtWhole(overall.cogs)}</div></div>
     <div class="kpi"><div class="label">Warehouse Cost</div><div class="value">${fmtWhole(overall.wh)}</div></div>
     <div class="kpi" style="border-color:${overallColors.border}; background:${overallColors.bg};"><div class="label">Net Profit</div><div class="value" style="color:${overallColors.text};">${fmtWhole(overall.netProfit)}</div></div>
@@ -7493,7 +7515,7 @@ function renderBetaProfitability(){
     grouped = Object.keys(byParent).map(k=>({ key:k, rows: byParent[k] }));
   }
 
-  thead.innerHTML = `<tr><th>${keyLabel}</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>COGS</th><th>Warehouse</th><th>Net Profit</th><th>Profit/Unit</th><th>Margin %</th><th>ROI %</th></tr>`;
+  thead.innerHTML = `<tr><th>${keyLabel}</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Unsold Units Inbound Cost</th><th>Net Proceeds (Normalized)</th><th>COGS</th><th>Warehouse</th><th>Net Profit</th><th>Profit/Unit</th><th>Margin %</th><th>ROI %</th></tr>`;
 
   tbody.innerHTML = grouped.map(g=>{
     const agg = aggregateBetaProfitability(g.rows);
@@ -7505,6 +7527,8 @@ function renderBetaProfitability(){
         <td>${agg.units.toLocaleString()}</td>
         <td>${fmt(agg.revenue)}</td>
         <td>${fmt(agg.netProceeds)}</td>
+        <td>${agg.unsoldUnitsInboundCost ? '-'+fmt(agg.unsoldUnitsInboundCost) : fmt(0)}</td>
+        <td>${fmt(agg.normalizedNetProceeds)}</td>
         <td>${fmt(agg.cogs)}</td>
         <td>${fmt(agg.wh)}</td>
         <td style="font-weight:700;">${fmt(agg.netProfit)}</td>
