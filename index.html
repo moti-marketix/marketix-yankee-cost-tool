@@ -6954,34 +6954,162 @@ async function loadBetaClientData(){
 }
 
 // ---------------- Beta: Cost Template download/upload ----------------
+function betaLedgerRateFormula(idCellRef){
+  const L = "'Shipment Cost Ledger'";
+  return `IFERROR(INDEX(${L}!$K:$K,MATCH(${idCellRef},${L}!$B:$B,0)),`
+       + `IFERROR(INDEX(${L}!$K:$K,MATCH(${idCellRef},${L}!$C:$C,0)),`
+       + `IFERROR(INDEX(${L}!$K:$K,MATCH(${idCellRef},${L}!$E:$E,0)),0)))`;
+}
+
+function setBetaFormula(ws, addr, formula, numFmt){
+  ws[addr] = { t:'n', f: formula };
+  if(numFmt) ws[addr].z = numFmt;
+}
+
 function downloadBetaCostTemplate(){
   const wb = XLSX.utils.book_new();
+  const isNewClient = !betaState.catalog.length;
 
   const catalogHeaders = ['SKU','ASIN','Parent ASIN','Product Name','Brand','Product Family'];
   const catalogRows = betaState.catalog.length
     ? betaState.catalog.map(r=>[r.sku, r.asin, r.parentAsin, r.name, r.brand, r.family])
     : [['EXAMPLE-SKU-001','B0EXAMPLE1','B0PARENTEX','Example Product Name','My Brand','Example Family']];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([catalogHeaders, ...catalogRows]), 'Catalog');
+  const catalogAoa = [
+    [isNewClient
+      ? "This file has 6 sheets. The tool only imports Catalog, Manufacturing Costs, and Shipping Costs -- the Shipment Cost Ledger and Shipment Content sheets are calculation helpers that live only in this file (see the Instructions tab)."
+      : "This file has 4 sheets. The tool imports Catalog, Manufacturing Costs, and Shipping Costs."],
+    catalogHeaders, ...catalogRows
+  ];
+  const catalogWs = XLSX.utils.aoa_to_sheet(catalogAoa);
+  catalogWs['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:catalogHeaders.length-1}}];
+  XLSX.utils.book_append_sheet(wb, catalogWs, 'Catalog');
 
   const mfgHeaders = ['SKU','Manufacturing Cost Per Unit'];
   const mfgRows = betaState.mfg.length ? betaState.mfg.map(r=>[r.sku, r.mfgCost]) : [['EXAMPLE-SKU-001', 8.50]];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([mfgHeaders, ...mfgRows]), 'Manufacturing Costs');
+  const mfgAoa = [["Manufacturing Cost Per Unit -- a plain $ figure, one row per SKU."], mfgHeaders, ...mfgRows];
+  const mfgWs = XLSX.utils.aoa_to_sheet(mfgAoa);
+  mfgWs['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:1}}];
+  XLSX.utils.book_append_sheet(wb, mfgWs, 'Manufacturing Costs');
 
-  const logHeaders = ['SKU','Shipping Cost Per Unit'];
-  const logRows = betaState.logistics.length ? betaState.logistics.map(r=>[r.sku, r.freightCost]) : [['EXAMPLE-SKU-001', 2.25]];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([logHeaders, ...logRows]), 'Shipping Costs');
+  // --- Shipment Cost Ledger + Shipment Content: only for a brand-new client with no existing data ---
+  // (existing clients' real shipment ledgers aren't stored server-side -- this scaffold is a fresh
+  //  calculation workspace, so it only makes sense to hand out when there's nothing real to overwrite)
+  let contentSheetName = null, contentLastRow = null, contentStartL = null, contentEndL = null;
+  if(isNewClient){
+    const NUM_SHIPMENT_COLS = 20, DATA_START_COL = 6, DATA_END_COL = DATA_START_COL + NUM_SHIPMENT_COLS - 1, LEDGER_ROWS = 200, NUM_ROWS = 200;
+    const startL = XLSX.utils.encode_col(DATA_START_COL-1), endL = XLSX.utils.encode_col(DATA_END_COL-1);
 
-  const instructionsSheet = XLSX.utils.aoa_to_sheet([
+    // Shipment Cost Ledger
+    const ledgerHeaders = ["Brand","Container #","Patent #","Destination (AMZ or WH)","Shipment ID","Total Units","Total Boxes","Cost Per CBM","Total Shipping Cost (USD)","Placement Fee (USD)","Rate ($/Unit) -- Live"];
+    const ledgerAoa = [
+      ["One row per freight shipment. Fill in Total Units + Total Shipping Cost; Rate ($/Unit) calculates itself. This sheet is NOT uploaded to the tool -- it only feeds the Shipping Costs sheet."],
+      ledgerHeaders,
+      ["My Brand","EXAMPLE-CONTAINER-001","EXAMPLE-PATENT-001","FBA Warehouse","EXAMPLE-SHIPID-001", 1000, 40, 12.5, 5000, 200, null],
+    ];
+    const ledgerWs = XLSX.utils.aoa_to_sheet(ledgerAoa);
+    ledgerWs['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:ledgerHeaders.length-1}}];
+    for(let r=3; r<=LEDGER_ROWS+2; r++){
+      setBetaFormula(ledgerWs, `K${r}`, `IFERROR(I${r}/F${r},"")`, '$#,##0.0000');
+    }
+    ledgerWs['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:LEDGER_ROWS+1, c:10}});
+    XLSX.utils.book_append_sheet(wb, ledgerWs, 'Shipment Cost Ledger');
+
+    // Shipment Content
+    const baseHeaders = ["Product","SKU","ASIN","Barcode/FNSKU","Total Delivered"];
+    const shipmentHeaders = Array.from({length:NUM_SHIPMENT_COLS}, (_,i)=>`Shipment ${i+1}`);
+    const contentAoa = [
+      ["One column per shipment. For each shipment column, put its Container #/Patent #/Shipment ID (whichever it has) into the 'Matched Ledger ID' row(s) below, matching text EXACTLY as typed in the Shipment Cost Ledger. Then enter each SKU's units for that shipment below. This sheet is NOT uploaded to the tool -- it only feeds the Shipping Costs sheet."],
+      [...baseHeaders, ...shipmentHeaders],
+      ["Matched Ledger ID 1"],
+      ["Matched Ledger ID 2 (blank if only 1)"],
+      ["Rate ($/unit) -- live formula from Ledger"],
+      ["Example Product","EXAMPLE-SKU-001","B0EXAMPLE1","FNSKU-EXAMPLE", 100, 100],
+    ];
+    const contentWs = XLSX.utils.aoa_to_sheet(contentAoa);
+    contentWs['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:DATA_END_COL-1}}];
+    contentWs[`${startL}3`] = { t:'s', v: 'EXAMPLE-CONTAINER-001' }; // demo: matches the Ledger example row
+    for(let c=DATA_START_COL; c<=DATA_END_COL; c++){
+      const colL = XLSX.utils.encode_col(c-1);
+      const id1 = `${colL}$3`, id2 = `${colL}$4`;
+      const lookup1 = betaLedgerRateFormula(id1), lookup2 = betaLedgerRateFormula(id2);
+      const formula = `IF(${id1}="",0,IF(${id2}="",${lookup1},AVERAGE(${lookup1},${lookup2})))`;
+      setBetaFormula(contentWs, `${colL}5`, formula, '$#,##0.0000');
+    }
+    contentWs['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:NUM_ROWS+5, c:DATA_END_COL-1}});
+    XLSX.utils.book_append_sheet(wb, contentWs, 'Shipment Content');
+
+    contentSheetName = 'Shipment Content';
+    contentLastRow = NUM_ROWS + 5;
+    contentStartL = startL; contentEndL = endL;
+  }
+
+  // --- Shipping Costs ---
+  const shipRows = betaState.logistics.length ? betaState.logistics.map(r=>[r.sku, r.freightCost]) : null;
+  const shipAoa = [
+    ["Shipping Cost Per Unit -- " + (isNewClient ? "calculates itself from Shipment Cost Ledger + Shipment Content above, or just type a number directly if you don't want to use that system." : "a plain $ figure, one row per SKU.")],
+    ["SKU","Shipping Cost Per Unit"],
+  ];
+  const shipWs = XLSX.utils.aoa_to_sheet(shipAoa);
+  shipWs['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:1}}];
+  if(shipRows){
+    shipRows.forEach((row, i)=>{
+      const r = i + 3;
+      shipWs[`A${r}`] = { t:'s', v: row[0] };
+      if(row[1] !== null && row[1] !== undefined){ shipWs[`B${r}`] = { t:'n', v: row[1] }; }
+    });
+    shipWs['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:shipRows.length+1, c:1}});
+  } else {
+    shipWs['A3'] = { t:'s', v: 'EXAMPLE-SKU-001' };
+    if(isNewClient){
+      const sku = "$A3";
+      const unitsRange = `'${contentSheetName}'!$${contentStartL}$6:$${contentEndL}$${contentLastRow}`;
+      const rateRange = `'${contentSheetName}'!$${contentStartL}$5:$${contentEndL}$5`;
+      const skuRange = `'${contentSheetName}'!$B$6:$B$${contentLastRow}`;
+      const rowExpr = `INDEX(${unitsRange},MATCH(${sku},${skuRange},0),0)`;
+      const formula = `IFERROR(SUMPRODUCT(${rowExpr},${rateRange})/SUMPRODUCT(${rowExpr},(${rateRange}>0)*1),"Missing")`;
+      setBetaFormula(shipWs, 'B3', formula, '$#,##0.00');
+    } else {
+      shipWs['B3'] = { t:'n', v: 2.25 };
+    }
+    shipWs['!ref'] = 'A1:B3';
+  }
+  XLSX.utils.book_append_sheet(wb, shipWs, 'Shipping Costs');
+
+  const instructionLines = [
     ['Instructions'], [''],
-    ['This file has 3 sheets: Catalog, Manufacturing Costs, Shipping Costs.'],
-    ['Fill in one row per SKU on each sheet, then upload this same file back into the tool.'],
-    ['The SKU column must match exactly across all 3 sheets for a product to show correctly.'],
-    ['Shipping Cost Per Unit should be a simple $/unit figure —'],
-    ['this tool does not do carton/CBM-based freight calculations.'],
+    ['This file has ' + (isNewClient ? '6' : '4') + ' sheets. The tool only imports Catalog, Manufacturing Costs, and Shipping Costs.'],
+    ['Fill in one row per SKU on Catalog and Manufacturing Costs, then upload this same file back into the tool.'],
+    ['The SKU column must match exactly across all sheets for a product to show correctly.'],
     [''],
-    ['Warehouse Costs are entered separately (Warehouse Costs tab) as a monthly total, not per SKU.'],
-  ]);
+  ];
+  if(isNewClient){
+    instructionLines.push(
+      ['For Shipping Costs, you have two options:'],
+      ['  a) Type a $/unit number directly into the Shipping Costs sheet, OR'],
+      ['  b) Use the Shipment Cost Ledger + Shipment Content sheets so it calculates itself:'],
+      ['     - Shipment Cost Ledger: one row per freight shipment (Total Units + Total Shipping Cost). Rate calculates itself.'],
+      ['     - Shipment Content: one column per shipment. Put that shipment\'s Container #/Patent #/Shipment ID into the'],
+      ['       "Matched Ledger ID" row(s) for that column -- must match the Ledger exactly. Then enter each SKU\'s units'],
+      ['       for that shipment below. The Rate row looks up the Ledger automatically.'],
+      ['     - Shipping Costs then computes each SKU\'s unit-weighted average rate automatically from Shipment Content.'],
+      [''],
+      ['This template comes pre-wired for 20 shipment columns and 200 rows -- if you need more, ask for the template'],
+      ['to be extended, or copy the formulas across further columns/rows yourself.'],
+      [''],
+    );
+  } else {
+    instructionLines.push(
+      ['Shipping Cost Per Unit should be a simple $/unit figure --'],
+      ['this tool does not do carton/CBM-based freight calculations.'],
+      [''],
+    );
+  }
+  instructionLines.push(['Warehouse Costs are entered separately (Warehouse Costs tab) as a monthly total, not per SKU.']);
+  const instructionsSheet = XLSX.utils.aoa_to_sheet(instructionLines);
   XLSX.utils.book_append_sheet(wb, instructionsSheet, 'Instructions');
+
+  wb.Workbook = wb.Workbook || {};
+  wb.Workbook.CalcPr = { fullCalcOnLoad: true };
 
   XLSX.writeFile(wb, 'Cost_Template.xlsx');
 }
