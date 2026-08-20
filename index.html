@@ -6986,6 +6986,13 @@ function downloadBetaCostTemplate(){
   XLSX.writeFile(wb, 'Cost_Template.xlsx');
 }
 
+function sheetRowsAfterHeader(ws){
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+  let headerIdx = rows.findIndex(r => r[0] && String(r[0]).trim().toLowerCase() === 'sku');
+  if(headerIdx === -1) headerIdx = 0; // fallback: assume header is the first row (old bare template shape)
+  return rows.slice(headerIdx+1).filter(r=>r[0]);
+}
+
 async function handleBetaCostTemplateUpload(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -7010,7 +7017,7 @@ async function handleBetaCostTemplateUpload(event){
     const cid = betaState.currentClientId;
     if(!cid){ statusEl.style.color='var(--red)'; statusEl.textContent='Select a client first.'; return; }
 
-    const catalogRows = XLSX.utils.sheet_to_json(catalogWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const catalogRows = sheetRowsAfterHeader(catalogWs);
     const catalogPayload = catalogRows.map(r=>({
       client_id: cid, sku: String(r[0]).trim(), asin: r[1]||null, parent_asin: r[2]||null,
       product_name: r[3]||null, brand: r[4]||null, product_family: r[5]||null,
@@ -7021,14 +7028,14 @@ async function handleBetaCostTemplateUpload(event){
       if(error) throw new Error('Catalog: ' + error.message);
     }
 
-    const mfgRows = XLSX.utils.sheet_to_json(mfgWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const mfgRows = sheetRowsAfterHeader(mfgWs);
     const mfgPayload = mfgRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), mfg_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
     if(mfgPayload.length){
       const { error } = await sb.from('beta_manufacturing_costs').upsert(mfgPayload, { onConflict: 'client_id,sku' });
       if(error) throw new Error('Manufacturing Costs: ' + error.message);
     }
 
-    const logRows = XLSX.utils.sheet_to_json(logWs, {header:1, defval:null}).slice(1).filter(r=>r[0]);
+    const logRows = sheetRowsAfterHeader(logWs);
     const logPayload = logRows.map(r=>({ client_id: cid, sku: String(r[0]).trim(), freight_cost_per_unit: numOrNull(r[1]), updated_at: new Date().toISOString() }));
     if(logPayload.length){
       const { error } = await sb.from('beta_logistics_costs').upsert(logPayload, { onConflict: 'client_id,sku' });
