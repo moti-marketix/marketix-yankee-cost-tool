@@ -7206,16 +7206,42 @@ function renderBetaSetupTable(){
 function renderBetaWarehouseTable(){
   const tbody = document.getElementById('beta-warehouse-table-body');
   const sorted = [...betaState.warehouse].sort((a,b)=> (a.month||'').localeCompare(b.month||''));
-  tbody.innerHTML = sorted.map((r, idx)=>{
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const curYear = new Date().getFullYear();
+  const years = []; for(let y=curYear-3; y<=curYear+2; y++) years.push(y);
+
+  tbody.innerHTML = sorted.map((r)=>{
     const realIdx = betaState.warehouse.indexOf(r);
+    const [selYear, selMonth] = (r.month||'').split('-');
+    const monthOptions = monthNames.map((name,i)=>{
+      const mm = String(i+1).padStart(2,'0');
+      return `<option value="${mm}" ${selMonth===mm?'selected':''}>${name}</option>`;
+    }).join('');
+    const yearOptions = years.map(y=>`<option value="${y}" ${String(y)===selYear?'selected':''}>${y}</option>`).join('');
     return `
     <tr>
-      <td><input type="text" value="${r.month||''}" placeholder="e.g. 2026-01 or January 2026" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:6px;" onchange="updateBetaWarehouseRow(${realIdx},'month',this.value)"></td>
+      <td>
+        <div style="display:flex; gap:6px;">
+          <select id="beta-wh-month-${realIdx}" style="flex:1; padding:6px; border:1px solid var(--border); border-radius:6px;" onchange="updateBetaWarehouseMonthPart(${realIdx})">
+            <option value="">Month…</option>${monthOptions}
+          </select>
+          <select id="beta-wh-year-${realIdx}" style="flex:1; padding:6px; border:1px solid var(--border); border-radius:6px;" onchange="updateBetaWarehouseMonthPart(${realIdx})">
+            <option value="">Year…</option>${yearOptions}
+          </select>
+        </div>
+      </td>
       <td><input type="number" step="0.01" value="${r.totalCost??''}" placeholder="0.00" style="width:100%; padding:6px; border:1px solid var(--border); border-radius:6px;" onchange="updateBetaWarehouseRow(${realIdx},'totalCost',this.value)"></td>
       <td><button class="btn btn-ghost" style="padding:5px 10px; font-size:12px; color:var(--red);" onclick="deleteBetaWarehouseRow(${realIdx})">&times; Remove</button></td>
     </tr>
   `;
   }).join('');
+}
+
+function updateBetaWarehouseMonthPart(idx){
+  const month = document.getElementById(`beta-wh-month-${idx}`).value;
+  const year = document.getElementById(`beta-wh-year-${idx}`).value;
+  const combined = (year && month) ? `${year}-${month}` : '';
+  updateBetaWarehouseRow(idx, 'month', combined);
 }
 
 function addBetaWarehouseRow(){
@@ -7234,6 +7260,7 @@ async function updateBetaWarehouseRow(idx, field, value){
   const { data, error } = await sb.from('beta_warehouse_costs').upsert(payload, { onConflict: 'client_id,month' }).select().single();
   if(error){ alert('Could not save: ' + error.message); return; }
   row.id = data.id;
+  renderBetaWarehouseTable();
   renderBetaProfitability(); // warehouse cost affects the blended rate used everywhere
 }
 
