@@ -919,10 +919,11 @@
               </select>
             </div>
             <div class="field">
-              <label>Filter</label>
-              <select id="beta-profit-filter-value" onchange="renderBetaProfitability()">
-                <option value="">All</option>
-              </select>
+              <label>Filter (ctrl/cmd+click to select multiple — empty = all)</label>
+              <select id="beta-profit-filter-value" multiple size="5" style="min-width:220px;" onchange="renderBetaProfitability()"></select>
+            </div>
+            <div class="field" style="align-self:flex-end;">
+              <button class="btn btn-ghost" style="padding:8px 12px; font-size:12px;" onclick="clearBetaProfitFilter()">Clear filter</button>
             </div>
           </div>
         </div>
@@ -7599,6 +7600,40 @@ function betaProfitFilterKey(r, level){
   return r.sku;
 }
 
+const BETA_PROFIT_COLUMNS = [
+  { key:'group',              label:null /* filled with keyLabel */, type:'string' },
+  { key:'units',               label:'Units',                       type:'num' },
+  { key:'revenue',             label:'Revenue',                     type:'num' },
+  { key:'netProceeds',         label:'Net Proceeds',                type:'num' },
+  { key:'unsoldUnitsInboundCost', label:'Unsold Units Inbound Cost', type:'num' },
+  { key:'normalizedNetProceeds', label:'Net Proceeds (Normalized)', type:'num' },
+  { key:'netProceedsPct',      label:'Net Proceeds %',              type:'num' },
+  { key:'cogs',                label:'COGS',                        type:'num' },
+  { key:'wh',                  label:'Warehouse',                   type:'num' },
+  { key:'netProfit',           label:'Net Profit',                  type:'num' },
+  { key:'profitPerUnit',       label:'Profit/Unit',                 type:'num' },
+  { key:'margin',              label:'Margin %',                    type:'num' },
+  { key:'roi',                 label:'ROI %',                       type:'num' },
+];
+let betaProfitSortCol = null;
+let betaProfitSortDir = 'desc';
+
+function sortBetaProfitBy(col){
+  if(betaProfitSortCol === col){
+    betaProfitSortDir = betaProfitSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    betaProfitSortCol = col;
+    betaProfitSortDir = col === 'group' ? 'asc' : 'desc';
+  }
+  renderBetaProfitability();
+}
+
+function clearBetaProfitFilter(){
+  const sel = document.getElementById('beta-profit-filter-value');
+  Array.from(sel.options).forEach(o=>o.selected=false);
+  renderBetaProfitability();
+}
+
 function renderBetaProfitability(){
   const level = document.getElementById('beta-profit-level').value;
   const filterSelect = document.getElementById('beta-profit-filter-value');
@@ -7617,15 +7652,14 @@ function renderBetaProfitability(){
   const sharedWhPerUnit = blendedWarehouseCostPerUnit();
   let computed = betaState.sku.map(r=>computeBetaSkuProfitability(r, sharedWhPerUnit));
 
-  // Rebuild the filter dropdown's options to match the current Level, preserving the selection if still valid.
-  const prevSelected = filterSelect.value;
+  // Rebuild the filter's options to match the current Level, preserving selections still valid for it.
+  const prevSelected = new Set(Array.from(filterSelect.selectedOptions).map(o=>o.value));
   const distinctValues = Array.from(new Set(computed.map(r=>betaProfitFilterKey(r, level)))).sort();
-  filterSelect.innerHTML = '<option value="">All</option>' +
-    distinctValues.map(v=>`<option value="${escapeHtml(v)}" ${v===prevSelected?'selected':''}>${escapeHtml(v)}</option>`).join('');
-  const filterValue = filterSelect.value;
+  filterSelect.innerHTML = distinctValues.map(v=>`<option value="${escapeHtml(v)}" ${prevSelected.has(v)?'selected':''}>${escapeHtml(v)}</option>`).join('');
+  const selectedValues = new Set(Array.from(filterSelect.selectedOptions).map(o=>o.value));
 
-  if(filterValue){
-    computed = computed.filter(r => betaProfitFilterKey(r, level) === filterValue);
+  if(selectedValues.size){
+    computed = computed.filter(r => selectedValues.has(betaProfitFilterKey(r, level)));
   }
 
   const overall = aggregateBetaProfitability(computed);
@@ -7663,10 +7697,27 @@ function renderBetaProfitability(){
   betaProfitLastGrouped = grouped;
   betaProfitLastLevel = level;
 
-  thead.innerHTML = `<tr><th>${keyLabel}</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Unsold Units Inbound Cost</th><th>Net Proceeds (Normalized)</th><th>Net Proceeds %</th><th>COGS</th><th>Warehouse</th><th>Net Profit</th><th>Profit/Unit</th><th>Margin %</th><th>ROI %</th></tr>`;
+  let groupedWithAgg = grouped.map(g => ({ key:g.key, rows:g.rows, agg: aggregateBetaProfitability(g.rows) }));
 
-  tbody.innerHTML = grouped.map(g=>{
-    const agg = aggregateBetaProfitability(g.rows);
+  if(betaProfitSortCol){
+    const dir = betaProfitSortDir === 'asc' ? 1 : -1;
+    groupedWithAgg.sort((a,b)=>{
+      if(betaProfitSortCol === 'group') return dir * a.key.localeCompare(b.key);
+      const av = a.agg[betaProfitSortCol], bv = b.agg[betaProfitSortCol];
+      const an = (av===null||av===undefined) ? -Infinity : av;
+      const bn = (bv===null||bv===undefined) ? -Infinity : bv;
+      return dir * (an - bn);
+    });
+  }
+
+  thead.innerHTML = `<tr>${BETA_PROFIT_COLUMNS.map(c=>{
+    const label = c.key==='group' ? keyLabel : c.label;
+    const arrow = betaProfitSortCol===c.key ? (betaProfitSortDir==='asc' ? ' \u25B2' : ' \u25BC') : '';
+    return `<th style="cursor:pointer; user-select:none;" onclick="sortBetaProfitBy('${c.key}')" title="Click to sort">${label}${arrow}</th>`;
+  }).join('')}</tr>`;
+
+  tbody.innerHTML = groupedWithAgg.map(g=>{
+    const agg = g.agg;
     const colors = healthColor(agg.roi);
     const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
     return `
