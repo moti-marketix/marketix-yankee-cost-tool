@@ -7372,7 +7372,13 @@ function renderBetaWarehouseTable(){
       <td><button class="btn btn-ghost" style="padding:5px 10px; font-size:12px; color:var(--red);" onclick="deleteBetaWarehouseRow(${realIdx})">&times; Remove</button></td>
     </tr>
   `;
-  }).join('');
+  }).join('') + (sorted.length ? `
+    <tr style="font-weight:700; border-top:2px solid var(--border);">
+      <td>SUM</td>
+      <td>${fmt(sorted.reduce((s,r)=>s+(r.totalCost||0),0))}</td>
+      <td></td>
+    </tr>
+  ` : '');
 }
 
 function updateBetaWarehouseMonthPart(idx){
@@ -7551,13 +7557,28 @@ function renderBetaSkuEconTable(){
   document.getElementById('beta-sku-econ-count').textContent = betaState.sku.length;
   if(!betaState.sku.length){ tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
+  const sum = betaState.sku.reduce((s,r)=>({
+    units: s.units + (r.units||0), revenue: s.revenue + (r.revenue||0),
+    netProceeds: s.netProceeds + (r.netProceeds||0), adSpend: s.adSpend + (r.adSpend||0),
+    inboundUnits: s.inboundUnits + (r.inboundUnits||0), inboundFeeTotal: s.inboundFeeTotal + (r.inboundFeeTotal||0),
+  }), {units:0, revenue:0, netProceeds:0, adSpend:0, inboundUnits:0, inboundFeeTotal:0});
   tbody.innerHTML = betaState.sku.map(r=>`
     <tr>
       <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.units.toLocaleString()}</td>
       <td>${fmt(r.revenue)}</td><td>${fmt(r.netProceeds)}</td><td>${fmt(r.adSpend)}</td>
       <td>${(r.inboundUnits||0).toLocaleString()}</td><td>${fmt(r.inboundFeeTotal||0)}</td>
     </tr>
-  `).join('');
+  `).join('') + `
+    <tr style="font-weight:700; border-top:2px solid var(--border);">
+      <td colspan="2">SUM</td>
+      <td>${sum.units.toLocaleString()}</td>
+      <td>${fmt(sum.revenue)}</td>
+      <td>${fmt(sum.netProceeds)}</td>
+      <td>${fmt(sum.adSpend)}</td>
+      <td>${sum.inboundUnits.toLocaleString()}</td>
+      <td>${fmt(sum.inboundFeeTotal)}</td>
+    </tr>
+  `;
 }
 
 // ---------------- Beta: Profitability ----------------
@@ -7806,7 +7827,24 @@ function renderBetaProfitability(){
         <td style="color:${colors.text}; font-weight:700;">${agg.roi!==null ? Math.round(agg.roi)+'%' : '—'}</td>
       </tr>
     `;
-  }).join('');
+  }).join('') + (groupedWithAgg.length ? `
+    <tr style="font-weight:700; border-top:2px solid var(--border);">
+      <td></td>
+      <td>SUM</td>
+      <td>${overall.units.toLocaleString()}</td>
+      <td>${fmt(overall.revenue)}</td>
+      <td>${fmt(overall.netProceeds)}</td>
+      <td>${overall.unsoldUnitsInboundCost ? '+'+fmt(overall.unsoldUnitsInboundCost) : fmt(0)}</td>
+      <td>${fmt(overall.normalizedNetProceeds)}</td>
+      <td>${overall.netProceedsPct!==null ? Math.round(overall.netProceedsPct)+'%' : '—'}</td>
+      <td>${fmt(overall.cogs)}</td>
+      <td>${fmt(overall.wh)}</td>
+      <td>${fmt(overall.netProfit)}</td>
+      <td>${overall.profitPerUnit!==null ? fmt(overall.profitPerUnit) : '—'}</td>
+      <td>${overall.margin!==null ? Math.round(overall.margin)+'%' : '—'}</td>
+      <td>${overall.roi!==null ? Math.round(overall.roi)+'%' : '—'}</td>
+    </tr>
+  ` : '');
 }
 
 function showBetaCogsBreakdown(key){
@@ -7998,7 +8036,15 @@ function renderBetaAdvertising(){
         <td style="color:${colors.text}; font-weight:700;">${agg.tacos!==null ? agg.tacos.toFixed(1)+'%' : '—'}</td>
       </tr>
     `;
-  }).join('');
+  }).join('') + (groupedWithAgg.length ? `
+    <tr style="font-weight:700; border-top:2px solid var(--border);">
+      <td>SUM</td>
+      <td>${overall.units.toLocaleString()}</td>
+      <td>${fmt(overall.revenue)}</td>
+      <td>${fmt(overall.adSpend)}</td>
+      <td>${overall.tacos!==null ? overall.tacos.toFixed(1)+'%' : '—'}</td>
+    </tr>
+  ` : '');
 }
 
 initApp();
