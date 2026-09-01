@@ -830,6 +830,7 @@
         <div class="beta-subtab active" data-betatab="setup" onclick="switchBetaTab('setup')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--navy); border-bottom:2px solid var(--navy); margin-bottom:-2px;">📋 Cost Setup</div>
         <div class="beta-subtab" data-betatab="warehouse" onclick="switchBetaTab('warehouse')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">🏭 Warehouse Costs</div>
         <div class="beta-subtab" data-betatab="sku-economics" onclick="switchBetaTab('sku-economics')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📊 SKU Economics</div>
+        <div class="beta-subtab" data-betatab="files" onclick="switchBetaTab('files')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📁 Files</div>
         <div class="beta-subtab" data-betatab="profitability" onclick="switchBetaTab('profitability')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">💰 Profitability</div>
       </div>
 
@@ -887,6 +888,20 @@
               <tbody id="beta-sku-econ-table-body"></tbody>
             </table>
             <div id="beta-sku-econ-empty" class="empty" style="display:none;">No SKU Economics data uploaded yet.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Beta: Files Library -->
+      <div id="beta-tab-files" style="display:none;">
+        <div class="card">
+          <p style="font-size:13px; color:var(--grey); margin:0 0 12px;">Every Cost Template and SKU Economics file uploaded for this client, kept here for reference. Deleting a file here removes it from this library only — it does not undo the data it already imported.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Filename</th><th>Type</th><th>Uploaded</th><th>Actions</th></tr></thead>
+              <tbody id="beta-files-table-body"></tbody>
+            </table>
+            <div id="beta-files-empty" class="empty" style="display:none;">No files uploaded yet.</div>
           </div>
         </div>
       </div>
@@ -6834,7 +6849,7 @@ async function executeMarkiTool(name, input){
 // ============================================================
 const betaState = {
   clients: [], currentClientId: null,
-  catalog: [], mfg: [], logistics: [], warehouse: [], sku: [],
+  catalog: [], mfg: [], logistics: [], warehouse: [], sku: [], rawFiles: [],
 };
 let betaInitialized = false;
 
@@ -6881,12 +6896,17 @@ async function deleteBetaClient(){
   const client = betaState.clients.find(c=>c.id===cid);
   const name = client ? client.name : 'this client';
 
-  const typed = prompt(`This permanently deletes "${name}" and ALL its data (Catalog, Manufacturing Costs, Shipping Costs, Warehouse Costs, SKU Economics). This cannot be undone.\n\nType the client name exactly to confirm:`);
+  const typed = prompt(`This permanently deletes "${name}" and ALL its data (Catalog, Manufacturing Costs, Shipping Costs, Warehouse Costs, SKU Economics, uploaded Files). This cannot be undone.\n\nType the client name exactly to confirm:`);
   if(typed === null) return;
   if(typed.trim() !== name){ alert('Name did not match — nothing was deleted.'); return; }
 
   try{
-    const tables = ['beta_catalog','beta_manufacturing_costs','beta_logistics_costs','beta_warehouse_costs','beta_sku_economics'];
+    const { data: filesToRemove } = await sb.from('beta_raw_files').select('storage_path').eq('client_id', cid);
+    if(filesToRemove && filesToRemove.length){
+      const { error: removeErr } = await sb.storage.from('raw-uploads').remove(filesToRemove.map(f=>f.storage_path));
+      if(removeErr) console.error('Could not remove some stored files:', removeErr); // don't block client deletion on this
+    }
+    const tables = ['beta_catalog','beta_manufacturing_costs','beta_logistics_costs','beta_warehouse_costs','beta_sku_economics','beta_raw_files'];
     for(const t of tables){
       const { error } = await sb.from(t).delete().eq('client_id', cid);
       if(error) throw new Error(`${t}: ` + error.message);
@@ -6895,7 +6915,7 @@ async function deleteBetaClient(){
     if(clientErr) throw new Error('beta_clients: ' + clientErr.message);
 
     betaState.currentClientId = null;
-    betaState.catalog = []; betaState.mfg = []; betaState.logistics = []; betaState.warehouse = []; betaState.sku = [];
+    betaState.catalog = []; betaState.mfg = []; betaState.logistics = []; betaState.warehouse = []; betaState.sku = []; betaState.rawFiles = [];
     await loadBetaClients();
     if(betaState.currentClientId){
       await loadBetaClientData();
@@ -6915,16 +6935,18 @@ function switchBetaTab(tab){
   });
   const activeEl = document.querySelector(`.beta-subtab[data-betatab="${tab}"]`);
   activeEl.classList.add('active'); activeEl.style.color = 'var(--navy)'; activeEl.style.borderBottom = '2px solid var(--navy)'; activeEl.style.marginBottom = '-2px';
-  ['setup','warehouse','sku-economics','profitability'].forEach(t=>{
+  ['setup','warehouse','sku-economics','files','profitability'].forEach(t=>{
     document.getElementById(`beta-tab-${t}`).style.display = (t===tab) ? 'block' : 'none';
   });
   if(tab==='profitability') renderBetaProfitability();
   if(tab==='warehouse') renderBetaWarehouseTable();
+  if(tab==='files') renderBetaFilesTable();
 }
 
 function renderBetaAll(){
   renderBetaSetupTable();
   renderBetaSkuEconTable();
+  renderBetaFilesTable();
   renderBetaProfitability();
 }
 
@@ -6952,6 +6974,7 @@ async function loadBetaClientData(){
     adSpend:r.ad_spend, refunds:r.refunds,
     inboundUnits:r.inbound_units||0, inboundFeeTotal:r.inbound_fee_total||0,
   }));
+  await loadBetaRawFiles();
 }
 
 // ---------------- Beta: Cost Template download/upload ----------------
@@ -7173,6 +7196,7 @@ async function handleBetaCostTemplateUpload(event){
 
     await loadBetaClientData();
     renderBetaAll();
+    await saveBetaRawFile(file, 'cost_template', cid);
     statusEl.style.color = 'var(--green)';
     statusEl.textContent = `Done — ${catalogPayload.length} Catalog, ${mfgPayload.length} Manufacturing, ${logPayload.length} Shipping Cost rows saved.`;
     event.target.value = '';
@@ -7181,6 +7205,77 @@ async function handleBetaCostTemplateUpload(event){
     statusEl.style.color = 'var(--red)';
     statusEl.textContent = 'Error: ' + (err.message || err);
   }
+}
+
+// ---------------- Beta: Files Library ----------------
+async function saveBetaRawFile(file, screen, clientId){
+  try{
+    const path = `beta/${clientId}/${screen}/${Date.now()}_${file.name}`;
+    const { error: uploadErr } = await sb.storage.from('raw-uploads').upload(path, file);
+    if(uploadErr) throw uploadErr;
+    const { error: insertErr } = await sb.from('beta_raw_files').insert({
+      client_id: clientId, screen, original_filename: file.name, storage_path: path,
+    });
+    if(insertErr) throw insertErr;
+    await loadBetaRawFiles();
+    renderBetaFilesTable();
+  }catch(err){
+    // Never let a file-library hiccup mask a successful data import -- just log it.
+    console.error('Could not save to Files library:', err);
+  }
+}
+
+async function loadBetaRawFiles(){
+  const cid = betaState.currentClientId;
+  if(!cid){ betaState.rawFiles = []; return; }
+  const { data, error } = await sb.from('beta_raw_files').select('*').eq('client_id', cid).order('uploaded_at', { ascending:false });
+  if(error){ console.error(error); betaState.rawFiles = []; return; }
+  betaState.rawFiles = data || [];
+}
+
+const BETA_SCREEN_LABELS = { cost_template: 'Cost Template', sku_economics: 'SKU Economics' };
+
+function renderBetaFilesTable(){
+  const tbody = document.getElementById('beta-files-table-body');
+  const empty = document.getElementById('beta-files-empty');
+  if(!tbody) return;
+  if(!betaState.rawFiles.length){ tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = betaState.rawFiles.map(f=>`
+    <tr>
+      <td>${f.original_filename}</td>
+      <td>${BETA_SCREEN_LABELS[f.screen] || f.screen}</td>
+      <td>${new Date(f.uploaded_at).toLocaleString()}</td>
+      <td>
+        <button class="btn btn-ghost" style="padding:5px 10px; font-size:12px;" onclick="downloadBetaRawFile('${f.id}')">Download</button>
+        <button class="btn btn-ghost" style="padding:5px 10px; font-size:12px; color:var(--red);" onclick="deleteBetaRawFile('${f.id}')">&times; Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function downloadBetaRawFile(id){
+  const row = betaState.rawFiles.find(f=>f.id===id);
+  if(!row) return;
+  const { data, error } = await sb.storage.from('raw-uploads').download(row.storage_path);
+  if(error){ alert('Could not download: ' + error.message); return; }
+  const url = URL.createObjectURL(data);
+  const a = document.createElement('a');
+  a.href = url; a.download = row.original_filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function deleteBetaRawFile(id){
+  const row = betaState.rawFiles.find(f=>f.id===id);
+  if(!row) return;
+  if(!confirm(`Delete "${row.original_filename}" from the Files library? This does not undo the data it already imported.`)) return;
+  const { error: storageErr } = await sb.storage.from('raw-uploads').remove([row.storage_path]);
+  if(storageErr) console.error(storageErr); // continue even if the storage object is already gone
+  const { error } = await sb.from('beta_raw_files').delete().eq('id', id);
+  if(error){ alert('Could not delete: ' + error.message); return; }
+  betaState.rawFiles = betaState.rawFiles.filter(f=>f.id!==id);
+  renderBetaFilesTable();
 }
 
 function renderBetaSetupTable(){
@@ -7395,6 +7490,7 @@ async function handleBetaSkuEconomicsUpload(event){
 
     await loadBetaClientData();
     renderBetaAll();
+    await saveBetaRawFile(file, 'sku_economics', cid);
     statusEl.style.color = 'var(--green)';
     statusEl.textContent = `Done — ${payload.length} SKU(s) imported.${skippedNoMatch ? ` ${skippedNoMatch} row(s) skipped (ASIN not found in Catalog — check Cost Setup).` : ''}`;
     event.target.value = '';
