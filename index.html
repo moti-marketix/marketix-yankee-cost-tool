@@ -7688,6 +7688,9 @@ function renderBetaProfitability(){
   if(filterValue){
     computed = computed.filter(r => betaProfitFilterKey(r, level) === filterValue);
   }
+  if(betaProfitActiveFilterKeys){
+    computed = computed.filter(r => betaProfitActiveFilterKeys.has(betaProfitFilterKey(r, level)));
+  }
 
   const overall = aggregateBetaProfitability(computed);
   const overallColors = healthColor(overall.roi);
@@ -7723,10 +7726,6 @@ function renderBetaProfitability(){
   }
   betaProfitLastGrouped = grouped;
   betaProfitLastLevel = level;
-
-  if(betaProfitActiveFilterKeys){
-    grouped = grouped.filter(g => betaProfitActiveFilterKeys.has(g.key));
-  }
 
   let groupedWithAgg = grouped.map(g => ({ key:g.key, rows:g.rows, agg: aggregateBetaProfitability(g.rows) }));
 
