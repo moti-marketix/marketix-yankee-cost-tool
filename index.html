@@ -912,20 +912,25 @@
           <div class="filter-bar">
             <div class="field">
               <label>Level</label>
-              <select id="beta-profit-level" onchange="renderBetaProfitability()">
+              <select id="beta-profit-level" onchange="onBetaProfitLevelChange()">
                 <option value="parentAsin">Parent ASIN</option>
                 <option value="family">Product Family</option>
                 <option value="sku">SKU</option>
               </select>
             </div>
             <div class="field">
-              <label>Filter (ctrl/cmd+click to select multiple — empty = all)</label>
-              <select id="beta-profit-filter-value" multiple size="5" style="min-width:220px;" onchange="renderBetaProfitability()"></select>
-            </div>
-            <div class="field" style="align-self:flex-end;">
-              <button class="btn btn-ghost" style="padding:8px 12px; font-size:12px;" onclick="clearBetaProfitFilter()">Clear filter</button>
+              <label>Filter</label>
+              <select id="beta-profit-filter-value" onchange="renderBetaProfitability()">
+                <option value="">All</option>
+              </select>
             </div>
           </div>
+        </div>
+        <div class="card" style="display:flex; align-items:center; gap:10px; padding:12px 20px;">
+          <span style="font-size:13px; color:var(--grey);">Check rows below to narrow the table to just those, then:</span>
+          <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px;" onclick="applyBetaProfitCheckedFilter()">Filter to Checked</button>
+          <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px;" onclick="clearBetaProfitCheckedFilter()">Show All</button>
+          <span id="beta-profit-checked-count" style="font-size:12px; color:var(--grey);"></span>
         </div>
         <div class="kpi-grid" id="beta-profit-kpis" style="margin-bottom:20px;"></div>
         <div class="card">
@@ -7628,9 +7633,30 @@ function sortBetaProfitBy(col){
   renderBetaProfitability();
 }
 
-function clearBetaProfitFilter(){
-  const sel = document.getElementById('beta-profit-filter-value');
-  Array.from(sel.options).forEach(o=>o.selected=false);
+let betaProfitCheckedKeys = new Set();
+let betaProfitActiveFilterKeys = null; // null = no checkbox-filter applied; Set = restrict to these group keys
+
+function onBetaProfitLevelChange(){
+  betaProfitCheckedKeys = new Set();
+  betaProfitActiveFilterKeys = null;
+  renderBetaProfitability();
+}
+
+function toggleBetaProfitCheck(key, checked){
+  if(checked) betaProfitCheckedKeys.add(key);
+  else betaProfitCheckedKeys.delete(key);
+  document.getElementById('beta-profit-checked-count').textContent = betaProfitCheckedKeys.size ? `${betaProfitCheckedKeys.size} checked` : '';
+}
+
+function applyBetaProfitCheckedFilter(){
+  if(!betaProfitCheckedKeys.size){ alert('Check at least one row first.'); return; }
+  betaProfitActiveFilterKeys = new Set(betaProfitCheckedKeys);
+  renderBetaProfitability();
+}
+
+function clearBetaProfitCheckedFilter(){
+  betaProfitActiveFilterKeys = null;
+  betaProfitCheckedKeys = new Set();
   renderBetaProfitability();
 }
 
@@ -7652,14 +7678,15 @@ function renderBetaProfitability(){
   const sharedWhPerUnit = blendedWarehouseCostPerUnit();
   let computed = betaState.sku.map(r=>computeBetaSkuProfitability(r, sharedWhPerUnit));
 
-  // Rebuild the filter's options to match the current Level, preserving selections still valid for it.
-  const prevSelected = new Set(Array.from(filterSelect.selectedOptions).map(o=>o.value));
+  // Rebuild the filter dropdown's options to match the current Level, preserving the selection if still valid.
+  const prevSelected = filterSelect.value;
   const distinctValues = Array.from(new Set(computed.map(r=>betaProfitFilterKey(r, level)))).sort();
-  filterSelect.innerHTML = distinctValues.map(v=>`<option value="${escapeHtml(v)}" ${prevSelected.has(v)?'selected':''}>${escapeHtml(v)}</option>`).join('');
-  const selectedValues = new Set(Array.from(filterSelect.selectedOptions).map(o=>o.value));
+  filterSelect.innerHTML = '<option value="">All</option>' +
+    distinctValues.map(v=>`<option value="${escapeHtml(v)}" ${v===prevSelected?'selected':''}>${escapeHtml(v)}</option>`).join('');
+  const filterValue = filterSelect.value;
 
-  if(selectedValues.size){
-    computed = computed.filter(r => selectedValues.has(betaProfitFilterKey(r, level)));
+  if(filterValue){
+    computed = computed.filter(r => betaProfitFilterKey(r, level) === filterValue);
   }
 
   const overall = aggregateBetaProfitability(computed);
@@ -7697,6 +7724,10 @@ function renderBetaProfitability(){
   betaProfitLastGrouped = grouped;
   betaProfitLastLevel = level;
 
+  if(betaProfitActiveFilterKeys){
+    grouped = grouped.filter(g => betaProfitActiveFilterKeys.has(g.key));
+  }
+
   let groupedWithAgg = grouped.map(g => ({ key:g.key, rows:g.rows, agg: aggregateBetaProfitability(g.rows) }));
 
   if(betaProfitSortCol){
@@ -7710,7 +7741,9 @@ function renderBetaProfitability(){
     });
   }
 
-  thead.innerHTML = `<tr>${BETA_PROFIT_COLUMNS.map(c=>{
+  document.getElementById('beta-profit-checked-count').textContent = betaProfitCheckedKeys.size ? `${betaProfitCheckedKeys.size} checked` : '';
+
+  thead.innerHTML = `<tr><th></th>${BETA_PROFIT_COLUMNS.map(c=>{
     const label = c.key==='group' ? keyLabel : c.label;
     const arrow = betaProfitSortCol===c.key ? (betaProfitSortDir==='asc' ? ' \u25B2' : ' \u25BC') : '';
     return `<th style="cursor:pointer; user-select:none;" onclick="sortBetaProfitBy('${c.key}')" title="Click to sort">${label}${arrow}</th>`;
@@ -7720,8 +7753,10 @@ function renderBetaProfitability(){
     const agg = g.agg;
     const colors = healthColor(agg.roi);
     const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
+    const checked = betaProfitCheckedKeys.has(g.key) ? 'checked' : '';
     return `
       <tr>
+        <td><input type="checkbox" ${checked} onchange="toggleBetaProfitCheck('${escapeHtml(g.key)}', this.checked)"></td>
         <td>${g.key}${missingCostNote}</td>
         <td>${agg.units.toLocaleString()}</td>
         <td>${fmt(agg.revenue)}</td>
