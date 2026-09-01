@@ -919,8 +919,10 @@
               </select>
             </div>
             <div class="field">
-              <label>Search</label>
-              <input type="text" id="beta-profit-search" placeholder="Filter by SKU, ASIN, or Family..." oninput="renderBetaProfitability()">
+              <label>Filter</label>
+              <select id="beta-profit-filter-value" onchange="renderBetaProfitability()">
+                <option value="">All</option>
+              </select>
             </div>
           </div>
         </div>
@@ -7582,9 +7584,19 @@ function aggregateBetaProfitability(rows){
   return { units, revenue, netProceeds, adSpend, unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds, cogs, wh, netProfit, margin, roi, profitPerUnit };
 }
 
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function betaProfitFilterKey(r, level){
+  if(level==='family') return r.family || '(no family)';
+  if(level==='parentAsin') return r.parentAsin || `(no parent — ${r.sku})`;
+  return r.sku;
+}
+
 function renderBetaProfitability(){
   const level = document.getElementById('beta-profit-level').value;
-  const search = document.getElementById('beta-profit-search').value.trim().toLowerCase();
+  const filterSelect = document.getElementById('beta-profit-filter-value');
   const container = document.getElementById('beta-profit-kpis');
   const thead = document.querySelector('#beta-profit-table thead');
   const tbody = document.querySelector('#beta-profit-table tbody');
@@ -7599,11 +7611,16 @@ function renderBetaProfitability(){
 
   const sharedWhPerUnit = blendedWarehouseCostPerUnit();
   let computed = betaState.sku.map(r=>computeBetaSkuProfitability(r, sharedWhPerUnit));
-  if(search){
-    computed = computed.filter(r =>
-      r.sku.toLowerCase().includes(search) || (r.asin||'').toLowerCase().includes(search) ||
-      (r.parentAsin||'').toLowerCase().includes(search) || (r.family||'').toLowerCase().includes(search)
-    );
+
+  // Rebuild the filter dropdown's options to match the current Level, preserving the selection if still valid.
+  const prevSelected = filterSelect.value;
+  const distinctValues = Array.from(new Set(computed.map(r=>betaProfitFilterKey(r, level)))).sort();
+  filterSelect.innerHTML = '<option value="">All</option>' +
+    distinctValues.map(v=>`<option value="${escapeHtml(v)}" ${v===prevSelected?'selected':''}>${escapeHtml(v)}</option>`).join('');
+  const filterValue = filterSelect.value;
+
+  if(filterValue){
+    computed = computed.filter(r => betaProfitFilterKey(r, level) === filterValue);
   }
 
   const overall = aggregateBetaProfitability(computed);
