@@ -882,10 +882,16 @@
           <div id="beta-sku-economics-status" class="status-text"></div>
         </div>
         <div class="card">
-          <h2>Uploaded Data (<span id="beta-sku-econ-count">0</span> SKUs)</h2>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <h2 style="margin:0;">Uploaded Data (<span id="beta-sku-econ-count">0</span> SKUs)</h2>
+            <div style="position:relative;">
+              <button class="btn btn-ghost" style="padding:8px 12px; font-size:12px;" onclick="toggleColumnPanel('beta-sku-econ-columns-panel')">Columns ▾</button>
+              <div id="beta-sku-econ-columns-panel" style="display:none; position:absolute; top:100%; right:0; z-index:50; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); margin-top:4px; max-height:320px; overflow-y:auto;"></div>
+            </div>
+          </div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>SKU</th><th>ASIN</th><th>Units</th><th>Revenue</th><th>Net Proceeds</th><th>Ad Spend</th><th>Inbound Units (FBA)</th><th>Inbound Fee Total</th></tr></thead>
+              <thead id="beta-sku-econ-table-head"></thead>
               <tbody id="beta-sku-econ-table-body"></tbody>
             </table>
             <div id="beta-sku-econ-empty" class="empty" style="display:none;">No SKU Economics data uploaded yet.</div>
@@ -925,6 +931,10 @@
                 <option value="">All</option>
               </select>
             </div>
+            <div class="field" style="align-self:flex-end; position:relative;">
+              <button class="btn btn-ghost" style="padding:8px 12px; font-size:12px;" onclick="toggleColumnPanel('beta-profit-columns-panel')">Columns ▾</button>
+              <div id="beta-profit-columns-panel" style="display:none; position:absolute; top:100%; left:0; z-index:50; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); margin-top:4px; max-height:320px; overflow-y:auto;"></div>
+            </div>
           </div>
         </div>
         <div class="card" style="display:flex; align-items:center; gap:10px; padding:12px 20px;">
@@ -962,6 +972,10 @@
               <select id="beta-ad-filter-value" onchange="renderBetaAdvertising()">
                 <option value="">All</option>
               </select>
+            </div>
+            <div class="field" style="align-self:flex-end; position:relative;">
+              <button class="btn btn-ghost" style="padding:8px 12px; font-size:12px;" onclick="toggleColumnPanel('beta-ad-columns-panel')">Columns ▾</button>
+              <div id="beta-ad-columns-panel" style="display:none; position:absolute; top:100%; left:0; z-index:50; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); margin-top:4px; max-height:320px; overflow-y:auto;"></div>
             </div>
           </div>
         </div>
@@ -7551,33 +7565,73 @@ async function handleBetaSkuEconomicsUpload(event){
   }
 }
 
+const BETA_SKUECON_COLUMNS = [
+  { key:'sku',             label:'SKU' },
+  { key:'asin',            label:'ASIN' },
+  { key:'units',           label:'Units' },
+  { key:'revenue',         label:'Revenue' },
+  { key:'netProceeds',     label:'Net Proceeds' },
+  { key:'adSpend',         label:'Ad Spend' },
+  { key:'inboundUnits',    label:'Inbound Units (FBA)' },
+  { key:'inboundFeeTotal', label:'Inbound Fee Total' },
+];
+let betaSkuEconHiddenCols = new Set();
+
+function toggleBetaSkuEconColumn(key, checked){
+  if(checked) betaSkuEconHiddenCols.delete(key); else betaSkuEconHiddenCols.add(key);
+  renderBetaSkuEconTable();
+}
+
+function betaSkuEconCellValue(r, key){
+  switch(key){
+    case 'sku': return r.sku;
+    case 'asin': return r.asin || '—';
+    case 'units': return r.units.toLocaleString();
+    case 'revenue': return fmt(r.revenue);
+    case 'netProceeds': return fmt(r.netProceeds);
+    case 'adSpend': return fmt(r.adSpend);
+    case 'inboundUnits': return (r.inboundUnits||0).toLocaleString();
+    case 'inboundFeeTotal': return fmt(r.inboundFeeTotal||0);
+  }
+}
+
+function betaSkuEconSumValue(sum, key){
+  switch(key){
+    case 'sku': return 'SUM';
+    case 'asin': return '';
+    case 'units': return sum.units.toLocaleString();
+    case 'revenue': return fmt(sum.revenue);
+    case 'netProceeds': return fmt(sum.netProceeds);
+    case 'adSpend': return fmt(sum.adSpend);
+    case 'inboundUnits': return sum.inboundUnits.toLocaleString();
+    case 'inboundFeeTotal': return fmt(sum.inboundFeeTotal);
+  }
+}
+
 function renderBetaSkuEconTable(){
+  const thead = document.getElementById('beta-sku-econ-table-head');
   const tbody = document.getElementById('beta-sku-econ-table-body');
   const empty = document.getElementById('beta-sku-econ-empty');
   document.getElementById('beta-sku-econ-count').textContent = betaState.sku.length;
-  if(!betaState.sku.length){ tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+
+  renderColumnTogglePanel('beta-sku-econ-columns-panel', BETA_SKUECON_COLUMNS, betaSkuEconHiddenCols, 'toggleBetaSkuEconColumn');
+  const visibleCols = BETA_SKUECON_COLUMNS.filter(c=>!betaSkuEconHiddenCols.has(c.key));
+
+  if(!betaState.sku.length){ thead.innerHTML = ''; tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
+
+  thead.innerHTML = `<tr>${visibleCols.map(c=>`<th>${c.label}</th>`).join('')}</tr>`;
+
   const sum = betaState.sku.reduce((s,r)=>({
     units: s.units + (r.units||0), revenue: s.revenue + (r.revenue||0),
     netProceeds: s.netProceeds + (r.netProceeds||0), adSpend: s.adSpend + (r.adSpend||0),
     inboundUnits: s.inboundUnits + (r.inboundUnits||0), inboundFeeTotal: s.inboundFeeTotal + (r.inboundFeeTotal||0),
   }), {units:0, revenue:0, netProceeds:0, adSpend:0, inboundUnits:0, inboundFeeTotal:0});
+
   tbody.innerHTML = betaState.sku.map(r=>`
-    <tr>
-      <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.units.toLocaleString()}</td>
-      <td>${fmt(r.revenue)}</td><td>${fmt(r.netProceeds)}</td><td>${fmt(r.adSpend)}</td>
-      <td>${(r.inboundUnits||0).toLocaleString()}</td><td>${fmt(r.inboundFeeTotal||0)}</td>
-    </tr>
+    <tr>${visibleCols.map(c=>`<td>${betaSkuEconCellValue(r, c.key)}</td>`).join('')}</tr>
   `).join('') + `
-    <tr style="font-weight:700; border-top:2px solid var(--border);">
-      <td colspan="2">SUM</td>
-      <td>${sum.units.toLocaleString()}</td>
-      <td>${fmt(sum.revenue)}</td>
-      <td>${fmt(sum.netProceeds)}</td>
-      <td>${fmt(sum.adSpend)}</td>
-      <td>${sum.inboundUnits.toLocaleString()}</td>
-      <td>${fmt(sum.inboundFeeTotal)}</td>
-    </tr>
+    <tr style="font-weight:700; border-top:2px solid var(--border);">${visibleCols.map(c=>`<td>${betaSkuEconSumValue(sum, c.key)}</td>`).join('')}</tr>
   `;
 }
 
@@ -7652,6 +7706,24 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// ---------------- Shared: column show/hide ----------------
+function toggleColumnPanel(panelId){
+  const panel = document.getElementById(panelId);
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function renderColumnTogglePanel(panelId, columns, hiddenSet, toggleFnName){
+  const panel = document.getElementById(panelId);
+  if(!panel || panel.dataset.built === '1') return; // build once; checkbox state itself reflects the live hiddenSet
+  panel.innerHTML = columns.filter(c=>c.key!=='group').map(c=>`
+    <label style="display:flex; align-items:center; gap:6px; padding:5px 10px; font-size:13px; white-space:nowrap; cursor:pointer;">
+      <input type="checkbox" ${hiddenSet.has(c.key)?'':'checked'} onchange="${toggleFnName}('${c.key}', this.checked)">
+      ${c.label}
+    </label>
+  `).join('');
+  panel.dataset.built = '1';
+}
+
 let betaProfitLastGrouped = [];
 let betaProfitLastLevel = 'sku';
 
@@ -7678,6 +7750,12 @@ const BETA_PROFIT_COLUMNS = [
 ];
 let betaProfitSortCol = null;
 let betaProfitSortDir = 'desc';
+let betaProfitHiddenCols = new Set();
+
+function toggleBetaProfitColumn(key, checked){
+  if(checked) betaProfitHiddenCols.delete(key); else betaProfitHiddenCols.add(key);
+  renderBetaProfitability();
+}
 
 function sortBetaProfitBy(col){
   if(betaProfitSortCol === col){
@@ -7798,51 +7876,55 @@ function renderBetaProfitability(){
 
   document.getElementById('beta-profit-checked-count').textContent = betaProfitCheckedKeys.size ? `${betaProfitCheckedKeys.size} checked` : '';
 
-  thead.innerHTML = `<tr><th></th>${BETA_PROFIT_COLUMNS.map(c=>{
+  renderColumnTogglePanel('beta-profit-columns-panel', BETA_PROFIT_COLUMNS, betaProfitHiddenCols, 'toggleBetaProfitColumn');
+  const visibleCols = BETA_PROFIT_COLUMNS.filter(c=>c.key==='group' || !betaProfitHiddenCols.has(c.key));
+
+  thead.innerHTML = `<tr><th></th>${visibleCols.map(c=>{
     const label = c.key==='group' ? keyLabel : c.label;
     const arrow = betaProfitSortCol===c.key ? (betaProfitSortDir==='asc' ? ' \u25B2' : ' \u25BC') : '';
     return `<th style="cursor:pointer; user-select:none;" onclick="sortBetaProfitBy('${c.key}')" title="Click to sort">${label}${arrow}</th>`;
   }).join('')}</tr>`;
 
+  function betaProfitCellValue(agg, key, g){
+    switch(key){
+      case 'group': {
+        const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
+        return `${g.key}${missingCostNote}`;
+      }
+      case 'units': return agg.units.toLocaleString();
+      case 'revenue': return fmt(agg.revenue);
+      case 'netProceeds': return fmt(agg.netProceeds);
+      case 'unsoldUnitsInboundCost': return agg.unsoldUnitsInboundCost ? '+'+fmt(agg.unsoldUnitsInboundCost) : fmt(0);
+      case 'normalizedNetProceeds': return fmt(agg.normalizedNetProceeds);
+      case 'netProceedsPct': return agg.netProceedsPct!==null ? Math.round(agg.netProceedsPct)+'%' : '—';
+      case 'cogs': return `<span style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" onclick="showBetaCogsBreakdown('${escapeHtml(g.key)}')" title="Click for COGS breakdown">${fmt(agg.cogs)}</span>`;
+      case 'wh': return fmt(agg.wh);
+      case 'netProfit': return `<strong>${fmt(agg.netProfit)}</strong>`;
+      case 'profitPerUnit': return agg.profitPerUnit!==null ? fmt(agg.profitPerUnit) : '—';
+      case 'margin': return agg.margin!==null ? Math.round(agg.margin)+'%' : '—';
+      case 'roi': {
+        const colors = healthColor(agg.roi);
+        return `<span style="color:${colors.text}; font-weight:700;">${agg.roi!==null ? Math.round(agg.roi)+'%' : '—'}</span>`;
+      }
+    }
+  }
+
   tbody.innerHTML = groupedWithAgg.map(g=>{
     const agg = g.agg;
-    const colors = healthColor(agg.roi);
-    const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
     const checked = betaProfitCheckedKeys.has(g.key) ? 'checked' : '';
     return `
       <tr>
         <td><input type="checkbox" ${checked} onchange="toggleBetaProfitCheck('${escapeHtml(g.key)}', this.checked)"></td>
-        <td>${g.key}${missingCostNote}</td>
-        <td>${agg.units.toLocaleString()}</td>
-        <td>${fmt(agg.revenue)}</td>
-        <td>${fmt(agg.netProceeds)}</td>
-        <td>${agg.unsoldUnitsInboundCost ? '+'+fmt(agg.unsoldUnitsInboundCost) : fmt(0)}</td>
-        <td>${fmt(agg.normalizedNetProceeds)}</td>
-        <td>${agg.netProceedsPct!==null ? Math.round(agg.netProceedsPct)+'%' : '—'}</td>
-        <td style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" onclick="showBetaCogsBreakdown('${escapeHtml(g.key)}')" title="Click for COGS breakdown">${fmt(agg.cogs)}</td>
-        <td>${fmt(agg.wh)}</td>
-        <td style="font-weight:700;">${fmt(agg.netProfit)}</td>
-        <td>${agg.profitPerUnit!==null ? fmt(agg.profitPerUnit) : '—'}</td>
-        <td>${agg.margin!==null ? Math.round(agg.margin)+'%' : '—'}</td>
-        <td style="color:${colors.text}; font-weight:700;">${agg.roi!==null ? Math.round(agg.roi)+'%' : '—'}</td>
+        ${visibleCols.map(c=>`<td>${betaProfitCellValue(agg, c.key, g)}</td>`).join('')}
       </tr>
     `;
   }).join('') + (groupedWithAgg.length ? `
     <tr style="font-weight:700; border-top:2px solid var(--border);">
       <td></td>
-      <td>SUM</td>
-      <td>${overall.units.toLocaleString()}</td>
-      <td>${fmt(overall.revenue)}</td>
-      <td>${fmt(overall.netProceeds)}</td>
-      <td>${overall.unsoldUnitsInboundCost ? '+'+fmt(overall.unsoldUnitsInboundCost) : fmt(0)}</td>
-      <td>${fmt(overall.normalizedNetProceeds)}</td>
-      <td>${overall.netProceedsPct!==null ? Math.round(overall.netProceedsPct)+'%' : '—'}</td>
-      <td>${fmt(overall.cogs)}</td>
-      <td>${fmt(overall.wh)}</td>
-      <td>${fmt(overall.netProfit)}</td>
-      <td>${overall.profitPerUnit!==null ? fmt(overall.profitPerUnit) : '—'}</td>
-      <td>${overall.margin!==null ? Math.round(overall.margin)+'%' : '—'}</td>
-      <td>${overall.roi!==null ? Math.round(overall.roi)+'%' : '—'}</td>
+      ${visibleCols.map(c=>{
+        if(c.key==='group') return `<td>SUM</td>`;
+        return `<td>${betaProfitCellValue(overall, c.key, {key:'', rows:[{hasCostData:true}]})}</td>`;
+      }).join('')}
     </tr>
   ` : '');
 }
@@ -7932,6 +8014,12 @@ const BETA_AD_COLUMNS = [
 ];
 let betaAdSortCol = null;
 let betaAdSortDir = 'desc';
+let betaAdHiddenCols = new Set();
+
+function toggleBetaAdColumn(key, checked){
+  if(checked) betaAdHiddenCols.delete(key); else betaAdHiddenCols.add(key);
+  renderBetaAdvertising();
+}
 
 function sortBetaAdBy(col){
   if(betaAdSortCol === col){
@@ -8018,31 +8106,33 @@ function renderBetaAdvertising(){
     });
   }
 
-  thead.innerHTML = `<tr>${BETA_AD_COLUMNS.map(c=>{
+  renderColumnTogglePanel('beta-ad-columns-panel', BETA_AD_COLUMNS, betaAdHiddenCols, 'toggleBetaAdColumn');
+  const visibleCols = BETA_AD_COLUMNS.filter(c=>c.key==='group' || !betaAdHiddenCols.has(c.key));
+
+  thead.innerHTML = `<tr>${visibleCols.map(c=>{
     const label = c.key==='group' ? keyLabel : c.label;
     const arrow = betaAdSortCol===c.key ? (betaAdSortDir==='asc' ? ' \u25B2' : ' \u25BC') : '';
     return `<th style="cursor:pointer; user-select:none;" onclick="sortBetaAdBy('${c.key}')" title="Click to sort">${label}${arrow}</th>`;
   }).join('')}</tr>`;
 
-  tbody.innerHTML = groupedWithAgg.map(g=>{
-    const agg = g.agg;
-    const colors = tacosColor(agg.tacos);
-    return `
-      <tr>
-        <td>${g.key}</td>
-        <td>${agg.units.toLocaleString()}</td>
-        <td>${fmt(agg.revenue)}</td>
-        <td>${fmt(agg.adSpend)}</td>
-        <td style="color:${colors.text}; font-weight:700;">${agg.tacos!==null ? agg.tacos.toFixed(1)+'%' : '—'}</td>
-      </tr>
-    `;
-  }).join('') + (groupedWithAgg.length ? `
+  function betaAdCellValue(agg, key, groupKey){
+    switch(key){
+      case 'group': return groupKey;
+      case 'units': return agg.units.toLocaleString();
+      case 'revenue': return fmt(agg.revenue);
+      case 'adSpend': return fmt(agg.adSpend);
+      case 'tacos': {
+        const colors = tacosColor(agg.tacos);
+        return `<span style="color:${colors.text}; font-weight:700;">${agg.tacos!==null ? agg.tacos.toFixed(1)+'%' : '—'}</span>`;
+      }
+    }
+  }
+
+  tbody.innerHTML = groupedWithAgg.map(g=>`
+      <tr>${visibleCols.map(c=>`<td>${betaAdCellValue(g.agg, c.key, g.key)}</td>`).join('')}</tr>
+    `).join('') + (groupedWithAgg.length ? `
     <tr style="font-weight:700; border-top:2px solid var(--border);">
-      <td>SUM</td>
-      <td>${overall.units.toLocaleString()}</td>
-      <td>${fmt(overall.revenue)}</td>
-      <td>${fmt(overall.adSpend)}</td>
-      <td>${overall.tacos!==null ? overall.tacos.toFixed(1)+'%' : '—'}</td>
+      ${visibleCols.map(c=>`<td>${betaAdCellValue(overall, c.key, 'SUM')}</td>`).join('')}
     </tr>
   ` : '');
 }
