@@ -7551,7 +7551,10 @@ function computeBetaSkuProfitability(skuRow, whPerUnit){
   const inboundCostPerUnit = inboundUnits > 0 ? (inboundFeeTotal / inboundUnits) : 0;
   const unsoldUnits = Math.max(0, inboundUnits - units);
   const unsoldUnitsInboundCost = unsoldUnits * inboundCostPerUnit;
-  const normalizedNetProceeds = (skuRow.netProceeds||0) - unsoldUnitsInboundCost;
+  // Amazon's Net Proceeds already deducts the FULL inbound transportation fee for every unit
+  // received this period, sold or not. To normalize profitability to only the units actually
+  // sold, add back the portion of that fee tied to unsold (still-in-FBA) units.
+  const normalizedNetProceeds = (skuRow.netProceeds||0) + unsoldUnitsInboundCost;
 
   const netProfit = normalizedNetProceeds - cogs - wh;
   const margin = skuRow.revenue ? (netProfit/skuRow.revenue*100) : null;
@@ -7667,7 +7670,7 @@ function renderBetaProfitability(){
         <td>${agg.units.toLocaleString()}</td>
         <td>${fmt(agg.revenue)}</td>
         <td>${fmt(agg.netProceeds)}</td>
-        <td>${agg.unsoldUnitsInboundCost ? '-'+fmt(agg.unsoldUnitsInboundCost) : fmt(0)}</td>
+        <td>${agg.unsoldUnitsInboundCost ? '+'+fmt(agg.unsoldUnitsInboundCost) : fmt(0)}</td>
         <td>${fmt(agg.normalizedNetProceeds)}</td>
         <td>${fmt(agg.cogs)}</td>
         <td>${fmt(agg.wh)}</td>
