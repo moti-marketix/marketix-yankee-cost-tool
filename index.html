@@ -832,6 +832,7 @@
         <div class="beta-subtab" data-betatab="sku-economics" onclick="switchBetaTab('sku-economics')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📊 SKU Economics</div>
         <div class="beta-subtab" data-betatab="files" onclick="switchBetaTab('files')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📁 Files</div>
         <div class="beta-subtab" data-betatab="profitability" onclick="switchBetaTab('profitability')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">💰 Profitability</div>
+        <div class="beta-subtab" data-betatab="advertising" onclick="switchBetaTab('advertising')" style="padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; color:var(--grey);">📢 Advertising</div>
       </div>
 
       <!-- Beta: Cost Setup -->
@@ -940,6 +941,38 @@
               <tbody></tbody>
             </table>
             <div id="beta-profit-empty" class="empty" style="display:none;">Upload Cost Setup and SKU Economics data to see profitability.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Beta: Advertising -->
+      <div id="beta-tab-advertising" style="display:none;">
+        <div class="card">
+          <div class="filter-bar">
+            <div class="field">
+              <label>Level</label>
+              <select id="beta-ad-level" onchange="renderBetaAdvertising()">
+                <option value="parentAsin">Parent ASIN</option>
+                <option value="family">Product Family</option>
+                <option value="sku">SKU</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Filter</label>
+              <select id="beta-ad-filter-value" onchange="renderBetaAdvertising()">
+                <option value="">All</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="kpi-grid" id="beta-ad-kpis" style="margin-bottom:20px;"></div>
+        <div class="card">
+          <div class="table-scroll">
+            <table id="beta-ad-table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+            <div id="beta-ad-empty" class="empty" style="display:none;">Upload SKU Economics data to see advertising performance.</div>
           </div>
         </div>
       </div>
@@ -6943,12 +6976,13 @@ function switchBetaTab(tab){
   });
   const activeEl = document.querySelector(`.beta-subtab[data-betatab="${tab}"]`);
   activeEl.classList.add('active'); activeEl.style.color = 'var(--navy)'; activeEl.style.borderBottom = '2px solid var(--navy)'; activeEl.style.marginBottom = '-2px';
-  ['setup','warehouse','sku-economics','files','profitability'].forEach(t=>{
+  ['setup','warehouse','sku-economics','files','profitability','advertising'].forEach(t=>{
     document.getElementById(`beta-tab-${t}`).style.display = (t===tab) ? 'block' : 'none';
   });
   if(tab==='profitability') renderBetaProfitability();
   if(tab==='warehouse') renderBetaWarehouseTable();
   if(tab==='files') renderBetaFilesTable();
+  if(tab==='advertising') renderBetaAdvertising();
 }
 
 function renderBetaAll(){
@@ -6956,6 +6990,7 @@ function renderBetaAll(){
   renderBetaSkuEconTable();
   renderBetaFilesTable();
   renderBetaProfitability();
+  renderBetaAdvertising();
 }
 
 async function loadBetaClientData(){
@@ -7822,6 +7857,148 @@ function showBetaCogsBreakdown(key){
   `;
 
   document.getElementById('cogs-modal-backdrop').style.display = 'block';
+}
+
+// ---------------- Beta: Advertising (Revenue, Spend, TACOS) ----------------
+function computeBetaSkuAdvertising(skuRow){
+  const catRow = catalogRowForBetaSku(skuRow.sku);
+  const revenue = skuRow.revenue || 0;
+  const adSpend = skuRow.adSpend || 0;
+  const tacos = revenue ? (adSpend/revenue*100) : null;
+  return {
+    sku: skuRow.sku, asin: catRow ? catRow.asin : skuRow.asin, parentAsin: catRow ? catRow.parentAsin : skuRow.parentAsin,
+    family: catRow ? catRow.family : '', units: skuRow.units || 0, revenue, adSpend, tacos,
+  };
+}
+
+function aggregateBetaAdvertising(rows){
+  const units = rows.reduce((s,r)=>s+r.units,0);
+  const revenue = rows.reduce((s,r)=>s+r.revenue,0);
+  const adSpend = rows.reduce((s,r)=>s+r.adSpend,0);
+  const tacos = revenue ? (adSpend/revenue*100) : null;
+  return { units, revenue, adSpend, tacos };
+}
+
+function betaAdFilterKey(r, level){
+  if(level==='family') return r.family || '(no family)';
+  if(level==='parentAsin') return r.parentAsin || `(no parent — ${r.sku})`;
+  return r.sku;
+}
+
+const BETA_AD_COLUMNS = [
+  { key:'group',   label:null },
+  { key:'units',   label:'Units' },
+  { key:'revenue', label:'Revenue' },
+  { key:'adSpend', label:'Ad Spend' },
+  { key:'tacos',   label:'TACOS %' },
+];
+let betaAdSortCol = null;
+let betaAdSortDir = 'desc';
+
+function sortBetaAdBy(col){
+  if(betaAdSortCol === col){
+    betaAdSortDir = betaAdSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    betaAdSortCol = col;
+    betaAdSortDir = col === 'group' ? 'asc' : 'desc';
+  }
+  renderBetaAdvertising();
+}
+
+function tacosColor(tacos){
+  // Lower TACOS is better -- inverse of the ROI health scale.
+  if(tacos===null || tacos===undefined) return { bg:'#F3F4F6', border:'#9CA3AF', text:'#6B7280' };
+  if(tacos <= 10) return { bg:'#E8F8F0', border:'#1E9E63', text:'#0F6B41' };   // green
+  if(tacos <= 20) return { bg:'#FFF7E0', border:'#D9A400', text:'#8A6600' };   // yellow
+  if(tacos <= 30) return { bg:'#FFFFFF', border:'#C7CBD1', text:'#333333' };   // white
+  return { bg:'#FDEAEA', border:'#D9453D', text:'#A32B25' };                   // red
+}
+
+function renderBetaAdvertising(){
+  const levelEl = document.getElementById('beta-ad-level');
+  const filterSelect = document.getElementById('beta-ad-filter-value');
+  const container = document.getElementById('beta-ad-kpis');
+  const thead = document.querySelector('#beta-ad-table thead');
+  const tbody = document.querySelector('#beta-ad-table tbody');
+  const empty = document.getElementById('beta-ad-empty');
+  if(!levelEl || !filterSelect || !container || !thead || !tbody || !empty) return;
+
+  if(!betaState.sku.length || !betaState.catalog.length){
+    container.innerHTML = ''; thead.innerHTML = ''; tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const level = levelEl.value;
+  let computed = betaState.sku.map(r=>computeBetaSkuAdvertising(r));
+
+  const prevSelected = filterSelect.value;
+  const distinctValues = Array.from(new Set(computed.map(r=>betaAdFilterKey(r, level)))).sort();
+  filterSelect.innerHTML = '<option value="">All</option>' +
+    distinctValues.map(v=>`<option value="${escapeHtml(v)}" ${v===prevSelected?'selected':''}>${escapeHtml(v)}</option>`).join('');
+  const filterValue = filterSelect.value;
+  if(filterValue){
+    computed = computed.filter(r => betaAdFilterKey(r, level) === filterValue);
+  }
+
+  const overall = aggregateBetaAdvertising(computed);
+  const overallColors = tacosColor(overall.tacos);
+  container.innerHTML = `
+    <div class="kpi"><div class="label">Units Sold</div><div class="value">${overall.units.toLocaleString()}</div></div>
+    <div class="kpi"><div class="label">Revenue</div><div class="value">${fmtWhole(overall.revenue)}</div></div>
+    <div class="kpi"><div class="label">Ad Spend</div><div class="value">${fmtWhole(overall.adSpend)}</div></div>
+    <div class="kpi" style="border-color:${overallColors.border}; background:${overallColors.bg};"><div class="label">TACOS %</div><div class="value" style="color:${overallColors.text};">${overall.tacos!==null ? overall.tacos.toFixed(1)+'%' : '—'}</div></div>
+  `;
+
+  let grouped, keyLabel;
+  if(level === 'sku'){
+    keyLabel = 'SKU';
+    grouped = computed.map(r => ({ key: r.sku, rows: [r] }));
+  } else if(level === 'family'){
+    keyLabel = 'Product Family';
+    const byFamily = {};
+    computed.forEach(r=>{ const k = r.family || '(no family)'; (byFamily[k]=byFamily[k]||[]).push(r); });
+    grouped = Object.keys(byFamily).map(k=>({ key:k, rows: byFamily[k] }));
+  } else {
+    keyLabel = 'Parent ASIN';
+    const byParent = {};
+    computed.forEach(r=>{ const k = r.parentAsin || `(no parent — ${r.sku})`; (byParent[k]=byParent[k]||[]).push(r); });
+    grouped = Object.keys(byParent).map(k=>({ key:k, rows: byParent[k] }));
+  }
+
+  let groupedWithAgg = grouped.map(g => ({ key:g.key, rows:g.rows, agg: aggregateBetaAdvertising(g.rows) }));
+
+  if(betaAdSortCol){
+    const dir = betaAdSortDir === 'asc' ? 1 : -1;
+    groupedWithAgg.sort((a,b)=>{
+      if(betaAdSortCol === 'group') return dir * a.key.localeCompare(b.key);
+      const av = a.agg[betaAdSortCol], bv = b.agg[betaAdSortCol];
+      const an = (av===null||av===undefined) ? -Infinity : av;
+      const bn = (bv===null||bv===undefined) ? -Infinity : bv;
+      return dir * (an - bn);
+    });
+  }
+
+  thead.innerHTML = `<tr>${BETA_AD_COLUMNS.map(c=>{
+    const label = c.key==='group' ? keyLabel : c.label;
+    const arrow = betaAdSortCol===c.key ? (betaAdSortDir==='asc' ? ' \u25B2' : ' \u25BC') : '';
+    return `<th style="cursor:pointer; user-select:none;" onclick="sortBetaAdBy('${c.key}')" title="Click to sort">${label}${arrow}</th>`;
+  }).join('')}</tr>`;
+
+  tbody.innerHTML = groupedWithAgg.map(g=>{
+    const agg = g.agg;
+    const colors = tacosColor(agg.tacos);
+    return `
+      <tr>
+        <td>${g.key}</td>
+        <td>${agg.units.toLocaleString()}</td>
+        <td>${fmt(agg.revenue)}</td>
+        <td>${fmt(agg.adSpend)}</td>
+        <td style="color:${colors.text}; font-weight:700;">${agg.tacos!==null ? agg.tacos.toFixed(1)+'%' : '—'}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 initApp();
