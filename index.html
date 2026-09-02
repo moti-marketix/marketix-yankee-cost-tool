@@ -7769,10 +7769,18 @@ function sortBetaProfitBy(col){
 
 let betaProfitCheckedKeys = new Set();
 let betaProfitActiveFilterKeys = null; // null = no checkbox-filter applied; Set = restrict to these group keys
+let betaProfitExpandedGroups = new Set();
+
+function toggleBetaProfitGroupExpand(key){
+  if(betaProfitExpandedGroups.has(key)) betaProfitExpandedGroups.delete(key);
+  else betaProfitExpandedGroups.add(key);
+  renderBetaProfitability();
+}
 
 function onBetaProfitLevelChange(){
   betaProfitCheckedKeys = new Set();
   betaProfitActiveFilterKeys = null;
+  betaProfitExpandedGroups = new Set();
   renderBetaProfitability();
 }
 
@@ -7897,7 +7905,10 @@ function renderBetaProfitability(){
       case 'unsoldUnitsInboundCost': return agg.unsoldUnitsInboundCost ? '+'+fmt(agg.unsoldUnitsInboundCost) : fmt(0);
       case 'normalizedNetProceeds': return fmt(agg.normalizedNetProceeds);
       case 'netProceedsPct': return agg.netProceedsPct!==null ? Math.round(agg.netProceedsPct)+'%' : '—';
-      case 'cogs': return `<span style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" onclick="showBetaCogsBreakdown('${escapeHtml(g.key)}')" title="Click for COGS breakdown">${fmt(agg.cogs)}</span>`;
+      case 'cogs': {
+        const clickFn = g.isChildRow ? `showBetaCogsBreakdownForSku('${escapeHtml(g.key)}')` : `showBetaCogsBreakdown('${escapeHtml(g.key)}')`;
+        return `<span style="cursor:pointer; text-decoration:underline; text-decoration-style:dotted;" onclick="${clickFn}" title="Click for COGS breakdown">${fmt(agg.cogs)}</span>`;
+      }
       case 'wh': return fmt(agg.wh);
       case 'netProfit': return `<strong>${fmt(agg.netProfit)}</strong>`;
       case 'profitPerUnit': return agg.profitPerUnit!==null ? fmt(agg.profitPerUnit) : '—';
@@ -7912,12 +7923,42 @@ function renderBetaProfitability(){
   tbody.innerHTML = groupedWithAgg.map(g=>{
     const agg = g.agg;
     const checked = betaProfitCheckedKeys.has(g.key) ? 'checked' : '';
-    return `
+    const isExpandable = level !== 'sku';
+    const isExpanded = betaProfitExpandedGroups.has(g.key);
+    const expandArrow = isExpandable
+      ? `<span style="cursor:pointer; margin-right:6px; display:inline-block; width:10px;" onclick="toggleBetaProfitGroupExpand('${escapeHtml(g.key)}')" title="${isExpanded ? 'Collapse' : 'Expand'} SKU breakdown">${isExpanded ? '\u25BC' : '\u25B6'}</span>`
+      : '';
+
+    let rowHtml = `
       <tr>
         <td><input type="checkbox" ${checked} onchange="toggleBetaProfitCheck('${escapeHtml(g.key)}', this.checked)"></td>
-        ${visibleCols.map(c=>`<td>${betaProfitCellValue(agg, c.key, g)}</td>`).join('')}
+        ${visibleCols.map(c=>{
+          if(c.key==='group'){
+            const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
+            return `<td>${expandArrow}${g.key}${missingCostNote}</td>`;
+          }
+          return `<td>${betaProfitCellValue(agg, c.key, g)}</td>`;
+        }).join('')}
       </tr>
     `;
+
+    if(isExpandable && isExpanded){
+      rowHtml += [...g.rows].sort((a,b)=>a.sku.localeCompare(b.sku)).map(r=>{
+        const childAgg = aggregateBetaProfitability([r]);
+        const childG = { key: r.sku, rows: [r], isChildRow: true };
+        return `
+          <tr style="background:#FAFBFC;">
+            <td></td>
+            ${visibleCols.map(c=>{
+              if(c.key==='group') return `<td style="padding-left:26px; color:var(--grey); font-size:13px;">${r.sku}</td>`;
+              return `<td style="color:var(--grey); font-size:13px;">${betaProfitCellValue(childAgg, c.key, childG)}</td>`;
+            }).join('')}
+          </tr>
+        `;
+      }).join('');
+    }
+
+    return rowHtml;
   }).join('') + (groupedWithAgg.length ? `
     <tr style="font-weight:700; border-top:2px solid var(--border);">
       <td></td>
@@ -7932,9 +7973,19 @@ function renderBetaProfitability(){
 function showBetaCogsBreakdown(key){
   const group = betaProfitLastGrouped.find(g=>g.key===key);
   if(!group) return;
+  showBetaCogsBreakdownFromRows(key, group.rows);
+}
 
+function showBetaCogsBreakdownForSku(sku){
+  for(const g of betaProfitLastGrouped){
+    const row = g.rows.find(r=>r.sku===sku);
+    if(row){ showBetaCogsBreakdownFromRows(sku, [row]); return; }
+  }
+}
+
+function showBetaCogsBreakdownFromRows(title, rows){
   let grandTotal = 0;
-  const rowsHtml = [...group.rows].sort((a,b)=>a.sku.localeCompare(b.sku)).map(r=>{
+  const rowsHtml = [...rows].sort((a,b)=>a.sku.localeCompare(b.sku)).map(r=>{
     grandTotal += r.cogs;
     const missingNote = (r.mfgCostPerUnit===null && r.freightCostPerUnit===null) ? ' <span style="color:var(--red); font-size:11px;">(no Manufacturing or Shipping Cost data)</span>' : '';
     return `
@@ -7949,8 +8000,8 @@ function showBetaCogsBreakdown(key){
     `;
   }).join('');
 
-  document.getElementById('cogs-modal-title').textContent = `COGS Breakdown — ${key}`;
-  document.getElementById('cogs-modal-subtitle').textContent = betaProfitLastLevel === 'sku'
+  document.getElementById('cogs-modal-title').textContent = `COGS Breakdown — ${title}`;
+  document.getElementById('cogs-modal-subtitle').textContent = rows.length === 1
     ? '(Manufacturing Cost/unit + Shipping Cost/unit) × Units.'
     : 'Sum of each SKU\'s (Manufacturing Cost/unit + Shipping Cost/unit) × Units.';
 
