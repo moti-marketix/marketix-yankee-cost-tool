@@ -7228,6 +7228,25 @@ function sheetRowsAfterHeader(ws){
   return rows.slice(headerIdx+1).filter(r=>r[0]);
 }
 
+// Like sheetRowsAfterHeader, but also returns a name->index column map so callers aren't tied to a
+// fixed column position -- protects against older files with a different column layout (e.g. an
+// extra ASIN column) silently shifting every value over by one.
+function sheetRowsAndHeaderMap(ws){
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+  let headerIdx = rows.findIndex(r => r[0] && String(r[0]).trim().toLowerCase() === 'sku');
+  if(headerIdx === -1) headerIdx = 0;
+  const headerRow = rows[headerIdx] || [];
+  const norm = s => (s===null||s===undefined) ? '' : String(s).trim().toLowerCase();
+  return {
+    dataRows: rows.slice(headerIdx+1).filter(r=>r[0]),
+    findCol: (...aliases) => {
+      const aliasSet = aliases.map(norm);
+      for(let i=0;i<headerRow.length;i++){ if(aliasSet.includes(norm(headerRow[i]))) return i; }
+      return -1;
+    },
+  };
+}
+
 async function handleBetaCostTemplateUpload(event){
   const file = event.target.files[0];
   if(!file) return;
@@ -7280,10 +7299,19 @@ async function handleBetaCostTemplateUpload(event){
 
     let cartonPayload = [];
     if(cartonWs){
-      const cartonRows = sheetRowsAfterHeader(cartonWs);
-      cartonPayload = cartonRows.map(r=>({
-        client_id: cid, sku: String(r[0]).trim(), carton_l: numOrNull(r[1]), carton_w: numOrNull(r[2]),
-        carton_h: numOrNull(r[3]), weight: numOrNull(r[4]), units_per_carton: numOrNull(r[5]),
+      const { dataRows, findCol } = sheetRowsAndHeaderMap(cartonWs);
+      const idxL = findCol('carton l (cm)', 'carton l');
+      const idxW = findCol('carton w (cm)', 'carton w');
+      const idxH = findCol('carton h (cm)', 'carton h');
+      const idxWeight = findCol('weight (kg)', 'weight');
+      const idxUPC = findCol('units per carton', 'units / carton', 'units/carton');
+      cartonPayload = dataRows.map(r=>({
+        client_id: cid, sku: String(r[0]).trim(),
+        carton_l: idxL>=0 ? numOrNull(r[idxL]) : null,
+        carton_w: idxW>=0 ? numOrNull(r[idxW]) : null,
+        carton_h: idxH>=0 ? numOrNull(r[idxH]) : null,
+        weight: idxWeight>=0 ? numOrNull(r[idxWeight]) : null,
+        units_per_carton: idxUPC>=0 ? numOrNull(r[idxUPC]) : null,
         updated_at: new Date().toISOString(),
       }));
       if(cartonPayload.length){
