@@ -851,7 +851,7 @@
           <h2>Current Products (<span id="beta-setup-count">0</span>)</h2>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>SKU</th><th>ASIN</th><th>Parent ASIN</th><th>Product Name</th><th>Family</th><th>Mfg Cost/Unit</th><th>Shipping Cost/Unit</th></tr></thead>
+              <thead><tr><th>SKU</th><th>ASIN</th><th>Parent ASIN</th><th>Product Name</th><th>Family</th><th>Mfg Cost/Unit</th><th>Shipping Cost/Unit</th><th>Carton L×W×H (cm)</th><th>Weight (kg)</th><th>Units/Carton</th><th>CBM/Unit</th></tr></thead>
               <tbody id="beta-setup-table-body"></tbody>
             </table>
             <div id="beta-setup-empty" class="empty" style="display:none;">No products yet — download and upload the Cost Template above to get started.</div>
@@ -6904,7 +6904,7 @@ async function executeMarkiTool(name, input){
 // ============================================================
 const betaState = {
   clients: [], currentClientId: null,
-  catalog: [], mfg: [], logistics: [], warehouse: [], sku: [], rawFiles: [],
+  catalog: [], mfg: [], logistics: [], warehouse: [], sku: [], rawFiles: [], cartonSpecs: [],
 };
 let betaInitialized = false;
 
@@ -6961,7 +6961,7 @@ async function deleteBetaClient(){
       const { error: removeErr } = await sb.storage.from('raw-uploads').remove(filesToRemove.map(f=>f.storage_path));
       if(removeErr) console.error('Could not remove some stored files:', removeErr); // don't block client deletion on this
     }
-    const tables = ['beta_catalog','beta_manufacturing_costs','beta_logistics_costs','beta_warehouse_costs','beta_sku_economics','beta_raw_files'];
+    const tables = ['beta_catalog','beta_manufacturing_costs','beta_logistics_costs','beta_warehouse_costs','beta_sku_economics','beta_raw_files','beta_carton_specs'];
     for(const t of tables){
       const { error } = await sb.from(t).delete().eq('client_id', cid);
       if(error) throw new Error(`${t}: ` + error.message);
@@ -6970,7 +6970,7 @@ async function deleteBetaClient(){
     if(clientErr) throw new Error('beta_clients: ' + clientErr.message);
 
     betaState.currentClientId = null;
-    betaState.catalog = []; betaState.mfg = []; betaState.logistics = []; betaState.warehouse = []; betaState.sku = []; betaState.rawFiles = [];
+    betaState.catalog = []; betaState.mfg = []; betaState.logistics = []; betaState.warehouse = []; betaState.sku = []; betaState.rawFiles = []; betaState.cartonSpecs = [];
     await loadBetaClients();
     if(betaState.currentClientId){
       await loadBetaClientData();
@@ -7010,14 +7010,15 @@ function renderBetaAll(){
 async function loadBetaClientData(){
   if(!betaState.currentClientId) return;
   const cid = betaState.currentClientId;
-  const [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes] = await Promise.all([
+  const [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes, cartonRes] = await Promise.all([
     sb.from('beta_catalog').select('*').eq('client_id', cid),
     sb.from('beta_manufacturing_costs').select('*').eq('client_id', cid),
     sb.from('beta_logistics_costs').select('*').eq('client_id', cid),
     sb.from('beta_warehouse_costs').select('*').eq('client_id', cid),
     sb.from('beta_sku_economics').select('*').eq('client_id', cid),
+    sb.from('beta_carton_specs').select('*').eq('client_id', cid),
   ]);
-  for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes]){
+  for(const r of [catalogRes, mfgRes, logisticsRes, warehouseRes, skuRes, cartonRes]){
     if(r.error){ console.error(r.error); alert('Could not load beta tool data: ' + r.error.message); return; }
   }
   betaState.catalog = (catalogRes.data||[]).map(r=>({ id:r.id, sku:r.sku, asin:r.asin||'', parentAsin:r.parent_asin||'', name:r.product_name||'', brand:r.brand||'', family:r.product_family||'' }));
@@ -7030,6 +7031,10 @@ async function loadBetaClientData(){
     referralFees:r.referral_fees, fbaFees:r.fba_fees, storageFees:r.storage_fees,
     adSpend:r.ad_spend, refunds:r.refunds,
     inboundUnits:r.inbound_units||0, inboundFeeTotal:r.inbound_fee_total||0,
+  }));
+  betaState.cartonSpecs = (cartonRes.data||[]).map(r=>({
+    id:r.id, sku:r.sku, carton_l:r.carton_l, carton_w:r.carton_w, carton_h:r.carton_h,
+    weight:r.weight, units_per_carton:r.units_per_carton,
   }));
   await loadBetaRawFiles();
 }
@@ -7057,8 +7062,8 @@ function downloadBetaCostTemplate(){
     : [['EXAMPLE-SKU-001','B0EXAMPLE1','B0PARENTEX','Example Product Name','My Brand','Example Family']];
   const catalogAoa = [
     [isNewClient
-      ? "This file has 6 sheets. The tool only imports Catalog, Manufacturing Costs, and Shipping Costs -- the Shipment Cost Ledger and Shipment Content sheets are calculation helpers that live only in this file (see the Instructions tab)."
-      : "This file has 4 sheets. The tool imports Catalog, Manufacturing Costs, and Shipping Costs."],
+      ? "This file has 7 sheets. The tool imports Catalog, Manufacturing Costs, Shipping Costs, and Logistics & Freight -- the Shipment Cost Ledger and Shipment Content sheets are calculation helpers that live only in this file (see the Instructions tab)."
+      : "This file has 5 sheets. The tool imports Catalog, Manufacturing Costs, Shipping Costs, and Logistics & Freight."],
     catalogHeaders, ...catalogRows
   ];
   const catalogWs = XLSX.utils.aoa_to_sheet(catalogAoa);
@@ -7156,10 +7161,24 @@ function downloadBetaCostTemplate(){
   }
   XLSX.utils.book_append_sheet(wb, shipWs, 'Shipping Costs');
 
+  // --- Logistics & Freight (carton dims + weight -> drives CBM-based warehouse cost allocation) ---
+  const logisticsHeaders = ['SKU','Carton L (cm)','Carton W (cm)','Carton H (cm)','Weight (kg)','Units per Carton'];
+  const logisticsRows = betaState.cartonSpecs.length
+    ? betaState.cartonSpecs.map(r=>[r.sku, r.carton_l, r.carton_w, r.carton_h, r.weight, r.units_per_carton])
+    : [['EXAMPLE-SKU-001', 40, 30, 20, 8.5, 10]];
+  const logisticsAoa = [
+    ["Carton dimensions + units per carton -- used to compute each SKU's CBM (volume) per unit, which drives its share of Warehouse Cost. Bigger/bulkier items absorb proportionally more warehouse cost per unit."],
+    logisticsHeaders, ...logisticsRows,
+  ];
+  const logisticsWs = XLSX.utils.aoa_to_sheet(logisticsAoa);
+  logisticsWs['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:logisticsHeaders.length-1}}];
+  XLSX.utils.book_append_sheet(wb, logisticsWs, 'Logistics & Freight');
+
+  const totalSheets = isNewClient ? 7 : 5;
   const instructionLines = [
     ['Instructions'], [''],
-    ['This file has ' + (isNewClient ? '6' : '4') + ' sheets. The tool only imports Catalog, Manufacturing Costs, and Shipping Costs.'],
-    ['Fill in one row per SKU on Catalog and Manufacturing Costs, then upload this same file back into the tool.'],
+    ['This file has ' + totalSheets + ' sheets. The tool imports Catalog, Manufacturing Costs, Shipping Costs, and Logistics & Freight.'],
+    ['Fill in one row per SKU on Catalog, Manufacturing Costs, and Logistics & Freight, then upload this same file back into the tool.'],
     ['The SKU column must match exactly across all sheets for a product to show correctly.'],
     [''],
   ];
@@ -7185,7 +7204,14 @@ function downloadBetaCostTemplate(){
       [''],
     );
   }
-  instructionLines.push(['Warehouse Costs are entered separately (Warehouse Costs tab) as a monthly total, not per SKU.']);
+  instructionLines.push(
+    ['Logistics & Freight: enter Carton L/W/H (cm), Weight (kg), and Units per Carton for each SKU. The tool computes'],
+    ['CBM per unit from these and uses it to split your monthly Warehouse Cost across SKUs proportional to the space'],
+    ['each one actually occupies -- so a bulky item absorbs more warehouse cost per unit than a small one, instead of'],
+    ['every SKU being charged the same flat rate.'],
+    [''],
+    ['Warehouse Costs (the monthly $ totals) are entered separately in the Warehouse Costs tab, not per SKU.'],
+  );
   const instructionsSheet = XLSX.utils.aoa_to_sheet(instructionLines);
   XLSX.utils.book_append_sheet(wb, instructionsSheet, 'Instructions');
 
@@ -7217,6 +7243,7 @@ async function handleBetaCostTemplateUpload(event){
     const catalogWs = findSheet('Catalog');
     const mfgWs = findSheet('Manufacturing Costs');
     const logWs = findSheet('Shipping Costs');
+    const cartonWs = findSheet('Logistics & Freight'); // optional -- older files won't have this sheet
     if(!catalogWs || !mfgWs || !logWs){
       statusEl.style.color = 'var(--red)';
       statusEl.textContent = 'This file is missing one of the required sheets: Catalog, Manufacturing Costs, Shipping Costs.';
@@ -7251,11 +7278,26 @@ async function handleBetaCostTemplateUpload(event){
       if(error) throw new Error('Shipping Costs: ' + error.message);
     }
 
+    let cartonPayload = [];
+    if(cartonWs){
+      const cartonRows = sheetRowsAfterHeader(cartonWs);
+      cartonPayload = cartonRows.map(r=>({
+        client_id: cid, sku: String(r[0]).trim(), carton_l: numOrNull(r[1]), carton_w: numOrNull(r[2]),
+        carton_h: numOrNull(r[3]), weight: numOrNull(r[4]), units_per_carton: numOrNull(r[5]),
+        updated_at: new Date().toISOString(),
+      }));
+      if(cartonPayload.length){
+        const { error } = await sb.from('beta_carton_specs').upsert(cartonPayload, { onConflict: 'client_id,sku' });
+        if(error) throw new Error('Logistics & Freight: ' + error.message);
+      }
+    }
+
     await loadBetaClientData();
     renderBetaAll();
     await saveBetaRawFile(file, 'cost_template', cid);
     statusEl.style.color = 'var(--green)';
-    statusEl.textContent = `Done — ${catalogPayload.length} Catalog, ${mfgPayload.length} Manufacturing, ${logPayload.length} Shipping Cost rows saved.`;
+    const cartonNote = cartonWs ? `, ${cartonPayload.length} Logistics & Freight` : ' (no Logistics & Freight sheet -- warehouse cost allocation needs it)';
+    statusEl.textContent = `Done — ${catalogPayload.length} Catalog, ${mfgPayload.length} Manufacturing, ${logPayload.length} Shipping Cost${cartonNote} rows saved.`;
     event.target.value = '';
   }catch(err){
     console.error(err);
@@ -7335,6 +7377,17 @@ async function deleteBetaRawFile(id){
   renderBetaFilesTable();
 }
 
+function cbmPerUnitFromSpec(spec){
+  if(!spec) return null;
+  const { carton_l: l, carton_w: w, carton_h: h, units_per_carton: upc } = spec;
+  if(!l || !w || !h || !upc) return null;
+  return (l * w * h) / 1000000 / upc; // cm^3 -> m^3, then per unit
+}
+
+function cartonSpecForBetaSku(sku){
+  return betaState.cartonSpecs.find(r=>r.sku===sku);
+}
+
 function renderBetaSetupTable(){
   const tbody = document.getElementById('beta-setup-table-body');
   const empty = document.getElementById('beta-setup-empty');
@@ -7344,14 +7397,26 @@ function renderBetaSetupTable(){
 
   const mfgBySku = Object.fromEntries(betaState.mfg.map(r=>[r.sku, r.mfgCost]));
   const logBySku = Object.fromEntries(betaState.logistics.map(r=>[r.sku, r.freightCost]));
+  const cartonBySku = Object.fromEntries(betaState.cartonSpecs.map(r=>[r.sku, r]));
 
-  tbody.innerHTML = betaState.catalog.map(r=>`
+  tbody.innerHTML = betaState.catalog.map(r=>{
+    const spec = cartonBySku[r.sku];
+    const dims = spec && spec.carton_l && spec.carton_w && spec.carton_h ? `${spec.carton_l}×${spec.carton_w}×${spec.carton_h}` : '—';
+    const weight = spec && spec.weight!=null ? spec.weight : '—';
+    const upc = spec && spec.units_per_carton!=null ? spec.units_per_carton : '—';
+    const cbm = cbmPerUnitFromSpec(spec);
+    return `
     <tr>
       <td>${r.sku}</td><td>${r.asin||'—'}</td><td>${r.parentAsin||'—'}</td><td>${r.name||'—'}</td><td>${r.family||'—'}</td>
       <td>${mfgBySku[r.sku]!=null ? fmt(mfgBySku[r.sku]) : '—'}</td>
       <td>${logBySku[r.sku]!=null ? fmt(logBySku[r.sku]) : '—'}</td>
+      <td>${dims}</td>
+      <td>${weight}</td>
+      <td>${upc}</td>
+      <td>${cbm!==null ? cbm.toFixed(5) : '—'}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // ---------------- Beta: Warehouse Costs (simple month + total entry) ----------------
@@ -7636,27 +7701,41 @@ function renderBetaSkuEconTable(){
 }
 
 // ---------------- Beta: Profitability ----------------
-function blendedWarehouseCostPerUnit(){
+function computeWarehouseRatePerCBM(){
   const totalCost = betaState.warehouse.reduce((s,r)=>s+(r.totalCost||0), 0);
-  const totalUnits = betaState.sku.reduce((s,r)=>s+(r.units||0), 0);
-  if(!totalCost || !totalUnits) return 0;
-  return totalCost / totalUnits;
+  let totalCBM = 0;
+  betaState.sku.forEach(r=>{
+    const spec = cartonSpecForBetaSku(r.sku);
+    const cbmPerUnit = cbmPerUnitFromSpec(spec);
+    if(cbmPerUnit !== null) totalCBM += (r.units||0) * cbmPerUnit;
+  });
+  if(!totalCost || !totalCBM) return 0;
+  return totalCost / totalCBM; // $ per m^3
 }
+
+function warehouseCostPerUnitForBetaSku(sku, ratePerCBM){
+  const spec = cartonSpecForBetaSku(sku);
+  const cbmPerUnit = cbmPerUnitFromSpec(spec);
+  if(cbmPerUnit === null) return null; // no carton spec -> warehouse cost unknown for this SKU
+  return ratePerCBM * cbmPerUnit;
+}
+
 function catalogRowForBetaSku(sku){
   return betaState.catalog.find(r=>r.sku===sku);
 }
 
-function computeBetaSkuProfitability(skuRow, whPerUnit){
+function computeBetaSkuProfitability(skuRow, ratePerCBM){
   const catRow = catalogRowForBetaSku(skuRow.sku);
   const mfgRow = betaState.mfg.find(r=>r.sku===skuRow.sku);
   const logRow = betaState.logistics.find(r=>r.sku===skuRow.sku);
   const mfgCostPerUnit = mfgRow ? mfgRow.mfgCost : null;
   const freightCostPerUnit = logRow ? logRow.freightCost : null;
   const landed = (mfgCostPerUnit||0) + (freightCostPerUnit||0);
-  const whCost = whPerUnit !== undefined ? whPerUnit : blendedWarehouseCostPerUnit();
+  const rate = ratePerCBM !== undefined ? ratePerCBM : computeWarehouseRatePerCBM();
+  const whCostPerUnit = warehouseCostPerUnitForBetaSku(skuRow.sku, rate);
   const units = skuRow.units || 0;
   const cogs = landed * units;
-  const wh = whCost * units;
+  const wh = (whCostPerUnit||0) * units;
 
   const inboundUnits = skuRow.inboundUnits || 0;
   const inboundFeeTotal = skuRow.inboundFeeTotal || 0;
@@ -7678,9 +7757,10 @@ function computeBetaSkuProfitability(skuRow, whPerUnit){
     family: catRow ? catRow.family : '', name: catRow ? catRow.name : '', brand: catRow ? catRow.brand : '',
     units, revenue: skuRow.revenue||0, netProceeds: skuRow.netProceeds||0, adSpend: skuRow.adSpend||0,
     unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds, netProceedsPct,
-    mfgCostPerUnit, freightCostPerUnit, landedCostPerUnit: landed,
+    mfgCostPerUnit, freightCostPerUnit, landedCostPerUnit: landed, whCostPerUnit,
     cogs, wh, netProfit, margin, roi, profitPerUnit,
-    hasCostData: landed>0 || whCost>0,
+    hasCostData: landed>0 || whCostPerUnit>0,
+    hasWarehouseSpec: whCostPerUnit !== null,
   };
 }
 
@@ -7822,8 +7902,8 @@ function renderBetaProfitability(){
   }
   empty.style.display = 'none';
 
-  const sharedWhPerUnit = blendedWarehouseCostPerUnit();
-  let computed = betaState.sku.map(r=>computeBetaSkuProfitability(r, sharedWhPerUnit));
+  const ratePerCBM = computeWarehouseRatePerCBM();
+  let computed = betaState.sku.map(r=>computeBetaSkuProfitability(r, ratePerCBM));
 
   // Rebuild the filter dropdown's options to match the current Level, preserving the selection if still valid.
   const prevSelected = filterSelect.value;
@@ -7901,8 +7981,15 @@ function renderBetaProfitability(){
   function betaProfitCellValue(agg, key, g){
     switch(key){
       case 'group': {
-        const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
-        return `${g.key}${missingCostNote}`;
+        const noCostAtAll = g.rows.every(r=>!r.hasCostData);
+        const missingWhSpecCount = g.rows.filter(r=>!r.hasWarehouseSpec).length;
+        let note = '';
+        if(noCostAtAll){
+          note = ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>';
+        } else if(missingWhSpecCount > 0){
+          note = ` <span style="color:var(--red); font-size:11px;">(missing carton spec for ${missingWhSpecCount} SKU${missingWhSpecCount>1?'s':''} — warehouse cost excluded)</span>`;
+        }
+        return `${g.key}${note}`;
       }
       case 'units': return agg.units.toLocaleString();
       case 'revenue': return fmt(agg.revenue);
@@ -7939,8 +8026,15 @@ function renderBetaProfitability(){
         <td><input type="checkbox" ${checked} onchange="toggleBetaProfitCheck('${escapeHtml(g.key)}', this.checked)"></td>
         ${visibleCols.map(c=>{
           if(c.key==='group'){
-            const missingCostNote = g.rows.every(r=>!r.hasCostData) ? ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>' : '';
-            return `<td>${expandArrow}${g.key}${missingCostNote}</td>`;
+            const noCostAtAll = g.rows.every(r=>!r.hasCostData);
+            const missingWhSpecCount = g.rows.filter(r=>!r.hasWarehouseSpec).length;
+            let note = '';
+            if(noCostAtAll){
+              note = ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>';
+            } else if(missingWhSpecCount > 0){
+              note = ` <span style="color:var(--red); font-size:11px;">(missing carton spec for ${missingWhSpecCount} SKU${missingWhSpecCount>1?'s':''} — warehouse cost excluded)</span>`;
+            }
+            return `<td>${expandArrow}${g.key}${note}</td>`;
           }
           return `<td>${betaProfitCellValue(agg, c.key, g)}</td>`;
         }).join('')}
