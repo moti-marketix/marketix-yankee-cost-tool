@@ -7675,7 +7675,7 @@ function computeBetaSkuProfitability(skuRow, whPerUnit){
   const profitPerUnit = units ? netProfit/units : null;
   return {
     sku: skuRow.sku, asin: catRow ? catRow.asin : skuRow.asin, parentAsin: catRow ? catRow.parentAsin : skuRow.parentAsin,
-    family: catRow ? catRow.family : '', name: catRow ? catRow.name : '',
+    family: catRow ? catRow.family : '', name: catRow ? catRow.name : '', brand: catRow ? catRow.brand : '',
     units, revenue: skuRow.revenue||0, netProceeds: skuRow.netProceeds||0, adSpend: skuRow.adSpend||0,
     unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds, netProceedsPct,
     mfgCostPerUnit, freightCostPerUnit, landedCostPerUnit: landed,
@@ -7727,8 +7727,13 @@ function renderColumnTogglePanel(panelId, columns, hiddenSet, toggleFnName){
 let betaProfitLastGrouped = [];
 let betaProfitLastLevel = 'sku';
 
+function betaFamilyKey(r){
+  const fam = r.family || '(no family)';
+  return r.brand ? `${r.brand} — ${fam}` : fam;
+}
+
 function betaProfitFilterKey(r, level){
-  if(level==='family') return r.family || '(no family)';
+  if(level==='family') return betaFamilyKey(r);
   if(level==='parentAsin') return r.parentAsin || `(no parent — ${r.sku})`;
   return r.sku;
 }
@@ -7858,7 +7863,7 @@ function renderBetaProfitability(){
   } else if(level === 'family'){
     keyLabel = 'Product Family';
     const byFamily = {};
-    computed.forEach(r=>{ const k = r.family || '(no family)'; (byFamily[k]=byFamily[k]||[]).push(r); });
+    computed.forEach(r=>{ const k = betaFamilyKey(r); (byFamily[k]=byFamily[k]||[]).push(r); });
     grouped = Object.keys(byFamily).map(k=>({ key:k, rows: byFamily[k] }));
   } else {
     keyLabel = 'Parent ASIN';
@@ -8038,7 +8043,7 @@ function computeBetaSkuAdvertising(skuRow){
   const tacos = revenue ? (adSpend/revenue*100) : null;
   return {
     sku: skuRow.sku, asin: catRow ? catRow.asin : skuRow.asin, parentAsin: catRow ? catRow.parentAsin : skuRow.parentAsin,
-    family: catRow ? catRow.family : '', units: skuRow.units || 0, revenue, adSpend, tacos,
+    family: catRow ? catRow.family : '', brand: catRow ? catRow.brand : '', units: skuRow.units || 0, revenue, adSpend, tacos,
   };
 }
 
@@ -8051,7 +8056,7 @@ function aggregateBetaAdvertising(rows){
 }
 
 function betaAdFilterKey(r, level){
-  if(level==='family') return r.family || '(no family)';
+  if(level==='family') return betaFamilyKey(r);
   if(level==='parentAsin') return r.parentAsin || `(no parent — ${r.sku})`;
   return r.sku;
 }
@@ -8135,7 +8140,7 @@ function renderBetaAdvertising(){
   } else if(level === 'family'){
     keyLabel = 'Product Family';
     const byFamily = {};
-    computed.forEach(r=>{ const k = r.family || '(no family)'; (byFamily[k]=byFamily[k]||[]).push(r); });
+    computed.forEach(r=>{ const k = betaFamilyKey(r); (byFamily[k]=byFamily[k]||[]).push(r); });
     grouped = Object.keys(byFamily).map(k=>({ key:k, rows: byFamily[k] }));
   } else {
     keyLabel = 'Parent ASIN';
