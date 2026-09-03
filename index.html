@@ -8009,15 +8009,11 @@ function renderBetaProfitability(){
   function betaProfitCellValue(agg, key, g){
     switch(key){
       case 'group': {
-        const noCostAtAll = g.rows.every(r=>!r.hasCostData);
-        const missingWhSpecCount = g.rows.filter(r=>!r.hasWarehouseSpec).length;
-        let note = '';
-        if(noCostAtAll){
-          note = ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>';
-        } else if(missingWhSpecCount > 0){
-          note = ` <span style="color:var(--red); font-size:11px;">(missing carton spec for ${missingWhSpecCount} SKU${missingWhSpecCount>1?'s':''} — warehouse cost excluded)</span>`;
-        }
-        return `${g.key}${note}`;
+        const hasMissingData = g.rows.some(r=>!r.hasCostData || !r.hasWarehouseSpec);
+        const asterisk = hasMissingData
+          ? ` <sup style="color:var(--red); cursor:pointer;" onclick="showBetaMissingDataDetail('${escapeHtml(g.key)}')" title="Missing cost data -- click for details">*</sup>`
+          : '';
+        return `${g.key}${asterisk}`;
       }
       case 'units': return agg.units.toLocaleString();
       case 'revenue': return fmt(agg.revenue);
@@ -8054,15 +8050,11 @@ function renderBetaProfitability(){
         <td><input type="checkbox" ${checked} onchange="toggleBetaProfitCheck('${escapeHtml(g.key)}', this.checked)"></td>
         ${visibleCols.map(c=>{
           if(c.key==='group'){
-            const noCostAtAll = g.rows.every(r=>!r.hasCostData);
-            const missingWhSpecCount = g.rows.filter(r=>!r.hasWarehouseSpec).length;
-            let note = '';
-            if(noCostAtAll){
-              note = ' <span style="color:var(--red); font-size:11px;">(no cost data)</span>';
-            } else if(missingWhSpecCount > 0){
-              note = ` <span style="color:var(--red); font-size:11px;">(missing carton spec for ${missingWhSpecCount} SKU${missingWhSpecCount>1?'s':''} — warehouse cost excluded)</span>`;
-            }
-            return `<td>${expandArrow}${g.key}${note}</td>`;
+            const hasMissingData = g.rows.some(r=>!r.hasCostData || !r.hasWarehouseSpec);
+            const asterisk = hasMissingData
+              ? ` <sup style="color:var(--red); cursor:pointer;" onclick="showBetaMissingDataDetail('${escapeHtml(g.key)}')" title="Missing cost data -- click for details">*</sup>`
+              : '';
+            return `<td>${expandArrow}${g.key}${asterisk}</td>`;
           }
           return `<td>${betaProfitCellValue(agg, c.key, g)}</td>`;
         }).join('')}
@@ -8108,6 +8100,30 @@ function showBetaCogsBreakdownForSku(sku){
     const row = g.rows.find(r=>r.sku===sku);
     if(row){ showBetaCogsBreakdownFromRows(sku, [row]); return; }
   }
+}
+
+function showBetaMissingDataDetail(key){
+  const group = betaProfitLastGrouped.find(g=>g.key===key);
+  if(!group) return;
+
+  const rowsHtml = [...group.rows].sort((a,b)=>a.sku.localeCompare(b.sku)).map(r=>{
+    const missing = [];
+    if(r.mfgCostPerUnit===null) missing.push('Manufacturing Cost');
+    if(r.freightCostPerUnit===null) missing.push('Shipping Cost');
+    if(!r.hasWarehouseSpec) missing.push('Carton Spec (Warehouse Cost excluded)');
+    if(!missing.length) return '';
+    return `<tr><td>${r.sku}</td><td style="color:var(--red);">${missing.join(', ')}</td></tr>`;
+  }).filter(Boolean).join('');
+
+  document.getElementById('cogs-modal-title').textContent = `Missing Cost Data — ${key}`;
+  document.getElementById('cogs-modal-subtitle').textContent = 'These SKUs are missing one or more cost inputs -- their profitability numbers may be understated until this is filled in.';
+  document.getElementById('cogs-modal-body').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Missing</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `;
+  document.getElementById('cogs-modal-backdrop').style.display = 'block';
 }
 
 function showBetaCogsBreakdownFromRows(title, rows){
