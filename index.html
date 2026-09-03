@@ -7031,6 +7031,7 @@ async function loadBetaClientData(){
     referralFees:r.referral_fees, fbaFees:r.fba_fees, storageFees:r.storage_fees,
     adSpend:r.ad_spend, refunds:r.refunds,
     inboundUnits:r.inbound_units||0, inboundFeeTotal:r.inbound_fee_total||0,
+    placementUnits:r.placement_units||0, placementFeeTotal:r.placement_fee_total||0,
   }));
   betaState.cartonSpecs = (cartonRes.data||[]).map(r=>({
     id:r.id, sku:r.sku, carton_l:r.carton_l, carton_w:r.carton_w, carton_h:r.carton_h,
@@ -7590,13 +7591,16 @@ function parseBetaSkuEconomicsRows(rows){
     }
     const inboundUnits = numFromAnyCol(row, headerMap, 'inbound transportation fee quantity');
     const inboundFeeTotal = numFromAnyCol(row, headerMap, 'inbound transportation fee total');
+    const placementUnits = numFromAnyCol(row, headerMap, 'fba inbound placement service fee quantity');
+    const placementFeeTotal = numFromAnyCol(row, headerMap, 'fba inbound placement service fee total');
 
-    if(!bySku[sku]) bySku[sku] = { sku, asin: String(asin).trim(), parentAsin: row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '', units:0, revenue:0, netProceeds:0, referralFees:0, fbaFees:0, storageFees:0, adSpend:0, refunds:0, inboundUnits:0, inboundFeeTotal:0 };
+    if(!bySku[sku]) bySku[sku] = { sku, asin: String(asin).trim(), parentAsin: row[headerMap['parent asin']] ? String(row[headerMap['parent asin']]).trim() : '', units:0, revenue:0, netProceeds:0, referralFees:0, fbaFees:0, storageFees:0, adSpend:0, refunds:0, inboundUnits:0, inboundFeeTotal:0, placementUnits:0, placementFeeTotal:0 };
     const agg = bySku[sku];
     agg.units += unitsSold; agg.revenue += revenue; agg.netProceeds += netProceeds;
     agg.referralFees += referralFee; agg.fbaFees += fbaFees; agg.storageFees += storageFees;
     agg.adSpend += adSpend; agg.refunds += refunds;
     agg.inboundUnits += inboundUnits; agg.inboundFeeTotal += inboundFeeTotal;
+    agg.placementUnits += placementUnits; agg.placementFeeTotal += placementFeeTotal;
   }
 
   return { rows: Object.values(bySku), skippedNoMatch };
@@ -7637,6 +7641,7 @@ async function handleBetaSkuEconomicsUpload(event){
       referral_fees: r.referralFees, fba_fees: r.fbaFees, storage_fees: r.storageFees,
       ad_spend: r.adSpend, refunds: r.refunds,
       inbound_units: r.inboundUnits, inbound_fee_total: r.inboundFeeTotal,
+      placement_units: r.placementUnits, placement_fee_total: r.placementFeeTotal,
       updated_at: new Date().toISOString(),
     }));
     if(payload.length){
@@ -7735,7 +7740,9 @@ function computeWarehouseRatePerCBM(){
   betaState.sku.forEach(r=>{
     const spec = cartonSpecForBetaSku(r.sku);
     const cbmPerUnit = cbmPerUnitFromSpec(spec);
-    if(cbmPerUnit !== null) totalCBM += (r.units||0) * cbmPerUnit;
+    // Use units RECEIVED into FBA (not units sold) -- warehouse cost is driven by what's actually
+    // been stored this period, matching the same "units shipped to FBA" basis used for inbound fees.
+    if(cbmPerUnit !== null) totalCBM += (r.inboundUnits||0) * cbmPerUnit;
   });
   if(!totalCost || !totalCBM) return 0;
   return totalCost / totalCBM; // $ per m^3
@@ -7763,17 +7770,31 @@ function computeBetaSkuProfitability(skuRow, ratePerCBM){
   const whCostPerUnit = warehouseCostPerUnitForBetaSku(skuRow.sku, rate);
   const units = skuRow.units || 0;
   const cogs = landed * units;
-  const wh = (whCostPerUnit||0) * units;
 
   const inboundUnits = skuRow.inboundUnits || 0;
   const inboundFeeTotal = skuRow.inboundFeeTotal || 0;
   const inboundCostPerUnit = inboundUnits > 0 ? (inboundFeeTotal / inboundUnits) : 0;
   const unsoldUnits = Math.max(0, inboundUnits - units);
   const unsoldUnitsInboundCost = unsoldUnits * inboundCostPerUnit;
-  // Amazon's Net Proceeds already deducts the FULL inbound transportation fee for every unit
-  // received this period, sold or not. To normalize profitability to only the units actually
-  // sold, add back the portion of that fee tied to unsold (still-in-FBA) units.
-  const normalizedNetProceeds = (skuRow.netProceeds||0) + unsoldUnitsInboundCost;
+
+  const placementUnits = skuRow.placementUnits || 0;
+  const placementFeeTotal = skuRow.placementFeeTotal || 0;
+  const placementCostPerUnit = placementUnits > 0 ? (placementFeeTotal / placementUnits) : 0;
+  const unsoldPlacementUnits = Math.max(0, placementUnits - units);
+  const unsoldPlacementCost = unsoldPlacementUnits * placementCostPerUnit;
+
+  // Warehouse cost is NOT part of Net Proceeds -- it's its own line item. To treat it the same way
+  // as Inbound Transportation and Placement Fee (fully charge for units received, then add back the
+  // unsold portion), "wh" below is the FULL charge for all units received, not just units sold.
+  const wh = (whCostPerUnit||0) * inboundUnits;
+  const unsoldWarehouseCost = (whCostPerUnit||0) * unsoldUnits;
+
+  // Amazon's Net Proceeds already deducts the FULL Inbound Transportation Fee and Placement Fee for
+  // every unit received this period, sold or not. To normalize profitability to only the units
+  // actually sold, add back the portion of each (plus Warehouse, treated the same way) tied to
+  // unsold (still-in-FBA) units.
+  const unsoldUnitsCostAdjustment = unsoldUnitsInboundCost + unsoldPlacementCost + unsoldWarehouseCost;
+  const normalizedNetProceeds = (skuRow.netProceeds||0) + unsoldUnitsCostAdjustment;
 
   const netProfit = normalizedNetProceeds - cogs - wh;
   const margin = skuRow.revenue ? (netProfit/skuRow.revenue*100) : null;
@@ -7784,7 +7805,8 @@ function computeBetaSkuProfitability(skuRow, ratePerCBM){
     sku: skuRow.sku, asin: catRow ? catRow.asin : skuRow.asin, parentAsin: catRow ? catRow.parentAsin : skuRow.parentAsin,
     family: catRow ? catRow.family : '', name: catRow ? catRow.name : '', brand: catRow ? catRow.brand : '',
     units, revenue: skuRow.revenue||0, netProceeds: skuRow.netProceeds||0, adSpend: skuRow.adSpend||0,
-    unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds, netProceedsPct,
+    unsoldUnits, unsoldUnitsInboundCost, unsoldPlacementCost, unsoldWarehouseCost, unsoldUnitsCostAdjustment,
+    normalizedNetProceeds, netProceedsPct,
     mfgCostPerUnit, freightCostPerUnit, landedCostPerUnit: landed, whCostPerUnit,
     cogs, wh, netProfit, margin, roi, profitPerUnit,
     hasCostData: landed>0 || whCostPerUnit>0,
@@ -7798,7 +7820,7 @@ function aggregateBetaProfitability(rows){
   const netProceeds = rows.reduce((s,r)=>s+r.netProceeds,0);
   const adSpend = rows.reduce((s,r)=>s+r.adSpend,0);
   const unsoldUnits = rows.reduce((s,r)=>s+r.unsoldUnits,0);
-  const unsoldUnitsInboundCost = rows.reduce((s,r)=>s+r.unsoldUnitsInboundCost,0);
+  const unsoldUnitsCostAdjustment = rows.reduce((s,r)=>s+r.unsoldUnitsCostAdjustment,0);
   const normalizedNetProceeds = rows.reduce((s,r)=>s+r.normalizedNetProceeds,0);
   const cogs = rows.reduce((s,r)=>s+r.cogs,0);
   const wh = rows.reduce((s,r)=>s+r.wh,0);
@@ -7807,7 +7829,7 @@ function aggregateBetaProfitability(rows){
   const netProceedsPct = revenue ? (normalizedNetProceeds/revenue*100) : null;
   const roi = cogs ? (netProfit/cogs*100) : null;
   const profitPerUnit = units ? netProfit/units : null;
-  return { units, revenue, netProceeds, adSpend, unsoldUnits, unsoldUnitsInboundCost, normalizedNetProceeds, netProceedsPct, cogs, wh, netProfit, margin, roi, profitPerUnit };
+  return { units, revenue, netProceeds, adSpend, unsoldUnits, unsoldUnitsCostAdjustment, normalizedNetProceeds, netProceedsPct, cogs, wh, netProfit, margin, roi, profitPerUnit };
 }
 
 function escapeHtml(s){
@@ -7851,7 +7873,7 @@ const BETA_PROFIT_COLUMNS = [
   { key:'units',               label:'Units',                       type:'num' },
   { key:'revenue',             label:'Revenue',                     type:'num' },
   { key:'netProceeds',         label:'Net Proceeds',                type:'num' },
-  { key:'unsoldUnitsInboundCost', label:'Unsold Units Inbound Cost', type:'num' },
+  { key:'unsoldUnitsCostAdjustment', label:'Unsold Units Cost Adjustment', type:'num' },
   { key:'normalizedNetProceeds', label:'Net Proceeds (Normalized)', type:'num' },
   { key:'netProceedsPct',      label:'Net Proceeds %',              type:'num' },
   { key:'cogs',                label:'COGS',                        type:'num' },
@@ -7954,7 +7976,7 @@ function renderBetaProfitability(){
     <div class="kpi"><div class="label">Revenue</div><div class="value">${fmtWhole(overall.revenue)}</div></div>
     <div class="kpi"><div class="label">Net Proceeds</div><div class="value">${fmtWhole(overall.netProceeds)}</div></div>
     <div class="kpi"><div class="label">Unsold Units (Inbound)</div><div class="value">${overall.unsoldUnits.toLocaleString()}</div></div>
-    <div class="kpi"><div class="label">Unsold Units Inbound Cost</div><div class="value">${fmtWhole(overall.unsoldUnitsInboundCost)}</div></div>
+    <div class="kpi"><div class="label">Unsold Units Cost Adjustment</div><div class="value">${fmtWhole(overall.unsoldUnitsCostAdjustment)}</div></div>
     <div class="kpi"><div class="label">Net Proceeds (Normalized)</div><div class="value">${fmtWhole(overall.normalizedNetProceeds)}</div></div>
     <div class="kpi"><div class="label">Net Proceeds %</div><div class="value">${overall.netProceedsPct!==null ? Math.round(overall.netProceedsPct)+'%' : '—'}</div></div>
     <div class="kpi"><div class="label">COGS</div><div class="value">${fmtWhole(overall.cogs)}</div></div>
@@ -8018,7 +8040,7 @@ function renderBetaProfitability(){
       case 'units': return agg.units.toLocaleString();
       case 'revenue': return fmt(agg.revenue);
       case 'netProceeds': return fmt(agg.netProceeds);
-      case 'unsoldUnitsInboundCost': return agg.unsoldUnitsInboundCost ? '+'+fmt(agg.unsoldUnitsInboundCost) : fmt(0);
+      case 'unsoldUnitsCostAdjustment': return agg.unsoldUnitsCostAdjustment ? '+'+fmt(agg.unsoldUnitsCostAdjustment) : fmt(0);
       case 'normalizedNetProceeds': return fmt(agg.normalizedNetProceeds);
       case 'netProceedsPct': return agg.netProceedsPct!==null ? Math.round(agg.netProceedsPct)+'%' : '—';
       case 'cogs': {
