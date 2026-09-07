@@ -202,7 +202,7 @@
       <div class="title">Yankee Cost &amp; Profitability Tool</div>
       <div id="sync-status" style="margin-top:10px; font-size:11px; color:#9DC3E6; min-height:14px;"></div>
     </div>
-    <div class="market-switcher" style="padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.12); margin-bottom:6px;">
+    <div class="market-switcher" style="display:none; padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.12); margin-bottom:6px;">
       <label style="display:block; font-size:10.5px; letter-spacing:0.5px; text-transform:uppercase; color:#9DC3E6; margin-bottom:6px;">Market</label>
       <select id="market-select" onchange="onMarketChange()" style="width:100%; padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(255,255,255,0.08); color:#fff; font-size:13px;">
         <option value="USA">USA</option>
@@ -220,22 +220,22 @@
       </div>
       <div id="exchange-rate-indicator" style="margin-top:10px; font-size:11px; color:#9DC3E6; line-height:1.4;"></div>
     </div>
-    <div class="nav-item active" data-tab="catalog"><span class="num">1</span>Catalog</div>
-    <div class="nav-item" data-tab="mfg"><span class="num">2</span>Manufacturing Costs</div>
-    <div class="nav-item" data-tab="logistics"><span class="num">3</span>Logistics &amp; Freight</div>
-    <div class="nav-item" data-tab="shipments"><span class="num">3b</span>Shipment Costs</div>
-    <div class="nav-item" data-tab="warehouse"><span class="num">4</span>Warehouse Costs</div>
-    <div class="nav-item" data-tab="sku"><span class="num">5</span>SKU Economics</div>
-    <div class="nav-item" data-tab="summary"><span class="num">&#9733;</span>Profitability Summary</div>
-    <div class="nav-item" data-tab="execsummary"><span class="num">&#9889;</span>Executive Summary</div>
-    <div class="nav-item" data-tab="files"><span class="num">&#128193;</span>Uploaded Files</div>
-    <div class="nav-item" data-tab="beta" style="border-top:1px solid rgba(255,255,255,0.15); margin-top:8px; padding-top:14px;"><span class="num">&#129514;</span>Beta: Simple Tool</div>
+    <div class="nav-item" data-tab="catalog" style="display:none;"><span class="num">1</span>Catalog</div>
+    <div class="nav-item" data-tab="mfg" style="display:none;"><span class="num">2</span>Manufacturing Costs</div>
+    <div class="nav-item" data-tab="logistics" style="display:none;"><span class="num">3</span>Logistics &amp; Freight</div>
+    <div class="nav-item" data-tab="shipments" style="display:none;"><span class="num">3b</span>Shipment Costs</div>
+    <div class="nav-item" data-tab="warehouse" style="display:none;"><span class="num">4</span>Warehouse Costs</div>
+    <div class="nav-item" data-tab="sku" style="display:none;"><span class="num">5</span>SKU Economics</div>
+    <div class="nav-item" data-tab="summary" style="display:none;"><span class="num">&#9733;</span>Profitability Summary</div>
+    <div class="nav-item" data-tab="execsummary" style="display:none;"><span class="num">&#9889;</span>Executive Summary</div>
+    <div class="nav-item" data-tab="files" style="display:none;"><span class="num">&#128193;</span>Uploaded Files</div>
+    <div class="nav-item active" data-tab="beta"><span class="num">&#129514;</span>Yankee Cost Tool</div>
   </div>
 
   <div class="main">
 
     <!-- ===================== TAB 0: CATALOG ===================== -->
-    <section id="tab-catalog">
+    <section id="tab-catalog" style="display:none;">
       <div class="top-bar"><h1 class="page-title">Catalog</h1><div id="catalog-lock-bar" class="lock-bar"></div></div>
       <p class="subtitle">The master list of products. Every other tab references SKUs from here. <strong id="catalog-market-indicator" style="color:var(--blue);"></strong></p>
 
@@ -811,7 +811,7 @@
     </section>
 
     <!-- ===================== BETA: SIMPLE TOOL ===================== -->
-    <section id="tab-beta" style="display:none;">
+    <section id="tab-beta" style="display:block;">
       <div class="top-bar"><h1 class="page-title">Beta: Simple Tool</h1></div>
       <p class="subtitle">An experimental, simplified alternate approach — one combined cost template, one yearly SKU Economics upload, multi-client. Uses the same database as the main tool but entirely separate tables — nothing here affects Yankee's data above.</p>
 
@@ -8354,6 +8354,7 @@ function renderBetaAdvertising(){
 }
 
 initApp();
+initBetaAppOnce();
 </script>
   <!-- ===================== MARKI CHAT ===================== -->
   <button id="marki-toggle-btn" onclick="toggleMarkiPanel()" title="Ask Marki">
