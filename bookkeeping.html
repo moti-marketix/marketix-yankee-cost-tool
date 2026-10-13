@@ -158,7 +158,6 @@ body.auth .app{grid-template-columns:1fr}
     <ul id="navList"></ul>
     <div class="nav-foot">
       <span id="saveMode"></span>
-      <button class="linkbtn" type="button" data-act="signout">Sign out</button>
       <button class="linkbtn" id="settingsBtn" type="button">Settings</button>
     </div>
   </nav>
@@ -339,7 +338,7 @@ function renderNav(){
   $("#navList").innerHTML=NAV.map(function(n){
     return '<li><a href="#'+n.id+'"'+(ui.view===n.id?' aria-current="page"':'')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">'+n.icon+'</svg>'+n.label+'</a></li>';
   }).join("");
-  $("#saveMode").textContent=S_email?S_email+(S.canWrite?"":" (view only)"):"";
+  $("#saveMode").textContent="Saved online, synced live";
 }
 function go(view){if(location.hash!=="#"+view)location.hash=view;else route()}
 function route(){
@@ -357,7 +356,7 @@ function render(){
   if(S.mode==="noaccess"){v.innerHTML=viewNoAccess();return}
   if(S.mode==="pending"||!(S.ready.s&&S.ready.e&&S.ready.c&&S.ready.f)){v.innerHTML='<p class="muted">Loading your ledger…</p>';return}
   var html={summary:viewSummary,suppliers:viewSuppliers,expenses:viewExpenses,forecast:viewForecast,"by-supplier":viewBySupplier,"by-month":viewByMonth}[ui.view]();
-  var mobileSettings='<div class="mobile-settings"><button class="linkbtn" type="button" data-act="settings">Settings</button> <button class="linkbtn" type="button" data-act="signout">Sign out</button> <span class="muted" style="font-size:13px">'+($("#saveMode").textContent)+'</span></div>';
+  var mobileSettings='<div class="mobile-settings"><button class="linkbtn" type="button" data-act="settings">Settings</button> <span class="muted" style="font-size:13px">'+($("#saveMode").textContent)+'</span></div>';
   v.innerHTML=mobileSettings+(S.canWrite?"":'<div class="notice">You have view-only access to this ledger.</div>')+html;
   bindView();
 }
@@ -742,13 +741,9 @@ route();
   if(!window.supabase||CONFIG.SUPABASE_ANON_KEY.indexOf("PASTE")===0||CONFIG.SUPABASE_URL.indexOf("PASTE")===0){
     $("#view").innerHTML='<p>Setup needed: add the Supabase project URL and anon key in the CONFIG block at the top of the script.</p>';return;
   }
-  sb=window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY);
-  sb.auth.onAuthStateChange(function(ev,session){
-    if(ev==="SIGNED_OUT"){S.mode="login";S_email="";S.suppliers=[];S.expenses=[];S.forecasts=[];sb.removeAllChannels();render();return}
-    if(ev==="SIGNED_IN"&&S.mode!=="db")setTimeout(function(){startSession(session)},0);
-  });
-  var g=await sb.auth.getSession();
-  startSession(g.data.session);
+  sb=window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+  S.canWrite=true;S.mode="db";store=makeSbStore();subscribeLive();
+  render();reload();
 })();
 })();
 </script>
