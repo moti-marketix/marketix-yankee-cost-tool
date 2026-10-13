@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --bg:#F1F5F1; --surface:#FFFFFF; --ink:#18261F; --muted:#5D6D64; --rule:#CCDAD0; --rule-soft:#E2EBE4;
@@ -242,7 +242,10 @@ async function reload(){
       S.suppliers=res[0].map(rowSup);S.expenses=res[1].map(rowExp);S.forecasts=res[2].map(rowFc);
       if(res[3].data)S.settings=Object.assign({currency:"USD"},{currency:res[3].data.currency||"USD"});
       S.ready={s:true,e:true,c:true,f:true};render();
-    }catch(e){console.error(e);toast("Couldn't load the ledger. Check your connection and reload.")}
+    }catch(e){console.error(e);
+      if(!(S.ready.s&&S.ready.e&&S.ready.f))$("#view").innerHTML='<div class="notice"><strong>Couldn\'t load the ledger.</strong><br>'+esc((e&&(e.message||e.code))||String(e))+(e&&e.code?' ('+esc(e.code)+')':'')+'</div>';
+      else toast("Couldn't refresh the ledger. Check your connection.");
+    }
   })();
   await reloading;reloading=null;
   if(reloadAgain){reloadAgain=false;return reload()}
